@@ -274,6 +274,9 @@ func openDatabase(t *testing.T) *sql.DB {
 	if err := webstore.Migrate(context.Background(), database); err != nil {
 		t.Fatalf("Migrate() idempotent error = %v", err)
 	}
+	if err := webstore.CheckSchema(context.Background(), database); err != nil {
+		t.Fatalf("CheckSchema() error = %v", err)
+	}
 	return database
 }
 

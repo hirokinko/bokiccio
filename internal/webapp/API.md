@@ -1,9 +1,8 @@
-# Local read-only Web API v1
+# Web API v1
 
-`webapp.Handler` is the first storage-backed vertical slice for Bokiccio. It is
-an internal development API intended for `httptest` or an explicitly loopback
-listener. The repository does not provide a public server command yet because
-single-owner authentication is not implemented.
+`webapp.Handler` is the storage-backed read-only vertical slice for Bokiccio.
+Tests use the local `tursogo` driver. Production composition uses remote Turso
+Cloud and an IAP-protected server command.
 
 ## Routes
 
@@ -31,6 +30,36 @@ the run, outcomes, diagnostics, entries, postings, accepted identities, and
 workflow generation in one transaction. Decimal text and scale, date versus
 timestamp precision, comment order, and posting omission are preserved.
 
-The local test driver is the official CGO-free `tursogo` driver. Remote Turso
-Cloud composition and credentials are intentionally deferred until the
-authenticated production-server slice.
+The local test driver is the official CGO-free `tursogo` driver. Production
+uses `libsql-client-go` through `database/sql`; its connector receives the
+token separately from the credential-free database URL.
+
+## Production security
+
+`bokiccio serve` requires all of the following settings before it starts:
+
+- `TURSO_DATABASE_URL`
+- `TURSO_AUTH_TOKEN`
+- `BOKICCIO_IAP_AUDIENCE`
+- `BOKICCIO_OWNER_EMAIL`
+- `BOKICCIO_EXTERNAL_ORIGIN`
+- `PORT`
+
+Cloud Run must have direct IAP enabled and unauthenticated invocation disabled.
+Only the owner Google Account receives IAP access. Except for `/livez`, every
+request must have a valid ES256 `X-Goog-IAP-JWT-Assertion` with the configured
+audience, the IAP issuer, a subject, and the configured owner email. The
+application does not trust unsigned identity or forwarded-host headers.
+
+State-changing methods additionally require an `Origin` exactly matching
+`BOKICCIO_EXTERNAL_ORIGIN`. The application has no login endpoint, session
+store, or cookie; IAP owns the login session. `/livez` returns only `ok` and
+does not inspect storage.
+
+`bokiccio migrate` applies versioned migrations explicitly. `bokiccio serve`
+never migrates implicitly and refuses to start unless the schema is current.
+Both commands read the Turso token from the environment and do not print it.
+
+The optional remote integration test writes an anonymous balanced entry to a
+dedicated test database when both `BOKICCIO_TEST_TURSO_DATABASE_URL` and
+`BOKICCIO_TEST_TURSO_AUTH_TOKEN` are set. Without them it is skipped.

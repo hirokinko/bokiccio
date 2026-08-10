@@ -31,12 +31,18 @@ func run(args []string, stderr io.Writer) int {
 		printUsage(stderr)
 		return exitSuccess
 	}
-	if args[0] != "import" {
+	switch args[0] {
+	case "import":
+		return runImport(args[1:], stderr)
+	case "migrate":
+		return runMigrate(args[1:], stderr)
+	case "serve":
+		return runServe(args[1:], stderr)
+	default:
 		fmt.Fprintf(stderr, "error: unknown command %q\n", args[0])
 		printUsage(stderr)
 		return exitRunLevelFailure
 	}
-	return runImport(args[1:], stderr)
 }
 
 func runImport(args []string, stderr io.Writer) int {
@@ -100,11 +106,16 @@ func countOutcomes(outcomes []ingest.Outcome) map[ingest.OutcomeStatus]int {
 }
 
 func printUsage(destination io.Writer) {
-	fmt.Fprintln(destination, "usage: bokiccio import --input <path> --output <directory>")
+	fmt.Fprintln(destination, "usage: bokiccio <command> [options]")
+	fmt.Fprintln(destination)
+	fmt.Fprintln(destination, "commands:")
+	fmt.Fprintln(destination, "  import   import normalized JSON into a local run bundle")
+	fmt.Fprintln(destination, "  migrate  apply database migrations to Turso")
+	fmt.Fprintln(destination, "  serve    serve the IAP-protected Web API")
 }
 
 func printImportUsage(destination io.Writer) {
-	printUsage(destination)
+	fmt.Fprintln(destination, "usage: bokiccio import --input <path> --output <directory>")
 	fmt.Fprintln(destination)
 	fmt.Fprintln(destination, "Imports normalized JSON into an immutable local run bundle.")
 }

@@ -11,6 +11,17 @@ const SchemaVersion = 1
 
 var ErrUnsupportedSchema = errors.New("unsupported web storage schema")
 
+func CheckSchema(ctx context.Context, database *sql.DB) error {
+	var version int
+	if err := database.QueryRowContext(ctx, `SELECT version FROM schema_metadata WHERE singleton = 1`).Scan(&version); err != nil {
+		return fmt.Errorf("read schema version: %w", err)
+	}
+	if version != SchemaVersion {
+		return fmt.Errorf("%w: database version %d, required version %d", ErrUnsupportedSchema, version, SchemaVersion)
+	}
+	return nil
+}
+
 var migrationV1 = []string{
 	`CREATE TABLE workflow_state (
     singleton INTEGER PRIMARY KEY CHECK (singleton = 1),

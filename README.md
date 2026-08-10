@@ -6,7 +6,7 @@ Bokiccio（ボキッチョ）は、複数の明細・メール・レシートか
 
 名前は、メモ帳のように扱える「簿記帖」と、会計が得意でなくても使える「ぶきっちょ」に由来します。
 
-現在は初期基盤の段階です。Tacklerから独立した仕訳ドメイン、Tackler journal formatの互換subset exporter、ローカル取込workflowの内部APIを実装しています。Web API、DB永続化、認証、画面、外部サービス連携はまだありません。
+現在は初期基盤の段階です。Tacklerから独立した仕訳ドメイン、Tackler journal formatの互換subset exporter、ローカル取込workflow、Tursoへ永続化するsingle-user Web APIを実装しています。Web画面と外部サービス連携はまだありません。
 
 ## 実装済み
 
@@ -22,6 +22,8 @@ Bokiccio（ボキッチョ）は、複数の明細・メール・レシートか
 - immutable run bundleとstate manifestを最後にcommitする安全なローカル公開
 - `bokiccio import`による外部service不要のローカル取込
 - Turso互換schemaとread-only JSON APIによるlocal Web vertical slice
+- Turso Cloud remote driver、明示migration、Cloud Run向けHTTP server
+- Cloud Run direct IAP JWT、single-owner、same-origin mutationの検証
 - 匿名化fixtureによるgolden test
 - Tackler 26.1.2を使った任意実行の互換性test
 
@@ -54,10 +56,14 @@ internal/ingest
   └─ deterministic report, state, and safe run publication
 
 cmd/bokiccio
-  └─ local import command
+  ├─ local import command
+  ├─ Turso migration command
+  └─ IAP-protected production server
 
-internal/webapp / internal/webstore
-  └─ local-only HTTP handler and database/sql persistence
+internal/webapp / internal/webstore / internal/webprod
+  ├─ HTTP handler and database/sql persistence
+  ├─ single-owner IAP and origin boundary
+  └─ Turso Cloud production composition
 ```
 
 正規化入力のfieldとidentity規約は[normalized input v1 contract](internal/ingest/CONTRACT.md)、outcomeとdiagnosticの規約は[record processing contract](internal/ingest/PROCESSING.md)、report・state・公開手順は[run artifact and publication contract](internal/ingest/RUNS.md)にまとめています。
@@ -99,7 +105,31 @@ go run ./cmd/bokiccio import \
 
 入力formatは[normalized input v1 contract](internal/ingest/CONTRACT.md)、出力配置と再実行規約は[run artifact and publication contract](internal/ingest/RUNS.md)を参照してください。
 
-認証前のWeb API foundationも内部packageとして実装しています。route、JSON、local-only制約は[local read-only Web API v1](internal/webapp/API.md)を参照してください。public networkへbindするserver commandはまだ提供していません。
+## Turso migrationとproduction server
+
+Turso Cloudのschema migrationはserver起動と分離して明示実行します。
+
+```sh
+TURSO_DATABASE_URL=libsql://database-name.turso.io \
+TURSO_AUTH_TOKEN='secret-manager-injected-token' \
+go run ./cmd/bokiccio migrate
+```
+
+production serverはCloud Run direct IAPを前提とします。Cloud Run側でもunauthenticated invocationを禁止し、ownerのGoogle AccountだけへIAP accessを付与してください。applicationはsigned IAP JWTとowner emailを再検証します。
+
+```sh
+TURSO_DATABASE_URL=libsql://database-name.turso.io \
+TURSO_AUTH_TOKEN='secret-manager-injected-token' \
+BOKICCIO_IAP_AUDIENCE='/projects/123456789/locations/asia-northeast1/services/bokiccio' \
+BOKICCIO_OWNER_EMAIL='owner@example.com' \
+BOKICCIO_EXTERNAL_ORIGIN='https://bokiccio.example.com' \
+PORT=8080 \
+go run ./cmd/bokiccio serve
+```
+
+`TURSO_AUTH_TOKEN`はCloud RunのSecret Manager environment injectionで渡し、image、source、通常の環境設定へ保存しません。`BOKICCIO_EXTERNAL_ORIGIN`は利用者がアクセスするHTTPS originそのものとし、末尾pathを含めません。serverはmigrationを暗黙実行せず、schemaがcurrentでなければ起動しません。
+
+route、JSON、認証境界、remote integration testは[Web API v1](internal/webapp/API.md)を参照してください。
 
 ## Tackler互換subset
 
@@ -110,8 +140,8 @@ exporterは日付、timezone付きRFC 3339日時、摘要、取引・postingコ�
 ## 現在の非対応範囲
 
 - Tackler journal parser
-- HTTP API、Web UI、認証、テナント管理
-- DB schemaとmigration
+- Web UI、修正・承認、テナント管理
+- production deployment manifestと自動migration
 - Gmail、Google Drive、Cloud Vision、Vertex AIとの連携
 - 定期batchとjob管理
 - Tree-sitter grammar、WebAssembly parser、LSP server

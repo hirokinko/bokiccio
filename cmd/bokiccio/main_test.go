@@ -153,6 +153,40 @@ func TestRunImportRunLevelFailures(t *testing.T) {
 	})
 }
 
+func TestWebCommandsRequireProductionConfiguration(t *testing.T) {
+	for _, name := range []string{
+		"TURSO_DATABASE_URL",
+		"TURSO_AUTH_TOKEN",
+		"BOKICCIO_IAP_AUDIENCE",
+		"BOKICCIO_OWNER_EMAIL",
+		"BOKICCIO_EXTERNAL_ORIGIN",
+		"PORT",
+	} {
+		t.Setenv(name, "")
+	}
+	for _, command := range []string{"migrate", "serve"} {
+		var stderr bytes.Buffer
+		if got := run([]string{command}, &stderr); got != exitRunLevelFailure {
+			t.Fatalf("run(%s) = %d, stderr=%q", command, got, stderr.String())
+		}
+		if !strings.Contains(stderr.String(), "TURSO_DATABASE_URL is required") {
+			t.Fatalf("run(%s) stderr=%q", command, stderr.String())
+		}
+	}
+}
+
+func TestWebCommandHelpDoesNotRequireConfiguration(t *testing.T) {
+	for _, command := range []string{"migrate", "serve"} {
+		var stderr bytes.Buffer
+		if got := run([]string{command, "--help"}, &stderr); got != exitSuccess {
+			t.Fatalf("run(%s --help) = %d, stderr=%q", command, got, stderr.String())
+		}
+		if !strings.Contains(stderr.String(), "usage: bokiccio "+command) {
+			t.Fatalf("run(%s --help) stderr=%q", command, stderr.String())
+		}
+	}
+}
+
 func copyFixture(t *testing.T, root, name, source string) string {
 	t.Helper()
 	data, err := os.ReadFile(source)
