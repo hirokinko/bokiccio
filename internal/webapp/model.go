@@ -8,9 +8,10 @@ import (
 const APISchemaVersion = 1
 
 var (
-	ErrNotFound       = errors.New("web resource not found")
-	ErrConflict       = errors.New("web resource conflict")
-	ErrInvalidRequest = errors.New("invalid web request")
+	ErrNotFound        = errors.New("web resource not found")
+	ErrConflict        = errors.New("web resource conflict")
+	ErrInvalidRequest  = errors.New("invalid web request")
+	ErrInvalidRevision = errors.New("invalid entry revision")
 )
 
 type Repository interface {
@@ -18,6 +19,8 @@ type Repository interface {
 	GetRun(context.Context, string) (RunDetail, error)
 	ListEntries(context.Context, int, string) (EntryPage, error)
 	GetEntry(context.Context, string) (EntryDetail, error)
+	CreateRevision(context.Context, string, RevisionRequest) (RevisionDetail, error)
+	ApproveRevision(context.Context, string, ApprovalRequest) (ApprovalDetail, error)
 }
 
 type ImportResult struct {
@@ -86,17 +89,21 @@ type EntrySummary struct {
 }
 
 type EntryDetail struct {
-	SchemaVersion int                `json:"schema_version"`
-	ID            string             `json:"id"`
-	RunIdentity   string             `json:"run_identity"`
-	RecordIndex   int                `json:"record_index"`
-	OccurredAt    string             `json:"occurred_at"`
-	Description   string             `json:"description"`
-	Comments      []string           `json:"comments"`
-	Postings      []PostingDetail    `json:"postings"`
-	Status        string             `json:"status"`
-	Source        Source             `json:"source"`
-	Diagnostics   []DiagnosticDetail `json:"diagnostics"`
+	SchemaVersion   int                `json:"schema_version"`
+	ID              string             `json:"id"`
+	RunIdentity     string             `json:"run_identity"`
+	RecordIndex     int                `json:"record_index"`
+	OccurredAt      string             `json:"occurred_at"`
+	Description     string             `json:"description"`
+	Comments        []string           `json:"comments"`
+	Postings        []PostingDetail    `json:"postings"`
+	Status          string             `json:"status"`
+	Source          Source             `json:"source"`
+	Diagnostics     []DiagnosticDetail `json:"diagnostics"`
+	CurrentRevision int                `json:"current_revision"`
+	CurrentApproval *ApprovalDetail    `json:"current_approval,omitempty"`
+	Revisions       []RevisionDetail   `json:"revisions"`
+	Approvals       []ApprovalDetail   `json:"approvals"`
 }
 
 type PostingDetail struct {
@@ -104,4 +111,34 @@ type PostingDetail struct {
 	Amount    *string `json:"amount,omitempty"`
 	Commodity string  `json:"commodity,omitempty"`
 	Comment   string  `json:"comment,omitempty"`
+}
+
+type RevisionRequest struct {
+	BaseRevision *int            `json:"base_revision"`
+	OccurredAt   string          `json:"occurred_at"`
+	Description  string          `json:"description"`
+	Comments     []string        `json:"comments"`
+	Postings     []PostingDetail `json:"postings"`
+}
+
+type RevisionDetail struct {
+	Revision     int                `json:"revision"`
+	BaseRevision int                `json:"base_revision"`
+	CreatedAt    string             `json:"created_at"`
+	OccurredAt   string             `json:"occurred_at"`
+	Description  string             `json:"description"`
+	Comments     []string           `json:"comments"`
+	Postings     []PostingDetail    `json:"postings"`
+	Valid        bool               `json:"valid"`
+	Diagnostics  []DiagnosticDetail `json:"diagnostics"`
+}
+
+type ApprovalRequest struct {
+	Revision *int `json:"revision"`
+}
+
+type ApprovalDetail struct {
+	Sequence   int64  `json:"sequence"`
+	Revision   int    `json:"revision"`
+	ApprovedAt string `json:"approved_at"`
 }

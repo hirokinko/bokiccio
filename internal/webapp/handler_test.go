@@ -222,13 +222,192 @@ func TestHTTPInputFailures(t *testing.T) {
 	}
 }
 
+func TestRevisionAndApprovalHistory(t *testing.T) {
+	database := openDatabase(t)
+	handler := webapp.NewHandler(webstore.New(database))
+	entryID := importedEntryID(t, handler)
+	entryPath := "/api/v1/entries/" + url.PathEscape(entryID)
+
+	originalApproval := requestJSON(t, handler, http.MethodPost, entryPath+"/approvals", map[string]any{"revision": 0})
+	if originalApproval.Code != http.StatusCreated {
+		t.Fatalf("approve original status=%d body=%s", originalApproval.Code, originalApproval.Body.String())
+	}
+
+	invalid := requestJSON(t, handler, http.MethodPost, entryPath+"/revisions", map[string]any{
+		"base_revision": 0,
+		"occurred_at":   "2026-08-12T09:30:00+09:00",
+		"description":   "修正中の仕訳",
+		"comments":      []string{"source: fixtures/revision.json"},
+		"postings": []map[string]any{
+			{"account": "費用:確認", "amount": "200.00", "commodity": "JPY"},
+			{"account": "資産:確認", "amount": "-100.00", "commodity": "JPY"},
+		},
+	})
+	if invalid.Code != http.StatusCreated {
+		t.Fatalf("create invalid revision status=%d body=%s", invalid.Code, invalid.Body.String())
+	}
+	var invalidRevision struct {
+		SchemaVersion int `json:"schema_version"`
+		webapp.RevisionDetail
+	}
+	decodeJSON(t, invalid.Body.Bytes(), &invalidRevision)
+	if invalidRevision.Revision != 1 || invalidRevision.Valid || len(invalidRevision.Diagnostics) != 1 || invalidRevision.Diagnostics[0].Code != "unbalanced_entry" {
+		t.Fatalf("invalid revision = %+v", invalidRevision)
+	}
+
+	invalidApproval := requestJSON(t, handler, http.MethodPost, entryPath+"/approvals", map[string]any{"revision": 1})
+	assertProblem(t, invalidApproval, http.StatusUnprocessableEntity, "invalid_revision")
+
+	staleEdit := requestJSON(t, handler, http.MethodPost, entryPath+"/revisions", map[string]any{
+		"base_revision": 0,
+		"occurred_at":   "2026-08-12",
+		"description":   "古い画面からの修正",
+		"comments":      []string{},
+		"postings": []map[string]any{
+			{"account": "費用:確認", "amount": "1", "commodity": "JPY"},
+			{"account": "資産:確認", "amount": "-1", "commodity": "JPY"},
+		},
+	})
+	assertProblem(t, staleEdit, http.StatusConflict, "conflict")
+
+	valid := requestJSON(t, handler, http.MethodPost, entryPath+"/revisions", map[string]any{
+		"base_revision": 1,
+		"occurred_at":   "2026-08-12T09:30:00+09:00",
+		"description":   "確認済みの修正仕訳",
+		"comments":      []string{"source: fixtures/revision.json", "確認済み"},
+		"postings": []map[string]any{
+			{"account": "費用:確認", "amount": "200.00", "commodity": "JPY", "comment": "明細"},
+			{"account": "資産:確認"},
+		},
+	})
+	if valid.Code != http.StatusCreated {
+		t.Fatalf("create valid revision status=%d body=%s", valid.Code, valid.Body.String())
+	}
+	var validRevision struct {
+		SchemaVersion int `json:"schema_version"`
+		webapp.RevisionDetail
+	}
+	decodeJSON(t, valid.Body.Bytes(), &validRevision)
+	if validRevision.Revision != 2 || !validRevision.Valid || len(validRevision.Diagnostics) != 0 {
+		t.Fatalf("valid revision = %+v", validRevision)
+	}
+
+	staleApproval := requestJSON(t, handler, http.MethodPost, entryPath+"/approvals", map[string]any{"revision": 1})
+	assertProblem(t, staleApproval, http.StatusConflict, "conflict")
+	approved := requestJSON(t, handler, http.MethodPost, entryPath+"/approvals", map[string]any{"revision": 2})
+	if approved.Code != http.StatusCreated {
+		t.Fatalf("approve revision status=%d body=%s", approved.Code, approved.Body.String())
+	}
+
+	detailResponse := request(t, handler, http.MethodGet, entryPath, nil, "")
+	var detail webapp.EntryDetail
+	decodeJSON(t, detailResponse.Body.Bytes(), &detail)
+	if detailResponse.Code != http.StatusOK || detail.CurrentRevision != 2 || detail.CurrentApproval == nil || detail.CurrentApproval.Revision != 2 {
+		t.Fatalf("entry current state status=%d detail=%+v", detailResponse.Code, detail)
+	}
+	if len(detail.Revisions) != 2 || len(detail.Approvals) != 2 || detail.Revisions[0].Valid || !detail.Revisions[1].Valid {
+		t.Fatalf("entry history = %+v", detail)
+	}
+	if detail.Description == detail.Revisions[1].Description || detail.Revisions[1].Postings[0].Amount == nil ||
+		*detail.Revisions[1].Postings[0].Amount != "200.00" || detail.Revisions[1].Postings[1].Amount != nil {
+		t.Fatalf("original was changed or revision scale was lost: %+v", detail)
+	}
+}
+
+func TestRevisionRequestFailures(t *testing.T) {
+	database := openDatabase(t)
+	handler := webapp.NewHandler(webstore.New(database))
+	entryPath := "/api/v1/entries/" + url.PathEscape(importedEntryID(t, handler))
+
+	missingBase := requestJSON(t, handler, http.MethodPost, entryPath+"/revisions", map[string]any{
+		"occurred_at": "2026-08-12", "description": "missing base", "comments": []string{}, "postings": []any{},
+	})
+	assertProblem(t, missingBase, http.StatusBadRequest, "invalid_request")
+	missingRevision := requestJSON(t, handler, http.MethodPost, entryPath+"/approvals", map[string]any{})
+	assertProblem(t, missingRevision, http.StatusBadRequest, "invalid_request")
+	wrongMediaType := request(t, handler, http.MethodPost, entryPath+"/revisions", []byte(`{}`), "text/plain")
+	assertProblem(t, wrongMediaType, http.StatusUnsupportedMediaType, "unsupported_media_type")
+	unknownField := request(t, handler, http.MethodPost, entryPath+"/approvals", []byte(`{"revision":0,"secret":"not echoed"}`), "application/json")
+	assertProblem(t, unknownField, http.StatusBadRequest, "invalid_request")
+	if strings.Contains(unknownField.Body.String(), "secret") {
+		t.Fatalf("private request data reflected: %s", unknownField.Body.String())
+	}
+}
+
 func TestMigrationRejectsFutureVersion(t *testing.T) {
 	database := openDatabase(t)
-	if _, err := database.Exec(`UPDATE schema_metadata SET version = 2 WHERE singleton = 1`); err != nil {
+	if _, err := database.Exec(`UPDATE schema_metadata SET version = ? WHERE singleton = 1`, webstore.SchemaVersion+1); err != nil {
 		t.Fatalf("set future version: %v", err)
 	}
 	if err := webstore.Migrate(context.Background(), database); !errors.Is(err, webstore.ErrUnsupportedSchema) {
 		t.Fatalf("Migrate() error = %v, want ErrUnsupportedSchema", err)
+	}
+}
+
+func TestMigrationV2PreservesV1Entries(t *testing.T) {
+	database := openDatabase(t)
+	store := webstore.New(database)
+	result, err := store.Import(context.Background(), readFixture(t, "../ingest/testdata/valid-v1.json"))
+	if err != nil {
+		t.Fatalf("Import() error = %v", err)
+	}
+	for _, statement := range []string{
+		`DROP TABLE entry_approvals`,
+		`DROP TABLE revision_diagnostics`,
+		`DROP TABLE revision_postings`,
+		`DROP TABLE revision_comments`,
+		`DROP TABLE entry_revisions`,
+		`UPDATE schema_metadata SET version = 1 WHERE singleton = 1`,
+	} {
+		if _, err := database.Exec(statement); err != nil {
+			t.Fatalf("prepare v1 schema: %v", err)
+		}
+	}
+	if err := webstore.Migrate(context.Background(), database); err != nil {
+		t.Fatalf("Migrate(v1 to v2) error = %v", err)
+	}
+	run, err := store.GetRun(context.Background(), result.RunIdentity)
+	if err != nil || len(run.Outcomes) == 0 {
+		t.Fatalf("GetRun() after migration error=%v run=%+v", err, run)
+	}
+	entry, err := store.GetEntry(context.Background(), run.Outcomes[0].EntryID)
+	if err != nil || entry.CurrentRevision != 0 || len(entry.Revisions) != 0 {
+		t.Fatalf("GetEntry() after migration error=%v entry=%+v", err, entry)
+	}
+}
+
+func TestMigrationV2FailurePreservesV1Data(t *testing.T) {
+	database := openDatabase(t)
+	store := webstore.New(database)
+	result, err := store.Import(context.Background(), readFixture(t, "../ingest/testdata/valid-v1.json"))
+	if err != nil {
+		t.Fatalf("Import() error = %v", err)
+	}
+	for _, statement := range []string{
+		`DROP TABLE entry_approvals`,
+		`DROP TABLE revision_diagnostics`,
+		`DROP TABLE revision_postings`,
+		`DROP TABLE revision_comments`,
+		`DROP TABLE entry_revisions`,
+		`UPDATE schema_metadata SET version = 1 WHERE singleton = 1`,
+		`CREATE TABLE entry_revisions (conflict TEXT)`,
+	} {
+		if _, err := database.Exec(statement); err != nil {
+			t.Fatalf("prepare v2 migration conflict: %v", err)
+		}
+	}
+	if err := webstore.Migrate(context.Background(), database); err == nil {
+		t.Fatal("Migrate(v1 to v2) error = nil, want schema failure")
+	}
+	var version int
+	if err := database.QueryRow(`SELECT version FROM schema_metadata WHERE singleton = 1`).Scan(&version); err != nil || version != 1 {
+		t.Fatalf("schema version=%d error=%v", version, err)
+	}
+	if _, err := store.GetRun(context.Background(), result.RunIdentity); err != nil {
+		t.Fatalf("GetRun() after failed migration error=%v", err)
+	}
+	if _, err := database.Exec(`SELECT count(*) FROM revision_comments`); err == nil {
+		t.Fatal("failed migration left a v2 table created after the failure point")
 	}
 }
 
@@ -301,6 +480,41 @@ func postImport(t *testing.T, handler http.Handler, input []byte) webapp.ImportR
 	}
 	decodeJSON(t, response.Body.Bytes(), &result)
 	return result.ImportResult
+}
+
+func importedEntryID(t *testing.T, handler http.Handler) string {
+	t.Helper()
+	result := postImport(t, handler, readFixture(t, "../ingest/testdata/valid-v1.json"))
+	runResponse := request(t, handler, http.MethodGet, result.DetailURL, nil, "")
+	var run webapp.RunDetail
+	decodeJSON(t, runResponse.Body.Bytes(), &run)
+	if runResponse.Code != http.StatusOK || len(run.Outcomes) == 0 || run.Outcomes[0].EntryID == "" {
+		t.Fatalf("imported run status=%d detail=%+v", runResponse.Code, run)
+	}
+	return run.Outcomes[0].EntryID
+}
+
+func requestJSON(t *testing.T, handler http.Handler, method, path string, value any) *httptest.ResponseRecorder {
+	t.Helper()
+	body, err := json.Marshal(value)
+	if err != nil {
+		t.Fatalf("Marshal JSON error = %v", err)
+	}
+	return request(t, handler, method, path, body, "application/json")
+}
+
+func assertProblem(t *testing.T, response *httptest.ResponseRecorder, status int, code string) {
+	t.Helper()
+	if response.Code != status {
+		t.Fatalf("status=%d, want=%d body=%s", response.Code, status, response.Body.String())
+	}
+	var problem struct {
+		Code string `json:"code"`
+	}
+	decodeJSON(t, response.Body.Bytes(), &problem)
+	if problem.Code != code {
+		t.Fatalf("problem code=%q, want=%q body=%s", problem.Code, code, response.Body.String())
+	}
 }
 
 func request(t *testing.T, handler http.Handler, method, path string, body []byte, contentType string) *httptest.ResponseRecorder {

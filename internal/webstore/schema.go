@@ -7,7 +7,7 @@ import (
 	"fmt"
 )
 
-const SchemaVersion = 1
+const SchemaVersion = 2
 
 var ErrUnsupportedSchema = errors.New("unsupported web storage schema")
 
@@ -101,6 +101,63 @@ var migrationV1 = []string{
 	`CREATE INDEX entries_run_order ON entries(run_id, record_index)`,
 }
 
+var migrationV2 = []string{
+	`CREATE TABLE entry_revisions (
+    entry_id TEXT NOT NULL,
+    revision INTEGER NOT NULL CHECK (revision >= 1),
+    base_revision INTEGER NOT NULL CHECK (base_revision >= 0),
+    created_at TEXT NOT NULL,
+    occurred_precision INTEGER NOT NULL CHECK (occurred_precision IN (1, 2)),
+    occurred_at TEXT NOT NULL,
+    description TEXT NOT NULL,
+    valid INTEGER NOT NULL CHECK (valid IN (0, 1)),
+    PRIMARY KEY (entry_id, revision),
+    FOREIGN KEY (entry_id) REFERENCES entries(entry_id)
+)`,
+	`CREATE TABLE revision_comments (
+    entry_id TEXT NOT NULL,
+    revision INTEGER NOT NULL,
+    comment_index INTEGER NOT NULL CHECK (comment_index >= 0),
+    comment TEXT NOT NULL,
+    PRIMARY KEY (entry_id, revision, comment_index),
+    FOREIGN KEY (entry_id, revision) REFERENCES entry_revisions(entry_id, revision)
+)`,
+	`CREATE TABLE revision_postings (
+    entry_id TEXT NOT NULL,
+    revision INTEGER NOT NULL,
+    posting_index INTEGER NOT NULL CHECK (posting_index >= 0),
+    account TEXT NOT NULL,
+    amount_text TEXT,
+    amount_scale INTEGER,
+    commodity TEXT,
+    comment TEXT NOT NULL,
+    PRIMARY KEY (entry_id, revision, posting_index),
+    CHECK ((amount_text IS NULL AND amount_scale IS NULL AND commodity IS NULL) OR
+           (amount_text IS NOT NULL AND amount_scale IS NOT NULL AND commodity IS NOT NULL)),
+    FOREIGN KEY (entry_id, revision) REFERENCES entry_revisions(entry_id, revision)
+)`,
+	`CREATE TABLE revision_diagnostics (
+    entry_id TEXT NOT NULL,
+    revision INTEGER NOT NULL,
+    diagnostic_index INTEGER NOT NULL CHECK (diagnostic_index >= 0),
+    code TEXT NOT NULL,
+    severity TEXT NOT NULL CHECK (severity IN ('info', 'warning', 'error')),
+    message TEXT NOT NULL,
+    field_path TEXT,
+    posting_index INTEGER,
+    PRIMARY KEY (entry_id, revision, diagnostic_index),
+    FOREIGN KEY (entry_id, revision) REFERENCES entry_revisions(entry_id, revision)
+)`,
+	`CREATE TABLE entry_approvals (
+    approval_sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+    entry_id TEXT NOT NULL,
+    revision INTEGER NOT NULL CHECK (revision >= 0),
+    approved_at TEXT NOT NULL,
+    FOREIGN KEY (entry_id) REFERENCES entries(entry_id)
+)`,
+	`CREATE INDEX entry_approvals_history ON entry_approvals(entry_id, approval_sequence)`,
+}
+
 func Migrate(ctx context.Context, database *sql.DB) (resultErr error) {
 	transaction, err := database.BeginTx(ctx, nil)
 	if err != nil {
@@ -135,6 +192,17 @@ func Migrate(ctx context.Context, database *sql.DB) (resultErr error) {
 		}
 		if _, err := transaction.ExecContext(ctx, `UPDATE schema_metadata SET version = 1 WHERE singleton = 1 AND version = 0`); err != nil {
 			return fmt.Errorf("commit schema version 1: %w", err)
+		}
+		version = 1
+	}
+	if version == 1 {
+		for index, statement := range migrationV2 {
+			if _, err := transaction.ExecContext(ctx, statement); err != nil {
+				return fmt.Errorf("apply schema v2 statement %d: %w", index+1, err)
+			}
+		}
+		if _, err := transaction.ExecContext(ctx, `UPDATE schema_metadata SET version = 2 WHERE singleton = 1 AND version = 1`); err != nil {
+			return fmt.Errorf("commit schema version 2: %w", err)
 		}
 	}
 	if err := transaction.Commit(); err != nil {

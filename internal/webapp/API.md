@@ -14,7 +14,14 @@ Cloud and an IAP-protected server command.
 - `GET /api/v1/entries?limit=50&cursor=...` returns generated entries in newest
   run/record order. Limits are from 1 through 100 and cursors are opaque.
 - `GET /api/v1/entries/{entry-id}` returns ordered comments and postings plus
-  the source, outcome status, and diagnostics.
+  the immutable original, source, outcome diagnostics, revision history, and
+  approval history.
+- `POST /api/v1/entries/{entry-id}/revisions` accepts a complete entry snapshot
+  and required `base_revision`. It stores both valid and invalid immutable
+  revisions. A stale base returns `409 Conflict`.
+- `POST /api/v1/entries/{entry-id}/approvals` approves the specified latest
+  revision. Invalid revisions return `422 Unprocessable Entity`; stale
+  revisions return `409 Conflict`. Revision `0` is the original import entry.
 
 Every response carries `schema_version: 1`. Amounts are decimal strings rather
 than JSON numbers. An omitted posting amount omits both `amount` and
@@ -25,10 +32,16 @@ values, SQL details, paths, and credentials are not reflected in error bodies.
 
 ## Storage
 
-`webstore` uses `database/sql` and schema version `1`. A single import commits
+`webstore` uses `database/sql` and schema version `2`. A single import commits
 the run, outcomes, diagnostics, entries, postings, accepted identities, and
 workflow generation in one transaction. Decimal text and scale, date versus
 timestamp precision, comment order, and posting omission are preserved.
+
+Schema v2 adds immutable entry snapshots and append-only approval events while
+leaving the original v1 entry rows unchanged. Revision creation reruns ledger
+domain validation and records its diagnostics. Entry detail reports the latest
+revision and reports a current approval only when that latest revision has been
+approved.
 
 The local test driver is the official CGO-free `tursogo` driver. Production
 uses `libsql-client-go` through `database/sql`; its connector receives the

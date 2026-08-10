@@ -339,6 +339,9 @@ func (store *Store) GetEntry(ctx context.Context, entryID string) (webapp.EntryD
 	if err != nil {
 		return webapp.EntryDetail{}, err
 	}
+	if err := store.loadRevisionHistory(ctx, &detail); err != nil {
+		return webapp.EntryDetail{}, err
+	}
 	return detail, nil
 }
 
