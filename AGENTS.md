@@ -2,7 +2,7 @@
 
 ## Scope
 
-- このrepositoryは、正確な仕訳domainとTackler互換subset exporterを育てるGo projectです。
+- このrepositoryは、Bokiccioの正確な仕訳domainとTackler互換subset exporterを育てるGo projectです。
 - project概要は`README.md`、公開上の方向性は`ROADMAP.md`、format契約は`internal/tacklerfmt/COMPATIBILITY.md`を必要なときだけ参照してください。
 - taskに関係しない機能、layer、依存関係を追加しないでください。
 

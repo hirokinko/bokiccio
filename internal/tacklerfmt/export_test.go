@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"new-accountbook/internal/ledger"
+	"bokiccio/internal/ledger"
 )
 
 func TestExportExplicitEntriesGolden(t *testing.T) {

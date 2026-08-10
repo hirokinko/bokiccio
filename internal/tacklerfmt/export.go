@@ -5,7 +5,7 @@ import (
 	"errors"
 	"fmt"
 
-	"new-accountbook/internal/ledger"
+	"bokiccio/internal/ledger"
 )
 
 var (
