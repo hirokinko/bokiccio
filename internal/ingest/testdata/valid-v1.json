@@ -1,0 +1,49 @@
+{
+  "schema_version": 1,
+  "records": [
+    {
+      "source": {
+        "namespace": "receipt",
+        "display": "receipts/sample-001.jpg",
+        "external_id": "sample-001"
+      },
+      "occurred_at": "2026-08-09",
+      "description": "サンプル店舗",
+      "comments": [
+        "入力内容を確認済み"
+      ],
+      "postings": [
+        {
+          "account": "費用:食費",
+          "amount": "207.00",
+          "commodity": "JPY",
+          "comment": "サンプル商品"
+        },
+        {
+          "account": "資産:現金",
+          "amount": "-207.00",
+          "commodity": "JPY"
+        }
+      ]
+    },
+    {
+      "source": {
+        "namespace": "mail",
+        "display": "messages/sample-002.eml"
+      },
+      "occurred_at": "2026-08-10T14:30:00.1234+09:00",
+      "description": "サンプル交通",
+      "postings": [
+        {
+          "account": "費用:交通費",
+          "amount": "180",
+          "commodity": "JPY"
+        },
+        {
+          "account": "資産:現金",
+          "comment": "自動均衡"
+        }
+      ]
+    }
+  ]
+}
