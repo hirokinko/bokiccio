@@ -75,6 +75,8 @@ func TestDecodeRejectsInvalidInputWithPath(t *testing.T) {
 		{name: "empty account", input: batchJSON(recordWithPostings(`{"account":"","amount":"100","commodity":"JPY"},{"account":"資産:現金","amount":"-100","commodity":"JPY"}`), ""), wantPath: "$.records[0].postings[0].account", wantErr: ErrInvalidInput},
 		{name: "empty commodity", input: batchJSON(recordWithPostings(`{"account":"費用:食費","amount":"100","commodity":""},{"account":"資産:現金","amount":"-100","commodity":"JPY"}`), ""), wantPath: "$.records[0].postings[0].commodity", wantErr: ErrInvalidInput},
 		{name: "unknown posting field", input: batchJSON(recordWithPostings(`{"account":"費用:食費","amount":"100","commodity":"JPY","extra":true},{"account":"資産:現金","amount":"-100","commodity":"JPY"}`), ""), wantPath: "$.records[0].postings[0]", wantErr: ErrInvalidInput},
+		{name: "invalid warning code", input: batchJSON(addRecordField(validRecordJSON(), `"warnings":[{"code":"Receipt Warning","message":"確認してください"}]`), ""), wantPath: "$.records[0].warnings[0].code", wantErr: ErrInvalidInput},
+		{name: "invalid warning posting index", input: batchJSON(addRecordField(validRecordJSON(), `"warnings":[{"code":"receipt.warning","message":"確認してください","posting_index":2}]`), ""), wantPath: "$.records[0].warnings[0].posting_index", wantErr: ErrInvalidInput},
 		{name: "one posting", input: batchJSON(recordWithPostings(`{"account":"資産:現金"}`), ""), wantPath: "$.records[0].postings", wantErr: ErrInvalidInput},
 		{name: "partial amount", input: batchJSON(recordWithPostings(`{"account":"費用:食費","amount":"100"},{"account":"資産:現金","amount":"-100","commodity":"JPY"}`), ""), wantPath: "$.records[0].postings[0]", wantErr: ErrInvalidInput},
 		{name: "non-final omission", input: batchJSON(recordWithPostings(`{"account":"費用:食費"},{"account":"資産:現金","amount":"-100","commodity":"JPY"}`), ""), wantPath: "$.records[0].postings[0].amount", wantErr: ErrInvalidInput},
@@ -124,9 +126,11 @@ func TestDecodeIdentityRules(t *testing.T) {
 		left = replaceJSON(left, `"occurred_at":"2026-08-10"`, `"occurred_at":"2026-08-10T14:30:00+09:00"`)
 		left = replaceJSON(left, `"description":"サンプル店舗"`, `"description":" サンプル店舗 "`)
 		left = addRecordField(left, `"comments":["left"]`)
+		left = addRecordField(left, `"warnings":[{"code":"source.left","message":"left","posting_index":0}]`)
 		right := replaceJSON(validRecordJSON(), `"source":{"namespace":"manual","display":"entries/sample-001.json"}`, `"source":{"namespace":"mail","display":"b.eml"}`)
 		right = replaceJSON(right, `"occurred_at":"2026-08-10"`, `"occurred_at":"2026-08-10T05:30:00Z"`)
 		right = addRecordField(right, `"comments":["right"]`)
+		right = addRecordField(right, `"warnings":[{"code":"source.right","message":"right","posting_index":1}]`)
 		right = replaceJSON(right, `"comment":"sample"`, `"comment":"changed"`)
 		right = strings.ReplaceAll(right, `"100.00"`, `"100"`)
 		right = strings.ReplaceAll(right, `"-100.00"`, `"-100"`)

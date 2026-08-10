@@ -17,6 +17,7 @@ Bokiccio（ボキッチョ）は、複数の明細・メール・レシートか
 - 決定的なTackler互換subset出力
 - source、WARN、割引などの単一行コメント
 - version付き正規化JSONからの仕訳候補decodeとstable identity生成
+- record単位のsuccess・warning・error・duplicate処理結果
 - 匿名化fixtureによるgolden test
 - Tackler 26.1.2を使った任意実行の互換性test
 
@@ -44,10 +45,11 @@ internal/tacklerfmt
 internal/ingest
   ├─ normalized input v1 decoder
   ├─ application candidate values
-  └─ source-based identity and accounting fingerprint
+  ├─ source-based identity and accounting fingerprint
+  └─ record processor, outcome, and structured diagnostic
 ```
 
-正規化入力のfieldとidentity規約は[normalized input v1 contract](internal/ingest/CONTRACT.md)にまとめています。
+正規化入力のfieldとidentity規約は[normalized input v1 contract](internal/ingest/CONTRACT.md)、outcomeとdiagnosticの規約は[record processing contract](internal/ingest/PROCESSING.md)にまとめています。
 
 ## 開発と検証
 

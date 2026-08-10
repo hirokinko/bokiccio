@@ -17,6 +17,14 @@ The decoder uses only the Go standard library and the `ledger` domain package.
       "occurred_at": "2026-08-10T14:30:00+09:00",
       "description": "サンプル店舗",
       "comments": ["要確認"],
+      "warnings": [
+        {
+          "code": "receipt.total_mismatch",
+          "message": "合計を確認してください",
+          "field_path": "postings[0].amount",
+          "posting_index": 0
+        }
+      ],
       "postings": [
         {
           "account": "費用:食費",
@@ -48,6 +56,10 @@ The decoder uses only the Go standard library and the `ledger` domain package.
   timestamp.
 - `description` is a required non-empty single-line string. `comments` is an
   optional array of single-line strings.
+- `warnings` is an optional array of structured connector warnings. Each item
+  has a stable lowercase `code`, a single-line `message`, and optional
+  `field_path` and zero-based `posting_index`. A posting index must refer to an
+  existing posting.
 - `postings` contains at least two postings in accounting order.
 - `account` is required. `amount` and `commodity` must either both be present
   as strings or both be omitted from the final posting. `comment` is optional.
@@ -78,3 +90,6 @@ byte length followed by the UTF-8 field bytes.
 
 Equal identities are retained in the decoded batch. The processor classifies
 same-batch and previously committed identities as `duplicate` outcomes.
+
+Processing behavior, diagnostic codes, and journal comment projection are
+documented in [PROCESSING.md](PROCESSING.md).

@@ -73,6 +73,20 @@ func TestValidateSupportsTacklerIdentifierSubset(t *testing.T) {
 	}
 }
 
+func TestValidateReportsPostingIndex(t *testing.T) {
+	t.Parallel()
+	entry := validEntry(t)
+	entry.Postings[1].Account = "資産::現金"
+	err := Validate(entry)
+	var postingErr *PostingValidationError
+	if !errors.As(err, &postingErr) {
+		t.Fatalf("Validate() error = %T, want *PostingValidationError", err)
+	}
+	if postingErr.Index != 1 || !errors.Is(err, ErrInvalidAccount) {
+		t.Fatalf("Validate() error = %v, index=%d", err, postingErr.Index)
+	}
+}
+
 func TestInferFinalAmount(t *testing.T) {
 	t.Parallel()
 	entry := validEntry(t)

@@ -38,6 +38,21 @@ type JournalEntry struct {
 	Postings    []Posting
 }
 
+// PostingValidationError identifies the posting whose domain validation
+// failed while preserving the underlying sentinel error.
+type PostingValidationError struct {
+	Index int
+	Err   error
+}
+
+func (err *PostingValidationError) Error() string {
+	return fmt.Sprintf("posting %d: %v", err.Index, err.Err)
+}
+
+func (err *PostingValidationError) Unwrap() error {
+	return err.Err
+}
+
 // Validate verifies the domain invariants required by the supported Tackler
 // journal subset. It does not mutate the entry.
 func Validate(entry JournalEntry) error {
@@ -64,11 +79,11 @@ func Validate(entry JournalEntry) error {
 	values := make([]Decimal, 0, len(entry.Postings))
 	for i, posting := range entry.Postings {
 		if err := validatePosting(posting); err != nil {
-			return fmt.Errorf("posting %d: %w", i, err)
+			return &PostingValidationError{Index: i, Err: err}
 		}
 		if posting.Amount == nil {
 			if omitted >= 0 || i != len(entry.Postings)-1 {
-				return fmt.Errorf("posting %d: %w", i, ErrInvalidOmitted)
+				return &PostingValidationError{Index: i, Err: ErrInvalidOmitted}
 			}
 			omitted = i
 			continue
@@ -76,7 +91,7 @@ func Validate(entry JournalEntry) error {
 		if commodity == "" {
 			commodity = posting.Amount.Commodity
 		} else if commodity != posting.Amount.Commodity {
-			return fmt.Errorf("posting %d: %w: %q and %q", i, ErrCommodityMismatch, commodity, posting.Amount.Commodity)
+			return &PostingValidationError{Index: i, Err: fmt.Errorf("%w: %q and %q", ErrCommodityMismatch, commodity, posting.Amount.Commodity)}
 		}
 		values = append(values, posting.Amount.Value)
 	}
@@ -84,7 +99,7 @@ func Validate(entry JournalEntry) error {
 	sum := exactSum(values)
 	if omitted >= 0 {
 		if _, err := decimalFromCoefficient(new(big.Int).Neg(new(big.Int).Set(sum.coefficient)), sum.scale); err != nil {
-			return fmt.Errorf("posting %d: inferred amount: %w", omitted, err)
+			return &PostingValidationError{Index: omitted, Err: fmt.Errorf("inferred amount: %w", err)}
 		}
 		return nil
 	}

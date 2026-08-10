@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/url"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"unicode"
 
@@ -42,7 +43,15 @@ type wireRecord struct {
 	OccurredAt  wireString         `json:"occurred_at"`
 	Description wireString         `json:"description"`
 	Comments    []string           `json:"comments"`
+	Warnings    []wireWarning      `json:"warnings"`
 	Postings    *[]json.RawMessage `json:"postings"`
+}
+
+type wireWarning struct {
+	Code         wireString `json:"code"`
+	Message      wireString `json:"message"`
+	FieldPath    wireString `json:"field_path"`
+	PostingIndex *int       `json:"posting_index"`
 }
 
 type wireSource struct {
@@ -62,6 +71,8 @@ type wireString struct {
 	Value string
 	Set   bool
 }
+
+var diagnosticCode = regexp.MustCompile(`^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$`)
 
 func (value *wireString) UnmarshalJSON(data []byte) error {
 	value.Set = true
@@ -144,12 +155,53 @@ func decodeRecord(raw json.RawMessage, path string) (Record, error) {
 		}
 		postings = append(postings, posting)
 	}
+	warnings := make([]CandidateWarning, 0, len(input.Warnings))
+	for index, inputWarning := range input.Warnings {
+		warning, err := decodeWarning(inputWarning, fmt.Sprintf("%s.warnings[%d]", path, index), len(postings))
+		if err != nil {
+			return Record{}, err
+		}
+		warnings = append(warnings, warning)
+	}
 	return Record{
 		Source:      source,
 		OccurredAt:  occurredAt,
 		Description: input.Description.Value,
 		Comments:    append([]string(nil), input.Comments...),
+		Warnings:    warnings,
 		Postings:    postings,
+	}, nil
+}
+
+func decodeWarning(input wireWarning, path string, postingCount int) (CandidateWarning, error) {
+	if !input.Code.Set {
+		return CandidateWarning{}, invalidInput(path+".code", errors.New("required field is missing"))
+	}
+	if !diagnosticCode.MatchString(input.Code.Value) {
+		return CandidateWarning{}, invalidInput(path+".code", errors.New("must be a stable lowercase diagnostic code"))
+	}
+	if !input.Message.Set {
+		return CandidateWarning{}, invalidInput(path+".message", errors.New("required field is missing"))
+	}
+	if strings.TrimSpace(input.Message.Value) == "" || containsLineBreak(input.Message.Value) {
+		return CandidateWarning{}, invalidInput(path+".message", errors.New("must be non-empty and single-line"))
+	}
+	if input.FieldPath.Set && (strings.TrimSpace(input.FieldPath.Value) == "" || containsLineBreak(input.FieldPath.Value)) {
+		return CandidateWarning{}, invalidInput(path+".field_path", errors.New("must be non-empty and single-line when present"))
+	}
+	if input.PostingIndex != nil && (*input.PostingIndex < 0 || *input.PostingIndex >= postingCount) {
+		return CandidateWarning{}, invalidInput(path+".posting_index", fmt.Errorf("must refer to a posting index from 0 to %d", postingCount-1))
+	}
+	var postingIndex *int
+	if input.PostingIndex != nil {
+		value := *input.PostingIndex
+		postingIndex = &value
+	}
+	return CandidateWarning{
+		Code:         input.Code.Value,
+		Message:      input.Message.Value,
+		FieldPath:    input.FieldPath.Value,
+		PostingIndex: postingIndex,
 	}, nil
 }
 

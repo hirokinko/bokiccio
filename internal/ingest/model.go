@@ -15,7 +15,15 @@ type Record struct {
 	OccurredAt  ledger.EntryTime
 	Description string
 	Comments    []string
+	Warnings    []CandidateWarning
 	Postings    []CandidatePosting
+}
+
+type CandidateWarning struct {
+	Code         string
+	Message      string
+	FieldPath    string
+	PostingIndex *int
 }
 
 type Source struct {
