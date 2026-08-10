@@ -6,7 +6,7 @@ Bokiccio（ボキッチョ）は、複数の明細・メール・レシートか
 
 名前は、メモ帳のように扱える「簿記帖」と、会計が得意でなくても使える「ぶきっちょ」に由来します。
 
-現在は初期基盤の段階です。Tacklerから独立した仕訳ドメインと、Tackler journal formatの互換subset exporterまでを実装しています。Web API、永続化、認証、画面、外部サービス連携はまだありません。
+現在は初期基盤の段階です。Tacklerから独立した仕訳ドメイン、Tackler journal formatの互換subset exporter、ローカル取込workflowの内部APIを実装しています。Web API、DB永続化、認証、画面、外部サービス連携はまだありません。
 
 ## 実装済み
 
@@ -18,6 +18,8 @@ Bokiccio（ボキッチョ）は、複数の明細・メール・レシートか
 - source、WARN、割引などの単一行コメント
 - version付き正規化JSONからの仕訳候補decodeとstable identity生成
 - record単位のsuccess・warning・error・duplicate処理結果
+- version付きreport・deduplication stateと決定的なrun identity
+- immutable run bundleとstate manifestを最後にcommitする安全なローカル公開
 - 匿名化fixtureによるgolden test
 - Tackler 26.1.2を使った任意実行の互換性test
 
@@ -46,10 +48,11 @@ internal/ingest
   ├─ normalized input v1 decoder
   ├─ application candidate values
   ├─ source-based identity and accounting fingerprint
-  └─ record processor, outcome, and structured diagnostic
+  ├─ record processor, outcome, and structured diagnostic
+  └─ deterministic report, state, and safe run publication
 ```
 
-正規化入力のfieldとidentity規約は[normalized input v1 contract](internal/ingest/CONTRACT.md)、outcomeとdiagnosticの規約は[record processing contract](internal/ingest/PROCESSING.md)にまとめています。
+正規化入力のfieldとidentity規約は[normalized input v1 contract](internal/ingest/CONTRACT.md)、outcomeとdiagnosticの規約は[record processing contract](internal/ingest/PROCESSING.md)、report・state・公開手順は[run artifact and publication contract](internal/ingest/RUNS.md)にまとめています。
 
 ## 開発と検証
 

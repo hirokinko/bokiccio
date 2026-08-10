@@ -46,3 +46,6 @@ diagnostic remains authoritative.
 
 Processing does not mutate the decoded batch. Outcome entries and the accepted
 entry list do not share mutable comment or posting slices.
+
+The deterministic report, deduplication state, and safe publication protocol
+are documented in [RUNS.md](RUNS.md).
