@@ -71,6 +71,53 @@ func TestValidateSupportsTacklerIdentifierSubset(t *testing.T) {
 	}
 }
 
+func TestInferFinalAmount(t *testing.T) {
+	t.Parallel()
+	entry := validEntry(t)
+	entry.Postings = []Posting{
+		{Account: "費用:食費", Amount: &Amount{Value: mustDecimal(t, "100.00"), Commodity: "JPY"}},
+		{Account: "費用:日用品", Amount: &Amount{Value: mustDecimal(t, "7.5"), Commodity: "JPY"}},
+		{Account: "資産:現金"},
+	}
+
+	got, err := InferFinalAmount(entry)
+	if err != nil {
+		t.Fatalf("InferFinalAmount() error = %v", err)
+	}
+	if got.Value.String() != "-107.50" || got.Commodity != "JPY" {
+		t.Fatalf("InferFinalAmount() = %s %s, want -107.50 JPY", got.Value.String(), got.Commodity)
+	}
+	if entry.Postings[2].Amount != nil {
+		t.Fatal("InferFinalAmount() mutated the omitted posting")
+	}
+}
+
+func TestInferFinalAmountAllowsTemporaryWideSum(t *testing.T) {
+	t.Parallel()
+	entry := validEntry(t)
+	entry.Postings = []Posting{
+		{Account: "資産:一時A", Amount: &Amount{Value: mustDecimal(t, "79228162514264337593543950335"), Commodity: "JPY"}},
+		{Account: "資産:一時B", Amount: &Amount{Value: mustDecimal(t, "1"), Commodity: "JPY"}},
+		{Account: "資産:一時C", Amount: &Amount{Value: mustDecimal(t, "-79228162514264337593543950335"), Commodity: "JPY"}},
+		{Account: "資産:調整"},
+	}
+
+	got, err := InferFinalAmount(entry)
+	if err != nil {
+		t.Fatalf("InferFinalAmount() error = %v", err)
+	}
+	if got.Value.String() != "-1" {
+		t.Fatalf("InferFinalAmount() = %s, want -1", got.Value.String())
+	}
+}
+
+func TestInferFinalAmountRejectsExplicitFinalPosting(t *testing.T) {
+	t.Parallel()
+	if _, err := InferFinalAmount(validEntry(t)); !errors.Is(err, ErrNoOmittedAmount) {
+		t.Fatalf("InferFinalAmount() error = %v, want %v", err, ErrNoOmittedAmount)
+	}
+}
+
 func validEntry(t *testing.T) JournalEntry {
 	t.Helper()
 	return JournalEntry{

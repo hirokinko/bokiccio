@@ -9,13 +9,10 @@ import (
 )
 
 var (
-	ErrInvalidOptions           = errors.New("invalid Tackler export options")
-	ErrOmittedAmountUnsupported = errors.New("omitted posting amounts are not supported yet")
+	ErrInvalidOptions = errors.New("invalid Tackler export options")
 )
 
-// OmittedAmountMode controls how an omitted amount on the final posting is
-// rendered. Support for omitted amounts is completed in the next slice; the
-// option is defined now to keep the Export API stable.
+// OmittedAmountMode controls how an omitted amount on the final posting is rendered.
 type OmittedAmountMode uint8
 
 const (
@@ -34,14 +31,17 @@ func Export(entries []ledger.JournalEntry, options Options) ([]byte, error) {
 		return nil, fmt.Errorf("%w: OmittedAmounts must be PreserveOmitted or FillOmitted", ErrInvalidOptions)
 	}
 
+	inferred := make([]*ledger.Amount, len(entries))
 	for entryIndex, entry := range entries {
 		if err := ledger.Validate(entry); err != nil {
 			return nil, fmt.Errorf("entry %d: %w", entryIndex, err)
 		}
-		for postingIndex, posting := range entry.Postings {
-			if posting.Amount == nil {
-				return nil, fmt.Errorf("entry %d, posting %d: %w", entryIndex, postingIndex, ErrOmittedAmountUnsupported)
+		if entry.Postings[len(entry.Postings)-1].Amount == nil && options.OmittedAmounts == FillOmitted {
+			amount, err := ledger.InferFinalAmount(entry)
+			if err != nil {
+				return nil, fmt.Errorf("entry %d: %w", entryIndex, err)
 			}
+			inferred[entryIndex] = &amount
 		}
 	}
 
@@ -56,7 +56,13 @@ func Export(entries []ledger.JournalEntry, options Options) ([]byte, error) {
 		}
 		for _, posting := range entry.Postings {
 			amount := posting.Amount
-			fmt.Fprintf(&output, "    %s  %s %s", posting.Account, amount.Value.String(), amount.Commodity)
+			if amount == nil {
+				amount = inferred[entryIndex]
+			}
+			fmt.Fprintf(&output, "    %s", posting.Account)
+			if amount != nil {
+				fmt.Fprintf(&output, "  %s %s", amount.Value.String(), amount.Commodity)
+			}
 			if posting.Comment != "" {
 				fmt.Fprintf(&output, "     ; %s", posting.Comment)
 			}

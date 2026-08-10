@@ -16,6 +16,7 @@ var (
 	ErrCommodityMismatch = errors.New("posting commodities do not match")
 	ErrUnbalancedEntry   = errors.New("journal entry is not balanced")
 	ErrInvalidOmitted    = errors.New("only the final posting may omit its amount")
+	ErrNoOmittedAmount   = errors.New("final posting does not omit its amount")
 )
 
 type Commodity string
@@ -92,6 +93,29 @@ func Validate(entry JournalEntry) error {
 		return fmt.Errorf("%w: difference is %s %s", ErrUnbalancedEntry, formatFixedPoint(sum.coefficient, sum.scale), commodity)
 	}
 	return nil
+}
+
+// InferFinalAmount returns the exact balancing amount and commodity for an
+// entry whose final posting omits its amount. The entry is validated first.
+func InferFinalAmount(entry JournalEntry) (Amount, error) {
+	if err := Validate(entry); err != nil {
+		return Amount{}, err
+	}
+	if entry.Postings[len(entry.Postings)-1].Amount != nil {
+		return Amount{}, ErrNoOmittedAmount
+	}
+
+	values := make([]Decimal, 0, len(entry.Postings)-1)
+	commodity := entry.Postings[0].Amount.Commodity
+	for _, posting := range entry.Postings[:len(entry.Postings)-1] {
+		values = append(values, posting.Amount.Value)
+	}
+	sum := exactSum(values)
+	value, err := decimalFromCoefficient(new(big.Int).Neg(new(big.Int).Set(sum.coefficient)), sum.scale)
+	if err != nil {
+		return Amount{}, fmt.Errorf("inferred amount: %w", err)
+	}
+	return Amount{Value: value, Commodity: commodity}, nil
 }
 
 func validatePosting(posting Posting) error {
