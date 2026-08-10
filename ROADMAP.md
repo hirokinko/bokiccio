@@ -21,9 +21,11 @@ Bokiccioは、さまざまな取引記録を検証可能な仕訳へ変換し、
 - `bokiccio import`による検証・export
 - 匿名化fixtureを使ったend-to-end test
 
-## Planned: Single-user web application
+## In progress: Single-user web application
 
 仕訳の取込から確認、修正、exportまでをWeb上で扱える、単一利用者向けapplicationへ発展させます。
+
+現在はlocal development限定のnormalized import、Turso互換永続化、取込結果・仕訳候補のread-only JSON APIまでを実装しています。認証付き公開、修正・承認、検索、export、backupは後続段階です。
 
 - journalとpostingの永続化
 - 取込履歴、処理状態、sourceの表示

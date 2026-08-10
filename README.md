@@ -21,6 +21,7 @@ Bokiccio（ボキッチョ）は、複数の明細・メール・レシートか
 - version付きreport・deduplication stateと決定的なrun identity
 - immutable run bundleとstate manifestを最後にcommitする安全なローカル公開
 - `bokiccio import`による外部service不要のローカル取込
+- Turso互換schemaとread-only JSON APIによるlocal Web vertical slice
 - 匿名化fixtureによるgolden test
 - Tackler 26.1.2を使った任意実行の互換性test
 
@@ -54,6 +55,9 @@ internal/ingest
 
 cmd/bokiccio
   └─ local import command
+
+internal/webapp / internal/webstore
+  └─ local-only HTTP handler and database/sql persistence
 ```
 
 正規化入力のfieldとidentity規約は[normalized input v1 contract](internal/ingest/CONTRACT.md)、outcomeとdiagnosticの規約は[record processing contract](internal/ingest/PROCESSING.md)、report・state・公開手順は[run artifact and publication contract](internal/ingest/RUNS.md)にまとめています。
@@ -94,6 +98,8 @@ go run ./cmd/bokiccio import \
 終了codeは、error outcomeなしが`0`、runが完了してreportを公開したもののrecord単位のerrorが残る場合が`1`、usage・schema・I/Oなどrun全体の失敗が`2`です。処理件数と相対bundle pathはstderrへ要約されます。
 
 入力formatは[normalized input v1 contract](internal/ingest/CONTRACT.md)、出力配置と再実行規約は[run artifact and publication contract](internal/ingest/RUNS.md)を参照してください。
+
+認証前のWeb API foundationも内部packageとして実装しています。route、JSON、local-only制約は[local read-only Web API v1](internal/webapp/API.md)を参照してください。public networkへbindするserver commandはまだ提供していません。
 
 ## Tackler互換subset
 
