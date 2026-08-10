@@ -4,25 +4,21 @@ Bokiccioは、さまざまな取引記録を検証可能な仕訳へ変換し、
 
 このロードマップは方向性を共有するためのもので、提供時期を確約するものではありません。各段階では、正確性、データの可搬性、入力元への追跡可能性を優先します。
 
-## Available: 会計データの基盤
+## Available: 会計データの基盤とローカルworkflow
 
-現在は、後続機能が共通利用する仕訳とexportの基盤を提供しています。
+現在は、後続機能が共通利用する仕訳・exportの基盤と、外部serviceなしで再現できるローカル取込workflowを提供しています。
 
 - 正確な固定小数点金額とcommodityを持つ仕訳model
 - 貸借、勘定科目、コメント、金額省略のvalidation
 - 入力順とsource・WARNなどのmetadataを保つ決定的なexport
 - Tackler journal format互換subsetへの出力
 - Tackler 26.1.2に対する自動互換性test
-
-## Next: ローカルで完結する仕訳workflow
-
-取引データを取り込み、確認し、会計journalとして出力する一連の流れを、ローカル環境で安全に完結できる状態を目指します。
-
-- 一般的な明細・レシートデータを受け取るimport境界
+- version付きの正規化JSON import境界
 - source情報を維持した仕訳候補の生成
 - 重複取込の検出と安全な再実行
-- validation errorやWARNの確認workflow
-- 修正後の仕訳を再検証してexportするCLI
+- record単位のvalidation error・WARNとmachine-readable report
+- immutable run bundleとdeduplication state
+- `bokiccio import`による検証・export
 - 匿名化fixtureを使ったend-to-end test
 
 ## Planned: Single-user web application

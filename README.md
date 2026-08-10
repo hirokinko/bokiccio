@@ -20,6 +20,7 @@ Bokiccio（ボキッチョ）は、複数の明細・メール・レシートか
 - record単位のsuccess・warning・error・duplicate処理結果
 - version付きreport・deduplication stateと決定的なrun identity
 - immutable run bundleとstate manifestを最後にcommitする安全なローカル公開
+- `bokiccio import`による外部service不要のローカル取込
 - 匿名化fixtureによるgolden test
 - Tackler 26.1.2を使った任意実行の互換性test
 
@@ -50,6 +51,9 @@ internal/ingest
   ├─ source-based identity and accounting fingerprint
   ├─ record processor, outcome, and structured diagnostic
   └─ deterministic report, state, and safe run publication
+
+cmd/bokiccio
+  └─ local import command
 ```
 
 正規化入力のfieldとidentity規約は[normalized input v1 contract](internal/ingest/CONTRACT.md)、outcomeとdiagnosticの規約は[record processing contract](internal/ingest/PROCESSING.md)、report・state・公開手順は[run artifact and publication contract](internal/ingest/RUNS.md)にまとめています。
@@ -74,6 +78,22 @@ Tackler CLIを含む互換性testはbuild tagを付けて実行します。
 ```sh
 go test -tags=tackler_integration ./internal/tacklerfmt
 ```
+
+## ローカルimport
+
+version 1の正規化JSONを、明示したoutput rootへ安全に取り込みます。
+
+```sh
+go run ./cmd/bokiccio import \
+  --input ./internal/ingest/testdata/valid-v1.json \
+  --output ./bokiccio-output
+```
+
+成果物は`bokiccio-output/runs/<run-identity>/`のimmutable bundleとして作成され、deduplication stateは`bokiccio-output/state-v1.json`へ保存されます。採用可能な仕訳があるbundleには`journal.txn`、すべてのrunには`report.json`が入ります。
+
+終了codeは、error outcomeなしが`0`、runが完了してreportを公開したもののrecord単位のerrorが残る場合が`1`、usage・schema・I/Oなどrun全体の失敗が`2`です。処理件数と相対bundle pathはstderrへ要約されます。
+
+入力formatは[normalized input v1 contract](internal/ingest/CONTRACT.md)、出力配置と再実行規約は[run artifact and publication contract](internal/ingest/RUNS.md)を参照してください。
 
 ## Tackler互換subset
 
