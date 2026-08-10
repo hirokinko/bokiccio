@@ -5,7 +5,7 @@ import (
 	"errors"
 	"fmt"
 
-	"bokiccio/internal/ledger"
+	"github.com/hirokinko/bokiccio/internal/ledger"
 )
 
 var (

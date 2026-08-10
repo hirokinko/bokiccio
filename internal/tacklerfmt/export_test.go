@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"bokiccio/internal/ledger"
+	"github.com/hirokinko/bokiccio/internal/ledger"
 )
 
 func TestExportExplicitEntriesGolden(t *testing.T) {
