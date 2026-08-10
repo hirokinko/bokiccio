@@ -1,0 +1,32 @@
+[kernel]
+strict = false
+audit = { mode = false, hash = "SHA-256" }
+timestamp = { default-time = 00:00:00, timezone = { name = "UTC" } }
+
+[kernel.input]
+storage = "fs"
+fs = { path = ".", dir = ".", ext = "txn" }
+
+[price]
+db-path = "none"
+lookup-type = "none"
+
+[transaction]
+accounts = { path = "none" }
+commodities = { path = "none" }
+tags = { path = "none" }
+
+[report]
+report-timezone = "UTC"
+scale = { min = 2, max = 2 }
+formats = [ "txt" ]
+accounts = [ ]
+targets = [ ]
+commodity = "JPY"
+balance = { title = "Balance", type = "tree" }
+balance-group = { title = "Balance Group", type = "tree", group-by = "month" }
+register = { title = "Register", accounts = [ ] }
+
+[export]
+targets = [ ]
+equity = { accounts = [ ], equity-account = "Equity:Balance" }

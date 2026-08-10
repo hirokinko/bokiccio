@@ -5,5 +5,7 @@
 // single-line transaction and posting comments, colon-separated accounts,
 // signed fixed-point amounts with an explicit commodity, and two or more
 // postings. Timestamps, transaction codes, metadata, prices, costs, tags, and
-// multiple-commodity valuation are not emitted.
+// multiple-commodity valuation are not emitted. Compatibility is pinned to
+// Tackler 26.1.2 and the upstream grammar revision documented in
+// COMPATIBILITY.md.
 package tacklerfmt

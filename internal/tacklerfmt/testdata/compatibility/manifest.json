@@ -1,0 +1,68 @@
+{
+  "reference": {
+    "tackler_version": "26.1.2",
+    "grammar_commit": "0641bb09b7cc52bd037c6f6ce4cc377fb72facec"
+  },
+  "cases": [
+    {
+      "id": "accept-date-description",
+      "feature": "date and description",
+      "expect": "accept",
+      "path": "accept/date-description.txn"
+    },
+    {
+      "id": "accept-transaction-comment",
+      "feature": "transaction comment",
+      "expect": "accept",
+      "path": "accept/transaction-comment.txn"
+    },
+    {
+      "id": "accept-posting-comment",
+      "feature": "posting comment",
+      "expect": "accept",
+      "path": "accept/posting-comment.txn"
+    },
+    {
+      "id": "accept-decimal-commodity",
+      "feature": "fixed-point amount and explicit commodity",
+      "expect": "accept",
+      "path": "accept/decimal-commodity.txn"
+    },
+    {
+      "id": "accept-omitted-final",
+      "feature": "omitted final posting amount",
+      "expect": "accept",
+      "path": "accept/omitted-final.txn"
+    },
+    {
+      "id": "reject-invalid-date",
+      "feature": "calendar date validation",
+      "expect": "reject",
+      "path": "reject/invalid-date.txn"
+    },
+    {
+      "id": "reject-invalid-account",
+      "feature": "account identifier validation",
+      "expect": "reject",
+      "path": "reject/invalid-account.txn"
+    },
+    {
+      "id": "reject-exponent-amount",
+      "feature": "fixed-point amount syntax",
+      "expect": "reject",
+      "path": "reject/exponent-amount.txn"
+    },
+    {
+      "id": "reject-non-final-omission",
+      "feature": "final posting omission position",
+      "expect": "reject",
+      "path": "reject/non-final-omission.txn"
+    },
+    {
+      "id": "reject-unbalanced",
+      "feature": "single-commodity balance",
+      "expect": "reject",
+      "path": "reject/unbalanced.txn"
+    }
+  ]
+}
