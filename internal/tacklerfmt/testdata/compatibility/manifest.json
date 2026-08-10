@@ -11,6 +11,18 @@
       "path": "accept/date-description.txn"
     },
     {
+      "id": "accept-timestamp-utc",
+      "feature": "RFC 3339 timestamp with UTC designator",
+      "expect": "accept",
+      "path": "accept/timestamp-utc.txn"
+    },
+    {
+      "id": "accept-timestamp-offset-fraction",
+      "feature": "RFC 3339 timestamp with offset and fractional seconds",
+      "expect": "accept",
+      "path": "accept/timestamp-offset-fraction.txn"
+    },
+    {
       "id": "accept-transaction-comment",
       "feature": "transaction comment",
       "expect": "accept",

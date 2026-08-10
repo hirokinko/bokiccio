@@ -64,7 +64,7 @@ go test -tags=tackler_integration ./internal/tacklerfmt
 
 ## Tackler互換subset
 
-exporterは日付、摘要、取引・postingコメント、勘定科目、固定小数点金額、明示commodity、最終postingの金額省略を扱います。timestamp、transaction code、metadata、価格・原価、commodity換算などは対象外です。
+exporterは日付、timezone付きRFC 3339日時、摘要、取引・postingコメント、勘定科目、固定小数点金額、明示commodity、最終postingの金額省略を扱います。timezoneなしの日時、transaction code、metadata、価格・原価、commodity換算などは対象外です。
 
 対応構文、固定version、fixture構成の詳細は[互換性契約](internal/tacklerfmt/COMPATIBILITY.md)を参照してください。
 

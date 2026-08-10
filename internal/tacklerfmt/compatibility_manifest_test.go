@@ -127,7 +127,7 @@ func validateCompatibilityFixture(t *testing.T, root string, testCase compatibil
 	if !utf8.Valid(data) || strings.ContainsRune(string(data), '\r') {
 		t.Errorf("case %q: fixture must be UTF-8 with LF line endings", testCase.ID)
 	}
-	header := regexp.MustCompile(`(?m)^\d{4}-\d{2}-\d{2}(?: |$)`)
+	header := regexp.MustCompile(`(?m)^\d{4}-\d{2}-\d{2}(?:T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2}))?(?: |$)`)
 	if count := len(header.FindAll(data, -1)); count != 1 {
 		t.Errorf("case %q: transaction header count = %d, want 1", testCase.ID, count)
 	}

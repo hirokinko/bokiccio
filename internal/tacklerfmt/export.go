@@ -50,7 +50,7 @@ func Export(entries []ledger.JournalEntry, options Options) ([]byte, error) {
 		if entryIndex > 0 {
 			output.WriteByte('\n')
 		}
-		fmt.Fprintf(&output, "%s  '%s\n", entry.Date.Format("2006-01-02"), entry.Description)
+		fmt.Fprintf(&output, "%s  '%s\n", entry.Date.String(), entry.Description)
 		for _, comment := range entry.Comments {
 			fmt.Fprintf(&output, "    ; %s\n", comment)
 		}

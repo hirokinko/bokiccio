@@ -3,7 +3,6 @@ package ledger
 import (
 	"errors"
 	"testing"
-	"time"
 )
 
 func TestValidateBalancedJournalEntry(t *testing.T) {
@@ -30,7 +29,10 @@ func TestValidateRejectsInvalidEntries(t *testing.T) {
 		change func(*JournalEntry)
 		err    error
 	}{
-		{name: "zero date", change: func(e *JournalEntry) { e.Date = time.Time{} }, err: ErrInvalidEntry},
+		{name: "zero date", change: func(e *JournalEntry) { e.Date = EntryTime{} }, err: ErrInvalidEntry},
+		{name: "unknown date precision", change: func(e *JournalEntry) {
+			e.Date.precision = EntryTimePrecision(255)
+		}, err: ErrInvalidEntryTime},
 		{name: "empty description", change: func(e *JournalEntry) { e.Description = "  " }, err: ErrInvalidEntry},
 		{name: "description line break", change: func(e *JournalEntry) { e.Description = "shop\nnext" }, err: ErrInvalidEntry},
 		{name: "entry comment line break", change: func(e *JournalEntry) { e.Comments = []string{"source: a\nb"} }, err: ErrInvalidEntry},
@@ -121,7 +123,7 @@ func TestInferFinalAmountRejectsExplicitFinalPosting(t *testing.T) {
 func validEntry(t *testing.T) JournalEntry {
 	t.Helper()
 	return JournalEntry{
-		Date:        time.Date(2026, time.August, 9, 0, 0, 0, 0, time.UTC),
+		Date:        mustEntryTime(t, "2026-08-09"),
 		Description: "サンプル店舗",
 		Comments:    []string{"source: receipt/example.jpg"},
 		Postings: []Posting{
@@ -136,4 +138,13 @@ func validEntry(t *testing.T) JournalEntry {
 			},
 		},
 	}
+}
+
+func mustEntryTime(t *testing.T, text string) EntryTime {
+	t.Helper()
+	value, err := ParseEntryTime(text)
+	if err != nil {
+		t.Fatalf("ParseEntryTime(%q) error = %v", text, err)
+	}
+	return value
 }

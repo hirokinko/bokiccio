@@ -12,6 +12,8 @@ The compatibility reference is:
 ## Supported syntax
 
 - `YYYY-MM-DD` transaction dates
+- RFC 3339 transaction timestamps with `Z` or a numeric UTC offset, with
+  optional fractional seconds
 - descriptions introduced by two spaces and a single quote
 - single-line transaction and posting comments introduced by `; `
 - Tackler-compatible colon-separated account identifiers
@@ -20,8 +22,9 @@ The compatibility reference is:
 - an amount omitted only from the final posting
 - exactly one blank line between exported transactions and a final newline
 
-Timestamps, transaction codes, metadata, tags, prices, costs, commodity
-conversion, and parsing Tackler journals are outside this subset.
+Timestamps without a UTC offset, transaction codes, metadata, tags, prices,
+costs, commodity conversion, and parsing Tackler journals are outside this
+subset.
 
 ## Fixtures
 

@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"math/big"
 	"strings"
-	"time"
 )
 
 var (
@@ -33,7 +32,7 @@ type Posting struct {
 }
 
 type JournalEntry struct {
-	Date        time.Time
+	Date        EntryTime
 	Description string
 	Comments    []string
 	Postings    []Posting
@@ -42,8 +41,8 @@ type JournalEntry struct {
 // Validate verifies the domain invariants required by the supported Tackler
 // journal subset. It does not mutate the entry.
 func Validate(entry JournalEntry) error {
-	if entry.Date.IsZero() || entry.Date.Year() < 1 || entry.Date.Year() > 9999 {
-		return fmt.Errorf("%w: invalid date", ErrInvalidEntry)
+	if err := entry.Date.validate(); err != nil {
+		return fmt.Errorf("%w: %w", ErrInvalidEntry, err)
 	}
 	if strings.TrimSpace(entry.Description) == "" {
 		return fmt.Errorf("%w: description is empty", ErrInvalidEntry)

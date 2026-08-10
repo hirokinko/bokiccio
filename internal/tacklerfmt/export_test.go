@@ -5,7 +5,6 @@ import (
 	"errors"
 	"os"
 	"testing"
-	"time"
 
 	"github.com/hirokinko/bokiccio/internal/ledger"
 )
@@ -42,6 +41,34 @@ func TestExportIsDeterministic(t *testing.T) {
 	}
 	if !bytes.Equal(first, second) {
 		t.Fatal("Export() returned different bytes for the same input")
+	}
+}
+
+func TestExportPreservesEntryTimePrecision(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name string
+		when string
+		want string
+	}{
+		{name: "date", when: "2026-08-10", want: "2026-08-10"},
+		{name: "UTC timestamp", when: "2026-08-10T05:30:00Z", want: "2026-08-10T05:30:00Z"},
+		{name: "offset timestamp", when: "2026-08-10T14:30:00+09:00", want: "2026-08-10T14:30:00+09:00"},
+		{name: "fractional timestamp", when: "2026-08-10T14:30:00.1234+09:00", want: "2026-08-10T14:30:00.1234+09:00"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			entry := goldenEntries(t)[0]
+			entry.Date = entryTime(t, test.when)
+			got, err := Export([]ledger.JournalEntry{entry}, Options{OmittedAmounts: PreserveOmitted})
+			if err != nil {
+				t.Fatalf("Export() error = %v", err)
+			}
+			if !bytes.HasPrefix(got, []byte(test.want+"  '")) {
+				t.Fatalf("Export() = %q, want header prefix %q", got, test.want+"  '")
+			}
+		})
 	}
 }
 
@@ -178,7 +205,7 @@ func TestExportRejectsInvalidInputWithoutPartialOutput(t *testing.T) {
 func omittedEntry(t *testing.T) ledger.JournalEntry {
 	t.Helper()
 	return ledger.JournalEntry{
-		Date:        time.Date(2026, time.August, 11, 0, 0, 0, 0, time.UTC),
+		Date:        entryTime(t, "2026-08-11"),
 		Description: "サンプル商店",
 		Postings: []ledger.Posting{
 			{Account: "費用:食費", Amount: amount(t, "100.00", "JPY")},
@@ -192,7 +219,7 @@ func goldenEntries(t *testing.T) []ledger.JournalEntry {
 	t.Helper()
 	return []ledger.JournalEntry{
 		{
-			Date:        time.Date(2026, time.August, 9, 18, 30, 0, 0, time.FixedZone("JST", 9*60*60)),
+			Date:        entryTime(t, "2026-08-09"),
 			Description: "サンプル店舗",
 			Comments:    []string{"source: receipt/sample-001.jpg"},
 			Postings: []ledger.Posting{
@@ -205,7 +232,7 @@ func goldenEntries(t *testing.T) []ledger.JournalEntry {
 			},
 		},
 		{
-			Date:        time.Date(2026, time.August, 10, 0, 0, 0, 0, time.UTC),
+			Date:        entryTime(t, "2026-08-10"),
 			Description: "サンプル薬局",
 			Postings: []ledger.Posting{
 				{
@@ -226,4 +253,13 @@ func amount(t *testing.T, value string, commodity ledger.Commodity) *ledger.Amou
 		t.Fatalf("ParseDecimal(%q) error = %v", value, err)
 	}
 	return &ledger.Amount{Value: decimal, Commodity: commodity}
+}
+
+func entryTime(t *testing.T, text string) ledger.EntryTime {
+	t.Helper()
+	value, err := ledger.ParseEntryTime(text)
+	if err != nil {
+		t.Fatalf("ParseEntryTime(%q) error = %v", text, err)
+	}
+	return value
 }
