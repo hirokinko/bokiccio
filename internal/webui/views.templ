@@ -1,0 +1,207 @@
+package webui
+
+import "github.com/hirokinko/bokiccio/internal/webapp"
+
+templ documentHead(title string) {
+	<head>
+		<meta charset="utf-8"/>
+		<meta name="viewport" content="width=device-width, initial-scale=1"/>
+		<title>{ title } · Bokiccio</title>
+		<link rel="stylesheet" href="/assets/app.css"/>
+		<script src="/assets/htmx-2.0.10.min.js" defer></script>
+	</head>
+}
+
+templ siteHeader() {
+	<header class="site-header">
+		<a class="brand" href="/">Bokiccio</a>
+		<span>ぶきっちょでも、複式簿記。</span>
+	</header>
+}
+
+templ indexPage(model indexPageModel) {
+	<!DOCTYPE html>
+	<html lang="ja">
+		@documentHead("仕訳候補")
+		<body>
+			@siteHeader()
+			<main id="main-content" class="page">
+				<header class="page-heading">
+					<div>
+						<p class="eyebrow">Journal candidates</p>
+						<h1>仕訳候補</h1>
+					</div>
+					<p>{ len(model.Entries) }件を表示</p>
+				</header>
+				if len(model.Entries) == 0 {
+					<section class="empty-state" aria-labelledby="empty-heading">
+						<h2 id="empty-heading">仕訳候補はまだありません</h2>
+						<p>normalized inputのuploadは次のSliceで追加します。</p>
+					</section>
+				} else {
+					<div class="entry-list">
+						for _, entry := range model.Entries {
+							<article class="entry-card">
+								<div>
+									<p class="entry-date">{ entry.OccurredAt }</p>
+									<h2><a href={ entry.Href }>{ entry.Description }</a></h2>
+									<p class="source">{ entry.Source.Namespace }: { entry.Source.Display }</p>
+								</div>
+								<dl class="status-list">
+									<div><dt>取込</dt><dd>{ entry.Status }</dd></div>
+									<div><dt>確認</dt><dd>{ entry.WorkflowStatus }</dd></div>
+									<div><dt>Revision</dt><dd>{ entry.CurrentRevision }</dd></div>
+								</dl>
+							</article>
+						}
+					</div>
+				}
+			</main>
+		</body>
+	</html>
+}
+
+templ entryPage(model entryPageModel) {
+	<!DOCTYPE html>
+	<html lang="ja">
+		@documentHead(model.Current.Description)
+		<body>
+			@siteHeader()
+			<main id="main-content" class="page detail-page">
+				<a class="back-link" href="/">← 仕訳候補へ戻る</a>
+				<header class="page-heading">
+					<div><p class="eyebrow">Current candidate · revision { model.Current.Revision }</p><h1>{ model.Current.Description }</h1></div>
+					<p class="status-badge">{ model.Detail.Status }</p>
+				</header>
+				<p>{ model.Current.OccurredAt }</p>
+				<section aria-labelledby="source-heading">
+					<h2 id="source-heading">Source</h2>
+					<p>{ model.Detail.Source.Namespace }: { model.Detail.Source.Display }</p>
+					<p>Run <a href={ model.RunHref }>{ model.Detail.RunIdentity }</a> / record { model.Detail.RecordIndex }</p>
+				</section>
+				<section aria-labelledby="candidate-heading">
+					<h2 id="candidate-heading">Current candidate</h2>
+					@postingTable(model.Current.Postings)
+					@commentList(model.Current.Comments)
+				</section>
+				<section aria-labelledby="original-heading">
+					<h2 id="original-heading">Original snapshot</h2>
+					<p>{ model.Detail.OccurredAt } · { model.Detail.Description }</p>
+					@postingTable(model.Detail.Postings)
+					@commentList(model.Detail.Comments)
+				</section>
+				<section aria-labelledby="import-diagnostic-heading">
+					<h2 id="import-diagnostic-heading">Import diagnostics</h2>
+					if len(model.Detail.Diagnostics) == 0 {
+						<p class="muted">なし</p>
+					} else {
+						@diagnostics(model.Detail.Diagnostics)
+					}
+				</section>
+				<section aria-labelledby="history-heading"><h2 id="history-heading">履歴</h2>
+					<p>Current revision: { model.Detail.CurrentRevision }</p>
+					if model.Detail.CurrentApproval != nil {
+						<p>Current approval: revision { model.Detail.CurrentApproval.Revision } / { model.Detail.CurrentApproval.ApprovedAt }</p>
+					} else {
+						<p>Current approval: 未承認</p>
+					}
+					for _, revision := range model.Detail.Revisions {
+						<article class="history-card">
+							<h3>Revision { revision.Revision }</h3>
+							<p>Base { revision.BaseRevision } / { revision.CreatedAt } / valid: { revision.Valid }</p>
+							<p>{ revision.OccurredAt } · { revision.Description }</p>
+							@postingTable(revision.Postings)
+							@commentList(revision.Comments)
+							@diagnostics(revision.Diagnostics)
+						</article>
+					}
+					if len(model.Detail.Approvals) > 0 {
+						<h3>Approval history</h3>
+						<ul>
+							for _, approval := range model.Detail.Approvals {
+								<li>Sequence { approval.Sequence }: revision { approval.Revision } / { approval.ApprovedAt }</li>
+							}
+						</ul>
+					}
+				</section>
+			</main>
+		</body>
+	</html>
+}
+
+templ runPage(model runPageModel) {
+	<!DOCTYPE html>
+	<html lang="ja">
+		@documentHead("取込結果")
+		<body>
+			@siteHeader()
+			<main id="main-content" class="page detail-page">
+				<a class="back-link" href="/">← 仕訳候補へ戻る</a>
+				<header class="page-heading"><div><p class="eyebrow">Import run</p><h1>取込結果</h1></div>
+					if model.Detail.HasErrors {
+						<p class="status-badge status-error">要確認</p>
+					} else {
+						<p class="status-badge">完了</p>
+					}
+				</header>
+				<p class="identifier">{ model.Detail.RunIdentity }</p>
+				<dl class="metadata-list">
+					<div><dt>Input digest</dt><dd>{ model.Detail.InputDigest }</dd></div>
+					<div><dt>Pre-state generation</dt><dd>{ model.Detail.PreStateGeneration }</dd></div>
+				</dl>
+				<section aria-labelledby="outcome-heading"><h2 id="outcome-heading">Outcomes</h2><div class="entry-list">
+					for _, outcome := range model.Outcomes {
+						<article class="entry-card"><div><p>Record { outcome.Detail.RecordIndex } · { outcome.Detail.Status }</p><p>{ outcome.Detail.Source.Namespace }: { outcome.Detail.Source.Display }</p>
+							<p>Identity: { outcome.Detail.Identity.Kind } v{ outcome.Detail.Identity.AlgorithmVersion } / { outcome.Detail.Identity.Digest }</p>
+							if outcome.EntryHref != "" {
+								<a href={ outcome.EntryHref }>仕訳を表示</a>
+							}
+						</div>@diagnostics(outcome.Detail.Diagnostics)</article>
+					}
+				</div></section>
+			</main>
+		</body>
+	</html>
+}
+
+templ postingTable(items []webapp.PostingDetail) {
+	<div class="table-wrap"><table><thead><tr><th scope="col">Account</th><th scope="col">Amount</th><th scope="col">Comment</th></tr></thead><tbody>
+		for _, posting := range items {
+			<tr><td>{ posting.Account }</td><td>
+				if posting.Amount != nil {
+					<span>{ *posting.Amount } { posting.Commodity }</span>
+				} else {
+					<span class="muted">省略</span>
+				}
+			</td><td>{ posting.Comment }</td></tr>
+		}
+	</tbody></table></div>
+}
+
+templ commentList(items []string) {
+	if len(items) > 0 {
+		<ul>
+			for _, comment := range items {
+				<li>{ comment }</li>
+			}
+		</ul>
+	}
+}
+
+templ diagnostics(items []webapp.DiagnosticDetail) {
+	if len(items) > 0 {
+		<section class="diagnostics" aria-label="Diagnostics"><ul>
+			for _, item := range items {
+				<li><strong>{ item.Severity }</strong> · { item.Code }: { item.Message }</li>
+			}
+		</ul></section>
+	}
+}
+
+templ errorPage(model errorPageModel) {
+	<!DOCTYPE html>
+	<html lang="ja">
+		@documentHead(model.Title)
+		<body>@siteHeader()<main id="main-content" class="page error-page"><p class="eyebrow">Error { model.Status }</p><h1>{ model.Title }</h1><p>{ model.Message }</p><a href="/">仕訳候補へ戻る</a></main></body>
+	</html>
+}

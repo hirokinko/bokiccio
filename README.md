@@ -6,7 +6,7 @@ Bokiccio（ボキッチョ）は、複数の明細・メール・レシートか
 
 名前は、メモ帳のように扱える「簿記帖」と、会計が得意でなくても使える「ぶきっちょ」に由来します。
 
-現在は初期基盤の段階です。Tacklerから独立した仕訳ドメイン、Tackler journal formatの互換subset exporter、ローカル取込workflow、Tursoへ永続化するsingle-user Web APIを実装しています。Web画面と外部サービス連携はまだありません。
+現在は初期基盤の段階です。Tacklerから独立した仕訳ドメイン、Tackler journal formatの互換subset exporter、ローカル取込workflow、Tursoへ永続化するsingle-user Web APIとread-only Web画面を実装しています。外部サービス連携はまだありません。
 
 ## 実装済み
 
@@ -24,6 +24,7 @@ Bokiccio（ボキッチョ）は、複数の明細・メール・レシートか
 - Turso互換schemaとread-only JSON APIによるlocal Web vertical slice
 - Turso Cloud remote driver、明示migration、Cloud Run向けHTTP server
 - Cloud Run direct IAP JWT、single-owner、same-origin mutationの検証
+- templによる型付きserver-side renderingの仕訳・取込履歴閲覧画面
 - immutableな仕訳revision、domain再validation、append-onlyな承認履歴
 - 最新revisionを対象にした日付・勘定科目・摘要・状態・source検索
 - 現在承認済みの仕訳だけを対象にしたTackler/JSON export
@@ -70,6 +71,11 @@ internal/webapp / internal/webstore / internal/webprod
   ├─ single-owner IAP and origin boundary
   ├─ revision, approval, search, and approved export
   └─ Turso Cloud production composition
+
+internal/webui
+  ├─ templによる型付きserver-side rendering
+  ├─ 仕訳・取込履歴のread-only画面
+  └─ 同梱したCSSとhtmx asset
 ```
 
 正規化入力のfieldとidentity規約は[normalized input v1 contract](internal/ingest/CONTRACT.md)、outcomeとdiagnosticの規約は[record processing contract](internal/ingest/PROCESSING.md)、report・state・公開手順は[run artifact and publication contract](internal/ingest/RUNS.md)にまとめています。
@@ -135,7 +141,7 @@ go run ./cmd/bokiccio serve
 
 `TURSO_AUTH_TOKEN`はCloud RunのSecret Manager environment injectionで渡し、image、source、通常の環境設定へ保存しません。`BOKICCIO_EXTERNAL_ORIGIN`は利用者がアクセスするHTTPS originそのものとし、末尾pathを含めません。serverはmigrationを暗黙実行せず、schemaがcurrentでなければ起動しません。
 
-route、JSON、認証境界、remote integration testは[Web API v1](internal/webapp/API.md)を参照してください。
+route、JSON、認証境界、remote integration testは[Web API v1](internal/webapp/API.md)、画面routeとassetの構成は[Web UI](internal/webui/UI.md)を参照してください。
 
 ## Turso backupとrestore
 
@@ -168,7 +174,7 @@ exporterは日付、timezone付きRFC 3339日時、摘要、取引・postingコ�
 ## 現在の非対応範囲
 
 - Tackler journal parser
-- Web UI、テナント管理
+- Web UIからの検索・upload・修正・承認、テナント管理
 - production deployment manifestと自動migration
 - Gmail、Google Drive、Cloud Vision、Vertex AIとの連携
 - 定期batchとjob管理

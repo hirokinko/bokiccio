@@ -17,6 +17,7 @@ import (
 	"github.com/hirokinko/bokiccio/internal/webapp"
 	"github.com/hirokinko/bokiccio/internal/webprod"
 	"github.com/hirokinko/bokiccio/internal/webstore"
+	"github.com/hirokinko/bokiccio/internal/webui"
 )
 
 func runMigrate(args []string, stderr io.Writer) int {
@@ -94,7 +95,13 @@ func runServe(args []string, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "error: IAP validator initialization failed")
 		return exitRunLevelFailure
 	}
-	handler, err := webprod.NewProductionHandler(webapp.NewHandler(webstore.New(database)), validator, config.Security)
+	store := webstore.New(database)
+	application, err := webprod.NewApplicationHandler(webapp.NewHandler(store), webui.NewHandler(store))
+	if err != nil {
+		fmt.Fprintln(stderr, "error: HTTP application initialization failed")
+		return exitRunLevelFailure
+	}
+	handler, err := webprod.NewProductionHandler(application, validator, config.Security)
 	if err != nil {
 		fmt.Fprintln(stderr, "error: HTTP security initialization failed")
 		return exitRunLevelFailure
