@@ -3,6 +3,7 @@ package webui
 import "github.com/hirokinko/bokiccio/internal/webapp"
 
 type indexPageModel struct {
+	Page    pageContext
 	Entries []entrySummaryModel
 }
 
@@ -17,6 +18,7 @@ type entrySummaryModel struct {
 }
 
 type entryPageModel struct {
+	Page    pageContext
 	Detail  webapp.EntryDetail
 	Current candidateModel
 	RunHref string
@@ -31,6 +33,7 @@ type candidateModel struct {
 }
 
 type runPageModel struct {
+	Page     pageContext
 	Detail   webapp.RunDetail
 	Outcomes []outcomePageModel
 }
@@ -41,6 +44,7 @@ type outcomePageModel struct {
 }
 
 type errorPageModel struct {
+	Page    pageContext
 	Status  int
 	Title   string
 	Message string

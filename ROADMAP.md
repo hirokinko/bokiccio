@@ -25,10 +25,11 @@ Bokiccioは、さまざまな取引記録を検証可能な仕訳へ変換し、
 
 仕訳の取込から確認、修正、exportまでをWeb上で扱える、単一利用者向けapplicationへ発展させます。
 
-現在はnormalized import、Turso Cloud永続化、取込結果・仕訳候補のJSON API、Cloud Run direct IAPによるsingle-owner公開境界、仕訳と取込履歴を閲覧するserver-rendered画面、immutableな修正・承認履歴、最新revisionの検索、承認済み仕訳のexport、checksum付きlogical backupと空databaseへのtransactional restoreまでを実装しています。
+現在はnormalized import、Turso Cloud永続化、取込結果・仕訳候補のJSON API、Cloud Run direct IAPによるsingle-owner公開境界、日本語・英語で仕訳と取込履歴を閲覧するserver-rendered画面、immutableな修正・承認履歴、最新revisionの検索、承認済み仕訳のexport、checksum付きlogical backupと空databaseへのtransactional restoreまでを実装しています。
 
 - journalとpostingの永続化
 - 取込履歴、処理状態、sourceの表示
+- 日本語・英語のserver-rendered閲覧画面
 - signed IAP JWTとowner identityを検証するproduction server
 - 仕訳候補の確認・修正・承認
 - 勘定科目と分類ruleの管理

@@ -1,0 +1,32 @@
+{
+  "$schema": "https://biomejs.dev/schemas/2.5.6/schema.json",
+  "files": {
+    "includes": [
+      "internal/webui/assets/**/*.css",
+      "internal/webui/assets/**/*.js",
+      "!internal/webui/assets/htmx-2.0.10.min.js"
+    ]
+  },
+  "formatter": {
+    "enabled": true
+  },
+  "linter": {
+    "enabled": true
+  },
+  "css": {
+    "formatter": {
+      "enabled": true
+    },
+    "linter": {
+      "enabled": true
+    }
+  },
+  "javascript": {
+    "formatter": {
+      "enabled": true
+    },
+    "linter": {
+      "enabled": true
+    }
+  }
+}

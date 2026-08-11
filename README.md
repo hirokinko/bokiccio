@@ -6,7 +6,7 @@ Bokiccio（ボキッチョ）は、複数の明細・メール・レシートか
 
 名前は、メモ帳のように扱える「簿記帖」と、会計が得意でなくても使える「ぶきっちょ」に由来します。
 
-現在は初期基盤の段階です。Tacklerから独立した仕訳ドメイン、Tackler journal formatの互換subset exporter、ローカル取込workflow、Tursoへ永続化するsingle-user Web APIとread-only Web画面を実装しています。外部サービス連携はまだありません。
+現在は初期基盤の段階です。Tacklerから独立した仕訳ドメイン、Tackler journal formatの互換subset exporter、ローカル取込workflow、Tursoへ永続化するsingle-user Web APIと日本語・英語対応のread-only Web画面を実装しています。外部サービス連携はまだありません。
 
 ## 実装済み
 
@@ -24,7 +24,7 @@ Bokiccio（ボキッチョ）は、複数の明細・メール・レシートか
 - Turso互換schemaとread-only JSON APIによるlocal Web vertical slice
 - Turso Cloud remote driver、明示migration、Cloud Run向けHTTP server
 - Cloud Run direct IAP JWT、single-owner、same-origin mutationの検証
-- templによる型付きserver-side renderingの仕訳・取込履歴閲覧画面
+- templによる型付きserver-side renderingの日本語・英語対応仕訳・取込履歴閲覧画面
 - immutableな仕訳revision、domain再validation、append-onlyな承認履歴
 - 最新revisionを対象にした日付・勘定科目・摘要・状態・source検索
 - 現在承認済みの仕訳だけを対象にしたTackler/JSON export
@@ -74,8 +74,8 @@ internal/webapp / internal/webstore / internal/webprod
 
 internal/webui
   ├─ templによる型付きserver-side rendering
-  ├─ 仕訳・取込履歴のread-only画面
-  └─ 同梱したCSSとhtmx asset
+  ├─ 仕訳・取込履歴の日本語・英語read-only画面
+  └─ 同梱したCSS、htmx asset、development-only Biome設定
 ```
 
 正規化入力のfieldとidentity規約は[normalized input v1 contract](internal/ingest/CONTRACT.md)、outcomeとdiagnosticの規約は[record processing contract](internal/ingest/PROCESSING.md)、report・state・公開手順は[run artifact and publication contract](internal/ingest/RUNS.md)にまとめています。
@@ -85,6 +85,7 @@ internal/webui
 必要なもの：
 
 - Go 1.26以降
+- Node.js/npm（CSS/JavaScriptのlint・formatを実行する場合だけ）
 - Tackler 26.1.2（互換性testを実行する場合だけ）
 
 通常のtestは外部サービスやTackler CLIを必要としません。
@@ -93,6 +94,14 @@ internal/webui
 go test ./...
 go test -race ./...
 go vet ./...
+```
+
+Web UIのfirst-party CSS/JavaScriptはBiomeでformat・lintします。Node/npmはdevelopment用であり、Go build、Cloud Run runtime、templ生成、asset配信には使用しません。
+
+```sh
+npm ci
+npm run format
+npm run check
 ```
 
 Tackler CLIを含む互換性testはbuild tagを付けて実行します。

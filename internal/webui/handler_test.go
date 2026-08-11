@@ -84,8 +84,91 @@ func TestReadOnlyUIBrowseAndEscape(t *testing.T) {
 	if method.Code != http.StatusMethodNotAllowed || method.Header().Get("Allow") != "GET, HEAD" {
 		t.Fatalf("POST status=%d Allow=%q", method.Code, method.Header().Get("Allow"))
 	}
+	englishMethod := serve(handler, http.MethodPost, "/en/")
+	if englishMethod.Code != http.StatusMethodNotAllowed || !strings.Contains(englishMethod.Body.String(), `href="/"`) || !strings.Contains(englishMethod.Body.String(), `href="/en/"`) {
+		t.Fatalf("POST /en/ status=%d body=%s", englishMethod.Code, englishMethod.Body.String())
+	}
 	missing := serve(handler, http.MethodGet, "/entries/missing")
 	assertHTMLResponse(t, missing, http.StatusNotFound)
+}
+
+func TestLocalizedReadOnlyRoutesPreserveAccountingValues(t *testing.T) {
+	database := openUIDatabase(t)
+	store := webstore.New(database)
+	input := []byte(`{"schema_version":1,"records":[{"source":{"namespace":"ui-locale","display":"fixtures/source.json","external_id":"ui-locale-entry"},"occurred_at":"2026-08-11","description":"Locale candidate","warnings":[{"code":"ui.locale","message":"Preserve diagnostic"}],"postings":[{"account":"費用:品質","amount":"120.00","commodity":"JPY"},{"account":"資産:品質"}]}]}`)
+	result, err := store.Import(context.Background(), input)
+	if err != nil {
+		t.Fatalf("Import() error = %v", err)
+	}
+	run, err := store.GetRun(context.Background(), result.RunIdentity)
+	if err != nil || len(run.Outcomes) != 1 || run.Outcomes[0].EntryID == "" {
+		t.Fatalf("GetRun() error=%v run=%+v", err, run)
+	}
+	entryID := run.Outcomes[0].EntryID
+	handler := webui.NewHandler(store)
+
+	japaneseIndex := serve(handler, http.MethodGet, "/")
+	englishIndex := serve(handler, http.MethodGet, "/en/")
+	assertHTMLResponse(t, japaneseIndex, http.StatusOK)
+	assertHTMLResponse(t, englishIndex, http.StatusOK)
+	assertContainsAll(t, japaneseIndex.Body.String(), []string{`<html lang="ja">`, "1件を表示", `/entries/` + url.PathEscape(entryID), `href="/en/"`, "English"})
+	assertContainsAll(t, englishIndex.Body.String(), []string{`<html lang="en">`, "Showing 1 entry", `/en/entries/` + url.PathEscape(entryID), "日本語"})
+	assertAccountingTextPreserved(t, japaneseIndex.Body.String(), englishIndex.Body.String(), []string{
+		"Locale candidate", "ui-locale", "fixtures/source.json",
+	})
+
+	japaneseEntry := serve(handler, http.MethodGet, "/entries/"+url.PathEscape(entryID))
+	englishEntry := serve(handler, http.MethodGet, "/en/entries/"+url.PathEscape(entryID))
+	assertHTMLResponse(t, japaneseEntry, http.StatusOK)
+	assertHTMLResponse(t, englishEntry, http.StatusOK)
+	assertContainsAll(t, japaneseEntry.Body.String(), []string{`<html lang="ja">`, `/imports/` + url.PathEscape(result.RunIdentity), `/en/entries/` + url.PathEscape(entryID)})
+	assertContainsAll(t, englishEntry.Body.String(), []string{`<html lang="en">`, "Back to journal candidates", `/en/imports/` + url.PathEscape(result.RunIdentity), `/entries/` + url.PathEscape(entryID)})
+	assertAccountingTextPreserved(t, japaneseEntry.Body.String(), englishEntry.Body.String(), []string{
+		"Locale candidate", "費用:品質", "資産:品質", "120.00", "JPY", "ui.locale", "Preserve diagnostic", result.RunIdentity,
+	})
+
+	japaneseRun := serve(handler, http.MethodGet, "/imports/"+url.PathEscape(result.RunIdentity))
+	englishRun := serve(handler, http.MethodGet, "/en/imports/"+url.PathEscape(result.RunIdentity))
+	assertHTMLResponse(t, japaneseRun, http.StatusOK)
+	assertHTMLResponse(t, englishRun, http.StatusOK)
+	assertContainsAll(t, japaneseRun.Body.String(), []string{`<html lang="ja">`, "取込結果", `/entries/` + url.PathEscape(entryID), `/en/imports/` + url.PathEscape(result.RunIdentity)})
+	assertContainsAll(t, englishRun.Body.String(), []string{`<html lang="en">`, "Import result", `/en/entries/` + url.PathEscape(entryID), `/imports/` + url.PathEscape(result.RunIdentity)})
+	assertAccountingTextPreserved(t, japaneseRun.Body.String(), englishRun.Body.String(), []string{
+		result.RunIdentity, "ui-locale", "fixtures/source.json", entryID,
+	})
+}
+
+func TestLocalizedEmptyAndErrorRoutes(t *testing.T) {
+	handler := webui.NewHandler(webstore.New(openUIDatabase(t)))
+
+	for _, test := range []struct {
+		name string
+		path string
+		want []string
+	}{
+		{name: "ja empty", path: "/", want: []string{`<html lang="ja">`, "仕訳候補はまだありません"}},
+		{name: "en empty", path: "/en/", want: []string{`<html lang="en">`, "No journal candidates yet"}},
+		{name: "en malformed detail", path: "/en/entries/a/b", want: []string{`<html lang="en">`, "The requested page was not found."}},
+		{name: "unsupported locale prefix", path: "/fr/", want: []string{`<html lang="ja">`, "指定されたページは見つかりませんでした。"}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			response := serve(handler, http.MethodGet, test.path)
+			status := http.StatusOK
+			if !strings.Contains(test.name, "empty") {
+				status = http.StatusNotFound
+			}
+			assertHTMLResponse(t, response, status)
+			assertContainsAll(t, response.Body.String(), test.want)
+			if response.Header().Get("Location") != "" {
+				t.Fatalf("Location = %q", response.Header().Get("Location"))
+			}
+		})
+	}
+
+	redirect := serve(handler, http.MethodGet, "/en")
+	if redirect.Code != http.StatusPermanentRedirect || redirect.Header().Get("Location") != "/en/" {
+		t.Fatalf("/en redirect status=%d Location=%q", redirect.Code, redirect.Header().Get("Location"))
+	}
 }
 
 func TestEmbeddedAssetsArePinnedAndPrivate(t *testing.T) {
@@ -154,5 +237,26 @@ func assertHTMLResponse(t *testing.T, response *httptest.ResponseRecorder, statu
 	}
 	if csp := response.Header().Get("Content-Security-Policy"); !strings.Contains(csp, "default-src 'self'") || !strings.Contains(csp, "frame-ancestors 'none'") {
 		t.Errorf("Content-Security-Policy = %q", csp)
+	}
+}
+
+func assertContainsAll(t *testing.T, body string, values []string) {
+	t.Helper()
+	for _, value := range values {
+		if !strings.Contains(body, value) {
+			t.Fatalf("body does not contain %q: %s", value, body)
+		}
+	}
+}
+
+func assertAccountingTextPreserved(t *testing.T, japanese, english string, values []string) {
+	t.Helper()
+	for _, value := range values {
+		if !strings.Contains(japanese, value) {
+			t.Fatalf("Japanese body does not contain %q: %s", value, japanese)
+		}
+		if !strings.Contains(english, value) {
+			t.Fatalf("English body does not contain %q: %s", value, english)
+		}
 	}
 }

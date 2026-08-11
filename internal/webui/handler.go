@@ -28,44 +28,57 @@ func NewHandler(repository webapp.Repository) *Handler {
 
 func (handler *Handler) ServeHTTP(response http.ResponseWriter, request *http.Request) {
 	setPrivateHeaders(response)
-	switch {
-	case request.URL.Path == "/":
-		if request.Method != http.MethodGet && request.Method != http.MethodHead {
-			handler.methodNotAllowed(response, request)
-			return
-		}
-		handler.index(response, request)
-	case strings.HasPrefix(request.URL.Path, "/entries/"):
-		if request.Method != http.MethodGet && request.Method != http.MethodHead {
-			handler.methodNotAllowed(response, request)
-			return
-		}
-		handler.entry(response, request, strings.TrimPrefix(request.URL.Path, "/entries/"))
-	case strings.HasPrefix(request.URL.Path, "/imports/"):
-		if request.Method != http.MethodGet && request.Method != http.MethodHead {
-			handler.methodNotAllowed(response, request)
-			return
-		}
-		handler.run(response, request, strings.TrimPrefix(request.URL.Path, "/imports/"))
-	case request.URL.Path == "/assets/app.css":
+	if request.URL.Path == "/en" {
+		http.Redirect(response, request, "/en/", http.StatusPermanentRedirect)
+		return
+	}
+	if request.URL.Path == "/assets/app.css" {
 		handler.asset(response, request, "assets/app.css", "text/css; charset=utf-8")
-	case request.URL.Path == "/assets/htmx-2.0.10.min.js":
+		return
+	}
+	if request.URL.Path == "/assets/htmx-2.0.10.min.js" {
 		handler.asset(response, request, "assets/htmx-2.0.10.min.js", "text/javascript; charset=utf-8")
+		return
+	}
+
+	requestLocale, localPath := localeRoute(request.URL.Path)
+	switch {
+	case localPath == "/":
+		if request.Method != http.MethodGet && request.Method != http.MethodHead {
+			handler.methodNotAllowed(response, request, requestLocale, localPath)
+			return
+		}
+		handler.index(response, request, requestLocale)
+	case strings.HasPrefix(localPath, "/entries/"):
+		if request.Method != http.MethodGet && request.Method != http.MethodHead {
+			handler.methodNotAllowed(response, request, requestLocale, localPath)
+			return
+		}
+		handler.entry(response, request, requestLocale, strings.TrimPrefix(localPath, "/entries/"))
+	case strings.HasPrefix(localPath, "/imports/"):
+		if request.Method != http.MethodGet && request.Method != http.MethodHead {
+			handler.methodNotAllowed(response, request, requestLocale, localPath)
+			return
+		}
+		handler.run(response, request, requestLocale, strings.TrimPrefix(localPath, "/imports/"))
 	default:
-		handler.notFound(response, request)
+		handler.notFound(response, request, requestLocale)
 	}
 }
 
-func (handler *Handler) index(response http.ResponseWriter, request *http.Request) {
+func (handler *Handler) index(response http.ResponseWriter, request *http.Request, requestLocale locale) {
 	page, err := handler.repository.ListEntries(request.Context(), webapp.EntryQuery{Limit: defaultPageSize})
 	if err != nil {
-		handler.internalError(response, request)
+		handler.internalError(response, request, requestLocale)
 		return
 	}
-	model := indexPageModel{Entries: make([]entrySummaryModel, 0, len(page.Entries))}
+	model := indexPageModel{
+		Page:    newPageContext(requestLocale, "/"),
+		Entries: make([]entrySummaryModel, 0, len(page.Entries)),
+	}
 	for _, entry := range page.Entries {
 		model.Entries = append(model.Entries, entrySummaryModel{
-			Href: "/entries/" + url.PathEscape(entry.ID), OccurredAt: entry.OccurredAt,
+			Href: entryHref(requestLocale, entry.ID), OccurredAt: entry.OccurredAt,
 			Description: entry.Description, Status: entry.Status, WorkflowStatus: entry.WorkflowStatus,
 			CurrentRevision: entry.CurrentRevision, Source: entry.Source,
 		})
@@ -73,19 +86,19 @@ func (handler *Handler) index(response http.ResponseWriter, request *http.Reques
 	render(response, request, http.StatusOK, indexPage(model))
 }
 
-func (handler *Handler) entry(response http.ResponseWriter, request *http.Request, escapedID string) {
+func (handler *Handler) entry(response http.ResponseWriter, request *http.Request, requestLocale locale, escapedID string) {
 	id, ok := pathID(escapedID)
 	if !ok {
-		handler.notFound(response, request)
+		handler.notFound(response, request, requestLocale)
 		return
 	}
 	detail, err := handler.repository.GetEntry(request.Context(), id)
 	if errors.Is(err, webapp.ErrNotFound) {
-		handler.notFound(response, request)
+		handler.notFound(response, request, requestLocale)
 		return
 	}
 	if err != nil {
-		handler.internalError(response, request)
+		handler.internalError(response, request, requestLocale)
 		return
 	}
 	current := candidateModel{
@@ -100,44 +113,49 @@ func (handler *Handler) entry(response http.ResponseWriter, request *http.Reques
 		}
 	}
 	render(response, request, http.StatusOK, entryPage(entryPageModel{
-		Detail: detail, Current: current, RunHref: "/imports/" + url.PathEscape(detail.RunIdentity),
+		Page: newPageContext(requestLocale, "/entries/"+url.PathEscape(id)), Detail: detail, Current: current,
+		RunHref: runHref(requestLocale, detail.RunIdentity),
 	}))
 }
 
-func (handler *Handler) run(response http.ResponseWriter, request *http.Request, escapedID string) {
+func (handler *Handler) run(response http.ResponseWriter, request *http.Request, requestLocale locale, escapedID string) {
 	id, ok := pathID(escapedID)
 	if !ok {
-		handler.notFound(response, request)
+		handler.notFound(response, request, requestLocale)
 		return
 	}
 	detail, err := handler.repository.GetRun(request.Context(), id)
 	if errors.Is(err, webapp.ErrNotFound) {
-		handler.notFound(response, request)
+		handler.notFound(response, request, requestLocale)
 		return
 	}
 	if err != nil {
-		handler.internalError(response, request)
+		handler.internalError(response, request, requestLocale)
 		return
 	}
-	model := runPageModel{Detail: detail, Outcomes: make([]outcomePageModel, 0, len(detail.Outcomes))}
+	model := runPageModel{
+		Page:     newPageContext(requestLocale, "/imports/"+url.PathEscape(id)),
+		Detail:   detail,
+		Outcomes: make([]outcomePageModel, 0, len(detail.Outcomes)),
+	}
 	for _, outcome := range detail.Outcomes {
-		entryHref := ""
+		outcomeEntryHref := ""
 		if outcome.EntryID != "" {
-			entryHref = "/entries/" + url.PathEscape(outcome.EntryID)
+			outcomeEntryHref = entryHref(requestLocale, outcome.EntryID)
 		}
-		model.Outcomes = append(model.Outcomes, outcomePageModel{Detail: outcome, EntryHref: entryHref})
+		model.Outcomes = append(model.Outcomes, outcomePageModel{Detail: outcome, EntryHref: outcomeEntryHref})
 	}
 	render(response, request, http.StatusOK, runPage(model))
 }
 
 func (handler *Handler) asset(response http.ResponseWriter, request *http.Request, name, contentType string) {
 	if request.Method != http.MethodGet && request.Method != http.MethodHead {
-		handler.methodNotAllowed(response, request)
+		handler.methodNotAllowed(response, request, localeJA, request.URL.Path)
 		return
 	}
 	data, err := assetFiles.ReadFile(name)
 	if err != nil {
-		handler.notFound(response, request)
+		handler.notFound(response, request, localeJA)
 		return
 	}
 	response.Header().Set("Content-Type", contentType)
@@ -148,22 +166,28 @@ func (handler *Handler) asset(response http.ResponseWriter, request *http.Reques
 	}
 }
 
-func (handler *Handler) methodNotAllowed(response http.ResponseWriter, request *http.Request) {
+func (handler *Handler) methodNotAllowed(response http.ResponseWriter, request *http.Request, requestLocale locale, localPath string) {
+	msg := messagesFor(requestLocale)
 	response.Header().Set("Allow", "GET, HEAD")
 	render(response, request, http.StatusMethodNotAllowed, errorPage(errorPageModel{
-		Status: http.StatusMethodNotAllowed, Title: "Method not allowed", Message: "この操作には対応していません。",
+		Page: newPageContext(requestLocale, localPath), Status: http.StatusMethodNotAllowed,
+		Title: msg.MethodNotAllowedTitle, Message: msg.MethodNotAllowedMessage,
 	}))
 }
 
-func (handler *Handler) notFound(response http.ResponseWriter, request *http.Request) {
+func (handler *Handler) notFound(response http.ResponseWriter, request *http.Request, requestLocale locale) {
+	msg := messagesFor(requestLocale)
 	render(response, request, http.StatusNotFound, errorPage(errorPageModel{
-		Status: http.StatusNotFound, Title: "Not found", Message: "指定されたページは見つかりませんでした。",
+		Page: newPageContext(requestLocale, "/"), Status: http.StatusNotFound,
+		Title: msg.NotFoundTitle, Message: msg.NotFoundMessage,
 	}))
 }
 
-func (handler *Handler) internalError(response http.ResponseWriter, request *http.Request) {
+func (handler *Handler) internalError(response http.ResponseWriter, request *http.Request, requestLocale locale) {
+	msg := messagesFor(requestLocale)
 	render(response, request, http.StatusInternalServerError, errorPage(errorPageModel{
-		Status: http.StatusInternalServerError, Title: "Internal error", Message: "ページを表示できませんでした。",
+		Page: newPageContext(requestLocale, "/"), Status: http.StatusInternalServerError,
+		Title: msg.InternalErrorTitle, Message: msg.InternalErrorMessage,
 	}))
 }
 
@@ -182,6 +206,17 @@ func pathID(escaped string) (string, bool) {
 	}
 	id, err := url.PathUnescape(escaped)
 	return id, err == nil && id != "" && !strings.Contains(id, "/")
+}
+
+func localeRoute(path string) (locale, string) {
+	if strings.HasPrefix(path, "/en/") {
+		localPath := strings.TrimPrefix(path, "/en")
+		if localPath == "" {
+			localPath = "/"
+		}
+		return localeEN, localPath
+	}
+	return localeJA, path
 }
 
 func setPrivateHeaders(response http.ResponseWriter) {
