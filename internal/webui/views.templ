@@ -38,34 +38,120 @@ templ indexPage(model indexPageModel) {
 						<p class="eyebrow">{ model.Page.Messages.IndexEyebrow }</p>
 						<h1>{ model.Page.Messages.IndexTitle }</h1>
 					</div>
-					<p>{ model.Page.Messages.EntriesShown(len(model.Entries)) }</p>
 				</header>
-				if len(model.Entries) == 0 {
-					<section class="empty-state" aria-labelledby="empty-heading">
-						<h2 id="empty-heading">{ model.Page.Messages.EmptyEntriesTitle }</h2>
-						<p>{ model.Page.Messages.EmptyEntriesMessage }</p>
-					</section>
-				} else {
-					<div class="entry-list">
-						for _, entry := range model.Entries {
-							<article class="entry-card">
-								<div>
-									<p class="entry-date">{ entry.OccurredAt }</p>
-									<h2><a href={ entry.Href }>{ entry.Description }</a></h2>
-									<p class="source">{ entry.Source.Namespace }: { entry.Source.Display }</p>
-								</div>
-								<dl class="status-list">
-									<div><dt>{ model.Page.Messages.ImportStatusLabel }</dt><dd>{ entry.Status }</dd></div>
-									<div><dt>{ model.Page.Messages.WorkflowStatusLabel }</dt><dd>{ entry.WorkflowStatus }</dd></div>
-									<div><dt>{ model.Page.Messages.RevisionLabel }</dt><dd>{ entry.CurrentRevision }</dd></div>
-								</dl>
-							</article>
-						}
-					</div>
-				}
+				@searchForm(model)
+				@entryResults(model)
 			</main>
 		</body>
 	</html>
+}
+
+templ searchForm(model indexPageModel) {
+	<form class="search-panel" method="post" action={ model.Search.Action } aria-label={ model.Page.Messages.SearchFormLabel } hx-post={ model.Search.Action } hx-target="#entry-results" hx-swap="outerHTML">
+		<h2>{ model.Page.Messages.SearchHeading }</h2>
+		<div class="search-grid">
+			<label>{ model.Page.Messages.DateFromLabel }<input type="date" name="date_from" value={ model.Search.Filter.DateFrom }/></label>
+			<label>{ model.Page.Messages.DateToLabel }<input type="date" name="date_to" value={ model.Search.Filter.DateTo }/></label>
+			<label>{ model.Page.Messages.AccountFilterLabel }<input type="search" name="account" value={ model.Search.Filter.Account }/></label>
+			<label>{ model.Page.Messages.DescriptionFilterLabel }<input type="search" name="description" value={ model.Search.Filter.Description }/></label>
+			<label>{ model.Page.Messages.ImportStatusFilterLabel }
+				<select name="status">
+					<option value="">{ model.Page.Messages.AllImportStatuses }</option>
+					if model.Search.Filter.Status == "success" {
+						<option value="success" selected>{ model.Page.Messages.ImportStatusSuccess }</option>
+					} else {
+						<option value="success">{ model.Page.Messages.ImportStatusSuccess }</option>
+					}
+					if model.Search.Filter.Status == "warning" {
+						<option value="warning" selected>{ model.Page.Messages.ImportStatusWarning }</option>
+					} else {
+						<option value="warning">{ model.Page.Messages.ImportStatusWarning }</option>
+					}
+				</select>
+			</label>
+			<label>{ model.Page.Messages.WorkflowFilterLabel }
+				<select name="workflow_status">
+					<option value="">{ model.Page.Messages.AllWorkflowStatuses }</option>
+					if model.Search.Filter.WorkflowStatus == "unapproved" {
+						<option value="unapproved" selected>{ model.Page.Messages.WorkflowStatusUnapproved }</option>
+					} else {
+						<option value="unapproved">{ model.Page.Messages.WorkflowStatusUnapproved }</option>
+					}
+					if model.Search.Filter.WorkflowStatus == "invalid" {
+						<option value="invalid" selected>{ model.Page.Messages.WorkflowStatusInvalid }</option>
+					} else {
+						<option value="invalid">{ model.Page.Messages.WorkflowStatusInvalid }</option>
+					}
+					if model.Search.Filter.WorkflowStatus == "approved" {
+						<option value="approved" selected>{ model.Page.Messages.WorkflowStatusApproved }</option>
+					} else {
+						<option value="approved">{ model.Page.Messages.WorkflowStatusApproved }</option>
+					}
+				</select>
+			</label>
+			<label>{ model.Page.Messages.SourceNamespaceLabel }<input type="search" name="source_namespace" value={ model.Search.Filter.SourceNamespace }/></label>
+			<label>{ model.Page.Messages.SourceDisplayLabel }<input type="search" name="source_display" value={ model.Search.Filter.SourceDisplay }/></label>
+		</div>
+		<div class="form-actions">
+			<button type="submit">{ model.Page.Messages.SearchSubmit }</button>
+			<a href={ model.Search.ResetHref }>{ model.Page.Messages.ClearSearch }</a>
+		</div>
+	</form>
+}
+
+templ entryResults(model indexPageModel) {
+	<section id="entry-results" class="entry-results" aria-label={ model.Page.Messages.SearchResultsLabel } aria-live="polite">
+		<header class="results-heading">
+			<h2>{ model.Page.Messages.SearchResultsLabel }</h2>
+			<p>{ model.Page.Messages.EntriesShown(len(model.Entries)) }</p>
+		</header>
+		if len(model.Entries) == 0 {
+			<section class="empty-state" aria-labelledby="empty-heading">
+				if model.SearchApplied {
+					<h2 id="empty-heading">{ model.Page.Messages.NoMatchingEntriesTitle }</h2>
+					<p>{ model.Page.Messages.NoMatchingEntriesMessage }</p>
+				} else {
+					<h2 id="empty-heading">{ model.Page.Messages.EmptyEntriesTitle }</h2>
+					<p>{ model.Page.Messages.EmptyEntriesMessage }</p>
+				}
+			</section>
+		} else {
+			<div class="entry-list">
+				for _, entry := range model.Entries {
+					<article class="entry-card">
+						<div>
+							<p class="entry-date">{ entry.OccurredAt }</p>
+							<h2><a href={ entry.Href }>{ entry.Description }</a></h2>
+							<p class="source">{ entry.Source.Namespace }: { entry.Source.Display }</p>
+						</div>
+						<dl class="status-list">
+							<div><dt>{ model.Page.Messages.ImportStatusLabel }</dt><dd>{ entry.Status }</dd></div>
+							<div><dt>{ model.Page.Messages.WorkflowStatusLabel }</dt><dd>{ entry.WorkflowStatus }</dd></div>
+							<div><dt>{ model.Page.Messages.RevisionLabel }</dt><dd>{ entry.CurrentRevision }</dd></div>
+						</dl>
+					</article>
+				}
+			</div>
+		}
+		if model.NextCursor != "" {
+			<form class="pagination-form" method="post" action={ model.Search.Action } hx-post={ model.Search.Action } hx-target="#entry-results" hx-swap="outerHTML">
+				@searchHiddenFields(model.Search)
+				<input type="hidden" name="cursor" value={ model.NextCursor }/>
+				<button type="submit">{ model.Page.Messages.NextPage }</button>
+			</form>
+		}
+	</section>
+}
+
+templ searchHiddenFields(search searchFormModel) {
+	<input type="hidden" name="date_from" value={ search.Filter.DateFrom }/>
+	<input type="hidden" name="date_to" value={ search.Filter.DateTo }/>
+	<input type="hidden" name="account" value={ search.Filter.Account }/>
+	<input type="hidden" name="description" value={ search.Filter.Description }/>
+	<input type="hidden" name="status" value={ search.Filter.Status }/>
+	<input type="hidden" name="workflow_status" value={ search.Filter.WorkflowStatus }/>
+	<input type="hidden" name="source_namespace" value={ search.Filter.SourceNamespace }/>
+	<input type="hidden" name="source_display" value={ search.Filter.SourceDisplay }/>
 }
 
 templ entryPage(model entryPageModel) {

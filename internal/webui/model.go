@@ -3,8 +3,17 @@ package webui
 import "github.com/hirokinko/bokiccio/internal/webapp"
 
 type indexPageModel struct {
-	Page    pageContext
-	Entries []entrySummaryModel
+	Page          pageContext
+	Search        searchFormModel
+	Entries       []entrySummaryModel
+	NextCursor    string
+	SearchApplied bool
+}
+
+type searchFormModel struct {
+	Action    string
+	ResetHref string
+	Filter    webapp.EntryFilter
 }
 
 type entrySummaryModel struct {

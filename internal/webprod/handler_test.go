@@ -113,4 +113,27 @@ func TestProductionHandlerOnlyExemptsHealth(t *testing.T) {
 			t.Errorf("authenticated %s status=%d body=%q", path, authenticated.Code, authenticated.Body.String())
 		}
 	}
+
+	for _, test := range []struct {
+		name   string
+		origin string
+		status int
+	}{
+		{name: "missing origin", status: http.StatusForbidden},
+		{name: "wrong origin", origin: "https://other.example.com", status: http.StatusForbidden},
+		{name: "configured origin", origin: "https://example.com", status: http.StatusNoContent},
+	} {
+		t.Run("search POST "+test.name, func(t *testing.T) {
+			response := httptest.NewRecorder()
+			request := httptest.NewRequest(http.MethodPost, "/ui/entries/search", nil)
+			request.Header.Set("X-Goog-IAP-JWT-Assertion", "signed")
+			if test.origin != "" {
+				request.Header.Set("Origin", test.origin)
+			}
+			handler.ServeHTTP(response, request)
+			if response.Code != test.status {
+				t.Fatalf("status=%d body=%q", response.Code, response.Body.String())
+			}
+		})
+	}
 }

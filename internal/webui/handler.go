@@ -4,6 +4,8 @@ package webui
 import (
 	"embed"
 	"errors"
+	"io"
+	"mime"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -13,7 +15,10 @@ import (
 	"github.com/hirokinko/bokiccio/internal/webapp"
 )
 
-const defaultPageSize = 50
+const (
+	defaultPageSize   = 50
+	maxSearchFormBody = 16 << 10
+)
 
 //go:embed assets/app.css assets/htmx-2.0.10.min.js
 var assetFiles embed.FS
@@ -45,19 +50,25 @@ func (handler *Handler) ServeHTTP(response http.ResponseWriter, request *http.Re
 	switch {
 	case localPath == "/":
 		if request.Method != http.MethodGet && request.Method != http.MethodHead {
-			handler.methodNotAllowed(response, request, requestLocale, localPath)
+			handler.methodNotAllowed(response, request, requestLocale, localPath, "GET, HEAD")
 			return
 		}
 		handler.index(response, request, requestLocale)
+	case localPath == "/ui/entries/search":
+		if request.Method != http.MethodPost {
+			handler.methodNotAllowed(response, request, requestLocale, localPath, "POST")
+			return
+		}
+		handler.searchEntries(response, request, requestLocale)
 	case strings.HasPrefix(localPath, "/entries/"):
 		if request.Method != http.MethodGet && request.Method != http.MethodHead {
-			handler.methodNotAllowed(response, request, requestLocale, localPath)
+			handler.methodNotAllowed(response, request, requestLocale, localPath, "GET, HEAD")
 			return
 		}
 		handler.entry(response, request, requestLocale, strings.TrimPrefix(localPath, "/entries/"))
 	case strings.HasPrefix(localPath, "/imports/"):
 		if request.Method != http.MethodGet && request.Method != http.MethodHead {
-			handler.methodNotAllowed(response, request, requestLocale, localPath)
+			handler.methodNotAllowed(response, request, requestLocale, localPath, "GET, HEAD")
 			return
 		}
 		handler.run(response, request, requestLocale, strings.TrimPrefix(localPath, "/imports/"))
@@ -72,16 +83,32 @@ func (handler *Handler) index(response http.ResponseWriter, request *http.Reques
 		handler.internalError(response, request, requestLocale)
 		return
 	}
-	model := indexPageModel{
-		Page:    newPageContext(requestLocale, "/"),
-		Entries: make([]entrySummaryModel, 0, len(page.Entries)),
+	model := newIndexPageModel(requestLocale, webapp.EntryFilter{}, page, false)
+	render(response, request, http.StatusOK, indexPage(model))
+}
+
+func (handler *Handler) searchEntries(response http.ResponseWriter, request *http.Request, requestLocale locale) {
+	addVary(response, "HX-Request")
+	filter, cursor, ok := decodeSearchForm(response, request)
+	if !ok {
+		handler.invalidSearch(response, request, requestLocale)
+		return
 	}
-	for _, entry := range page.Entries {
-		model.Entries = append(model.Entries, entrySummaryModel{
-			Href: entryHref(requestLocale, entry.ID), OccurredAt: entry.OccurredAt,
-			Description: entry.Description, Status: entry.Status, WorkflowStatus: entry.WorkflowStatus,
-			CurrentRevision: entry.CurrentRevision, Source: entry.Source,
-		})
+	page, err := handler.repository.ListEntries(request.Context(), webapp.EntryQuery{
+		Filter: filter, Limit: defaultPageSize, Cursor: cursor,
+	})
+	if errors.Is(err, webapp.ErrInvalidRequest) {
+		handler.invalidSearch(response, request, requestLocale)
+		return
+	}
+	if err != nil {
+		handler.internalError(response, request, requestLocale)
+		return
+	}
+	model := newIndexPageModel(requestLocale, filter, page, true)
+	if isHXRequest(request) {
+		render(response, request, http.StatusOK, entryResults(model))
+		return
 	}
 	render(response, request, http.StatusOK, indexPage(model))
 }
@@ -150,7 +177,7 @@ func (handler *Handler) run(response http.ResponseWriter, request *http.Request,
 
 func (handler *Handler) asset(response http.ResponseWriter, request *http.Request, name, contentType string) {
 	if request.Method != http.MethodGet && request.Method != http.MethodHead {
-		handler.methodNotAllowed(response, request, localeJA, request.URL.Path)
+		handler.methodNotAllowed(response, request, localeJA, request.URL.Path, "GET, HEAD")
 		return
 	}
 	data, err := assetFiles.ReadFile(name)
@@ -166,9 +193,9 @@ func (handler *Handler) asset(response http.ResponseWriter, request *http.Reques
 	}
 }
 
-func (handler *Handler) methodNotAllowed(response http.ResponseWriter, request *http.Request, requestLocale locale, localPath string) {
+func (handler *Handler) methodNotAllowed(response http.ResponseWriter, request *http.Request, requestLocale locale, localPath, allow string) {
 	msg := messagesFor(requestLocale)
-	response.Header().Set("Allow", "GET, HEAD")
+	response.Header().Set("Allow", allow)
 	render(response, request, http.StatusMethodNotAllowed, errorPage(errorPageModel{
 		Page: newPageContext(requestLocale, localPath), Status: http.StatusMethodNotAllowed,
 		Title: msg.MethodNotAllowedTitle, Message: msg.MethodNotAllowedMessage,
@@ -191,6 +218,32 @@ func (handler *Handler) internalError(response http.ResponseWriter, request *htt
 	}))
 }
 
+func (handler *Handler) invalidSearch(response http.ResponseWriter, request *http.Request, requestLocale locale) {
+	msg := messagesFor(requestLocale)
+	render(response, request, http.StatusBadRequest, errorPage(errorPageModel{
+		Page: newPageContext(requestLocale, "/"), Status: http.StatusBadRequest,
+		Title: msg.InvalidSearchTitle, Message: msg.InvalidSearchMessage,
+	}))
+}
+
+func newIndexPageModel(requestLocale locale, filter webapp.EntryFilter, page webapp.EntryPage, searchApplied bool) indexPageModel {
+	model := indexPageModel{
+		Page:          newPageContext(requestLocale, "/"),
+		Search:        searchFormModel{Action: searchHref(requestLocale), ResetHref: localizedPath(requestLocale, "/"), Filter: filter},
+		Entries:       make([]entrySummaryModel, 0, len(page.Entries)),
+		NextCursor:    page.NextCursor,
+		SearchApplied: searchApplied,
+	}
+	for _, entry := range page.Entries {
+		model.Entries = append(model.Entries, entrySummaryModel{
+			Href: entryHref(requestLocale, entry.ID), OccurredAt: entry.OccurredAt,
+			Description: entry.Description, Status: entry.Status, WorkflowStatus: entry.WorkflowStatus,
+			CurrentRevision: entry.CurrentRevision, Source: entry.Source,
+		})
+	}
+	return model
+}
+
 func render(response http.ResponseWriter, request *http.Request, status int, component templ.Component) {
 	response.Header().Set("Content-Type", "text/html; charset=utf-8")
 	response.WriteHeader(status)
@@ -198,6 +251,86 @@ func render(response http.ResponseWriter, request *http.Request, status int, com
 		return
 	}
 	_ = component.Render(request.Context(), response)
+}
+
+func decodeSearchForm(response http.ResponseWriter, request *http.Request) (webapp.EntryFilter, string, bool) {
+	if request.URL.RawQuery != "" {
+		return webapp.EntryFilter{}, "", false
+	}
+	mediaType, _, err := mime.ParseMediaType(request.Header.Get("Content-Type"))
+	if err != nil || mediaType != "application/x-www-form-urlencoded" {
+		return webapp.EntryFilter{}, "", false
+	}
+	body, err := io.ReadAll(http.MaxBytesReader(response, request.Body, maxSearchFormBody))
+	if err != nil {
+		return webapp.EntryFilter{}, "", false
+	}
+	form, err := url.ParseQuery(string(body))
+	if err != nil {
+		return webapp.EntryFilter{}, "", false
+	}
+	for key, values := range form {
+		if !searchFormFieldAllowed(key) || len(values) > 1 {
+			return webapp.EntryFilter{}, "", false
+		}
+	}
+	return webapp.EntryFilter{
+		DateFrom:        form.Get(searchFieldDateFrom),
+		DateTo:          form.Get(searchFieldDateTo),
+		Account:         form.Get(searchFieldAccount),
+		Description:     form.Get(searchFieldDescription),
+		Status:          form.Get(searchFieldStatus),
+		WorkflowStatus:  form.Get(searchFieldWorkflowStatus),
+		SourceNamespace: form.Get(searchFieldSourceNamespace),
+		SourceDisplay:   form.Get(searchFieldSourceDisplay),
+	}, form.Get(searchFieldCursor), true
+}
+
+const (
+	searchFieldDateFrom        = "date_from"
+	searchFieldDateTo          = "date_to"
+	searchFieldAccount         = "account"
+	searchFieldDescription     = "description"
+	searchFieldStatus          = "status"
+	searchFieldWorkflowStatus  = "workflow_status"
+	searchFieldSourceNamespace = "source_namespace"
+	searchFieldSourceDisplay   = "source_display"
+	searchFieldCursor          = "cursor"
+)
+
+var searchFormFields = map[string]struct{}{
+	searchFieldDateFrom:        {},
+	searchFieldDateTo:          {},
+	searchFieldAccount:         {},
+	searchFieldDescription:     {},
+	searchFieldStatus:          {},
+	searchFieldWorkflowStatus:  {},
+	searchFieldSourceNamespace: {},
+	searchFieldSourceDisplay:   {},
+	searchFieldCursor:          {},
+}
+
+func searchFormFieldAllowed(key string) bool {
+	_, ok := searchFormFields[key]
+	return ok
+}
+
+func isHXRequest(request *http.Request) bool {
+	return request.Header.Get("HX-Request") == "true"
+}
+
+func addVary(response http.ResponseWriter, value string) {
+	current := response.Header().Get("Vary")
+	if current == "" {
+		response.Header().Set("Vary", value)
+		return
+	}
+	for _, item := range strings.Split(current, ",") {
+		if strings.EqualFold(strings.TrimSpace(item), value) {
+			return
+		}
+	}
+	response.Header().Set("Vary", current+", "+value)
 }
 
 func pathID(escaped string) (string, bool) {

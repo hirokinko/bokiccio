@@ -24,7 +24,7 @@ Bokiccio（ボキッチョ）は、複数の明細・メール・レシートか
 - Turso互換schemaとread-only JSON APIによるlocal Web vertical slice
 - Turso Cloud remote driver、明示migration、Cloud Run向けHTTP server
 - Cloud Run direct IAP JWT、single-owner、same-origin mutationの検証
-- templによる型付きserver-side renderingの日本語・英語対応仕訳・取込履歴閲覧画面
+- templによる型付きserver-side renderingの日本語・英語対応仕訳検索・取込履歴閲覧画面
 - immutableな仕訳revision、domain再validation、append-onlyな承認履歴
 - 最新revisionを対象にした日付・勘定科目・摘要・状態・source検索
 - 現在承認済みの仕訳だけを対象にしたTackler/JSON export
@@ -74,7 +74,7 @@ internal/webapp / internal/webstore / internal/webprod
 
 internal/webui
   ├─ templによる型付きserver-side rendering
-  ├─ 仕訳・取込履歴の日本語・英語read-only画面
+  ├─ 仕訳検索・取込履歴の日本語・英語read-only画面
   └─ 同梱したCSS、htmx asset、development-only Biome設定
 ```
 
@@ -183,7 +183,7 @@ exporterは日付、timezone付きRFC 3339日時、摘要、取引・postingコ�
 ## 現在の非対応範囲
 
 - Tackler journal parser
-- Web UIからの検索・upload・修正・承認、テナント管理
+- Web UIからのupload・修正・承認、テナント管理
 - production deployment manifestと自動migration
 - Gmail、Google Drive、Cloud Vision、Vertex AIとの連携
 - 定期batchとjob管理

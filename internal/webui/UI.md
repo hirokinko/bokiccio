@@ -5,9 +5,11 @@ BokiccioのWeb UIは、Cloud Run direct IAPで保護された単一利用者向�
 ## Routes
 
 - `GET /`: 最新50件の仕訳候補
+- `POST /ui/entries/search`: form bodyによる仕訳候補検索とpagination
 - `GET /entries/{id}`: 仕訳候補とrevision・承認履歴
 - `GET /imports/{run-identity}`: 取込結果とdiagnostic
 - `GET /en/`: 最新50件の仕訳候補（英語UI）
+- `POST /en/ui/entries/search`: form bodyによる仕訳候補検索とpagination（英語UI）
 - `GET /en/entries/{id}`: 仕訳候補とrevision・承認履歴（英語UI）
 - `GET /en/imports/{run-identity}`: 取込結果とdiagnostic（英語UI）
 - `GET /assets/app.css`: 同梱した画面style
@@ -16,6 +18,8 @@ BokiccioのWeb UIは、Cloud Run direct IAPで保護された単一利用者向�
 `/en`は`/en/`へredirectします。`HEAD`も同じrouteで利用できます。その他のmethodは`405 Method Not Allowed`、存在しないresourceはHTMLの`404 Not Found`を返します。JSON APIは従来どおり`/api/`以下で提供します。
 
 unprefixed routeは日本語UI、`/en/` prefixは英語UIです。localeはURL pathだけで決まり、cookie、query parameter、local storage、session storageは使いません。account、source、diagnostic code/message、Decimal text、commodity、opaque IDはlocale間で翻訳・再formatしません。
+
+検索条件とpagination cursorは`application/x-www-form-urlencoded`のPOST bodyで送信し、URL、cookie、browser storageへ保存しません。`HX-Request: true`の場合は一覧とpaginationだけのHTML fragmentを返し、通常requestにはfull HTMLを返します。
 
 すべてのHTMLとassetはproduction handlerのIAP検証を通り、`Cache-Control: no-store`と同一originを前提としたContent Security Policyを付与します。画面のHTMLはtemplから生成し、生成済みの`*_templ.go`もsource treeへcommitします。
 
@@ -35,4 +39,4 @@ npm run format
 npm run check
 ```
 
-この段階の画面はread-onlyです。検索、normalized JSON upload、仕訳の修正・承認は後続のsliceで追加します。Tackler journal formatのfile uploadは別RFCで扱います。
+この段階の画面はread-onlyです。normalized JSON upload、仕訳の修正・承認は後続のsliceで追加します。Tackler journal formatのfile uploadは別RFCで扱います。

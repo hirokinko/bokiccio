@@ -171,6 +171,91 @@ func TestLocalizedEmptyAndErrorRoutes(t *testing.T) {
 	}
 }
 
+func TestUISearchFullPageAndHtmxFragment(t *testing.T) {
+	database := openUIDatabase(t)
+	store := webstore.New(database)
+	input := []byte(`{"schema_version":1,"records":[
+{"source":{"namespace":"receipt","display":"fixtures/alpha.json","external_id":"ui-search-alpha"},"occurred_at":"2026-08-01","description":"Alpha candidate","postings":[{"account":"費用:食費","amount":"100","commodity":"JPY"},{"account":"資産:現金"}]},
+{"source":{"namespace":"mail","display":"fixtures/beta.json","external_id":"ui-search-beta"},"occurred_at":"2026-08-02","description":"Beta <needle>","warnings":[{"code":"ui.search","message":"Preserve warning"}],"postings":[{"account":"費用:交通","amount":"200","commodity":"JPY"},{"account":"資産:現金"}]},
+{"source":{"namespace":"receipt","display":"fixtures/gamma.json","external_id":"ui-search-gamma"},"occurred_at":"2026-08-03","description":"Gamma candidate","postings":[{"account":"費用:日用品","amount":"300","commodity":"JPY"},{"account":"資産:現金"}]}
+]}`)
+	if _, err := store.Import(context.Background(), input); err != nil {
+		t.Fatalf("Import() error = %v", err)
+	}
+	handler := webui.NewHandler(store)
+
+	full := serveForm(handler, "/ui/entries/search", url.Values{"description": {"Beta <needle>"}}, nil)
+	assertHTMLResponse(t, full, http.StatusOK)
+	assertContainsAll(t, full.Body.String(), []string{
+		`<html lang="ja">`, `action="/ui/entries/search"`, `value="Beta &lt;needle&gt;"`,
+		"Beta &lt;needle&gt;", "mail: fixtures/beta.json", "1件を表示",
+	})
+	assertNotContainsAny(t, full.Body.String(), []string{"Alpha candidate", "Gamma candidate", "?description", "<needle>"})
+	if vary := full.Header().Get("Vary"); !strings.Contains(vary, "HX-Request") {
+		t.Fatalf("Vary = %q", vary)
+	}
+
+	fragment := serveForm(handler, "/en/ui/entries/search", url.Values{"source_namespace": {"mail"}}, map[string]string{"HX-Request": "true"})
+	assertHTMLResponse(t, fragment, http.StatusOK)
+	assertContainsAll(t, fragment.Body.String(), []string{
+		`id="entry-results"`, "Search results", "Beta &lt;needle&gt;", `/en/entries/`,
+	})
+	assertNotContainsAny(t, fragment.Body.String(), []string{"<!doctype html>", `<html lang="en">`, "Alpha candidate", "Gamma candidate", "?source_namespace"})
+}
+
+func TestUISearchPaginationUsesFormBodyState(t *testing.T) {
+	database := openUIDatabase(t)
+	store := webstore.New(database)
+	if _, err := store.Import(context.Background(), manyEntriesInput(51)); err != nil {
+		t.Fatalf("Import() error = %v", err)
+	}
+	handler := webui.NewHandler(store)
+
+	first := serveForm(handler, "/ui/entries/search", url.Values{}, nil)
+	assertHTMLResponse(t, first, http.StatusOK)
+	assertContainsAll(t, first.Body.String(), []string{"Page 50", "Page 01", "次のページ", `name="cursor"`})
+	assertNotContainsAny(t, first.Body.String(), []string{"Page 00", "?cursor"})
+	cursor := hiddenInputValue(t, first.Body.String(), "cursor")
+
+	second := serveForm(handler, "/ui/entries/search", url.Values{"cursor": {cursor}}, map[string]string{"HX-Request": "true"})
+	assertHTMLResponse(t, second, http.StatusOK)
+	assertContainsAll(t, second.Body.String(), []string{`id="entry-results"`, "Page 00"})
+	assertNotContainsAny(t, second.Body.String(), []string{"Page 50", "次のページ", "?cursor"})
+
+	staleCursor := serveForm(handler, "/ui/entries/search", url.Values{"description": {"Page"}, "cursor": {cursor}}, nil)
+	assertHTMLResponse(t, staleCursor, http.StatusBadRequest)
+	assertContainsAll(t, staleCursor.Body.String(), []string{"Invalid search", "検索条件を処理できませんでした。"})
+	assertNotContainsAny(t, staleCursor.Body.String(), []string{cursor, "Page 50"})
+}
+
+func TestUISearchRejectsInvalidFormPrivately(t *testing.T) {
+	handler := webui.NewHandler(webstore.New(openUIDatabase(t)))
+	for _, test := range []struct {
+		name        string
+		path        string
+		contentType string
+		body        string
+	}{
+		{name: "wrong media type", path: "/ui/entries/search", contentType: "text/plain", body: "description=private-value"},
+		{name: "unknown field", path: "/ui/entries/search", contentType: "application/x-www-form-urlencoded", body: "unknown=private-value"},
+		{name: "duplicate field", path: "/ui/entries/search", contentType: "application/x-www-form-urlencoded", body: "description=a&description=b"},
+		{name: "query string", path: "/ui/entries/search?description=private-value", contentType: "application/x-www-form-urlencoded", body: ""},
+		{name: "invalid date", path: "/en/ui/entries/search", contentType: "application/x-www-form-urlencoded", body: "date_from=2026-02-30"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			response := serveRawForm(handler, test.path, test.contentType, test.body, nil)
+			assertHTMLResponse(t, response, http.StatusBadRequest)
+			assertNotContainsAny(t, response.Body.String(), []string{"private-value", "2026-02-30", "unknown"})
+		})
+	}
+
+	method := serve(webui.NewHandler(nil), http.MethodGet, "/ui/entries/search")
+	assertHTMLResponse(t, method, http.StatusMethodNotAllowed)
+	if method.Header().Get("Allow") != "POST" {
+		t.Fatalf("Allow = %q", method.Header().Get("Allow"))
+	}
+}
+
 func TestEmbeddedAssetsArePinnedAndPrivate(t *testing.T) {
 	handler := webui.NewHandler(nil)
 	javascript := serve(handler, http.MethodGet, "/assets/htmx-2.0.10.min.js")
@@ -223,6 +308,21 @@ func serve(handler http.Handler, method, path string) *httptest.ResponseRecorder
 	return response
 }
 
+func serveForm(handler http.Handler, path string, form url.Values, headers map[string]string) *httptest.ResponseRecorder {
+	return serveRawForm(handler, path, "application/x-www-form-urlencoded", form.Encode(), headers)
+}
+
+func serveRawForm(handler http.Handler, path, contentType, body string, headers map[string]string) *httptest.ResponseRecorder {
+	response := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, path, strings.NewReader(body))
+	request.Header.Set("Content-Type", contentType)
+	for name, value := range headers {
+		request.Header.Set(name, value)
+	}
+	handler.ServeHTTP(response, request)
+	return response
+}
+
 func assertHTMLResponse(t *testing.T, response *httptest.ResponseRecorder, status int) {
 	t.Helper()
 	if response.Code != status || response.Header().Get("Content-Type") != "text/html; charset=utf-8" {
@@ -259,4 +359,45 @@ func assertAccountingTextPreserved(t *testing.T, japanese, english string, value
 			t.Fatalf("English body does not contain %q: %s", value, english)
 		}
 	}
+}
+
+func assertNotContainsAny(t *testing.T, body string, values []string) {
+	t.Helper()
+	for _, value := range values {
+		if strings.Contains(body, value) {
+			t.Fatalf("body contains %q: %s", value, body)
+		}
+	}
+}
+
+func hiddenInputValue(t *testing.T, body, name string) string {
+	t.Helper()
+	prefix := `name="` + name + `" value="`
+	index := strings.Index(body, prefix)
+	if index < 0 {
+		t.Fatalf("hidden input %q not found: %s", name, body)
+	}
+	start := index + len(prefix)
+	end := strings.Index(body[start:], `"`)
+	if end < 0 {
+		t.Fatalf("hidden input %q value is not closed: %s", name, body)
+	}
+	value := body[start : start+end]
+	if value == "" {
+		t.Fatalf("hidden input %q value is empty", name)
+	}
+	return value
+}
+
+func manyEntriesInput(count int) []byte {
+	var builder strings.Builder
+	builder.WriteString(`{"schema_version":1,"records":[`)
+	for index := range count {
+		if index > 0 {
+			builder.WriteByte(',')
+		}
+		_, _ = fmt.Fprintf(&builder, `{"source":{"namespace":"page","display":"fixtures/page-%02d.json","external_id":"ui-page-%02d"},"occurred_at":"2026-08-11","description":"Page %02d","postings":[{"account":"費用:確認","amount":"1","commodity":"UNIT"},{"account":"資産:確認"}]}`, index, index, index)
+	}
+	builder.WriteString(`]}`)
+	return []byte(builder.String())
 }
