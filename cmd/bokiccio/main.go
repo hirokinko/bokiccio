@@ -36,6 +36,10 @@ func run(args []string, stderr io.Writer) int {
 		return runImport(args[1:], stderr)
 	case "migrate":
 		return runMigrate(args[1:], stderr)
+	case "backup":
+		return runBackup(args[1:], stderr)
+	case "restore":
+		return runRestore(args[1:], stderr)
 	case "serve":
 		return runServe(args[1:], stderr)
 	default:
@@ -111,6 +115,8 @@ func printUsage(destination io.Writer) {
 	fmt.Fprintln(destination, "commands:")
 	fmt.Fprintln(destination, "  import   import normalized JSON into a local run bundle")
 	fmt.Fprintln(destination, "  migrate  apply database migrations to Turso")
+	fmt.Fprintln(destination, "  backup   write a logical backup of Turso application data")
+	fmt.Fprintln(destination, "  restore  restore a logical backup into an empty Turso database")
 	fmt.Fprintln(destination, "  serve    serve the IAP-protected Web API")
 }
 

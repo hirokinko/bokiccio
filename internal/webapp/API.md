@@ -96,6 +96,11 @@ does not inspect storage.
 never migrates implicitly and refuses to start unless the schema is current.
 Both commands read the Turso token from the environment and do not print it.
 
+`bokiccio backup` and `bokiccio restore` are operator CLI commands rather than
+HTTP routes. They use a checksummed logical JSON envelope. Restore requires an
+already-migrated empty database and never merges or replaces existing data.
+See [logical backup format v1](../webstore/BACKUP.md).
+
 The optional remote integration test writes an anonymous balanced entry to a
 dedicated test database when both `BOKICCIO_TEST_TURSO_DATABASE_URL` and
 `BOKICCIO_TEST_TURSO_AUTH_TOKEN` are set. Without them it is skipped.

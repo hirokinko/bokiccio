@@ -27,6 +27,7 @@ Bokiccio（ボキッチョ）は、複数の明細・メール・レシートか
 - immutableな仕訳revision、domain再validation、append-onlyな承認履歴
 - 最新revisionを対象にした日付・勘定科目・摘要・状態・source検索
 - 現在承認済みの仕訳だけを対象にしたTackler/JSON export
+- checksum付きlogical backupと空database限定のtransactional restore
 - 匿名化fixtureによるgolden test
 - Tackler 26.1.2を使った任意実行の互換性test
 
@@ -61,6 +62,7 @@ internal/ingest
 cmd/bokiccio
   ├─ local import command
   ├─ Turso migration command
+  ├─ Turso logical backup/restore commands
   └─ IAP-protected production server
 
 internal/webapp / internal/webstore / internal/webprod
@@ -134,6 +136,28 @@ go run ./cmd/bokiccio serve
 `TURSO_AUTH_TOKEN`はCloud RunのSecret Manager environment injectionで渡し、image、source、通常の環境設定へ保存しません。`BOKICCIO_EXTERNAL_ORIGIN`は利用者がアクセスするHTTPS originそのものとし、末尾pathを含めません。serverはmigrationを暗黙実行せず、schemaがcurrentでなければ起動しません。
 
 route、JSON、認証境界、remote integration testは[Web API v1](internal/webapp/API.md)を参照してください。
+
+## Turso backupとrestore
+
+backupは仕訳、source、diagnostic、revision、approvalを含む暗号化されていないprivate dataである。
+既存fileを上書きせず、permission `0600`のlogical JSONとして作成する。
+
+```sh
+TURSO_DATABASE_URL=libsql://database-name.turso.io \
+TURSO_AUTH_TOKEN='secret-manager-injected-token' \
+go run ./cmd/bokiccio backup --output ./bokiccio-backup.json
+```
+
+restore先はcurrent schemaへmigration済みの空databaseに限定され、mergeや既存dataのreplaceは行わない。
+
+```sh
+TURSO_DATABASE_URL=libsql://new-empty-database.turso.io \
+TURSO_AUTH_TOKEN='secret-manager-injected-token' \
+go run ./cmd/bokiccio restore --input ./bokiccio-backup.json
+```
+
+format、checksum、transactional validationの詳細は
+[logical backup format v1](internal/webstore/BACKUP.md)を参照してください。
 
 ## Tackler互換subset
 

@@ -164,9 +164,14 @@ func TestWebCommandsRequireProductionConfiguration(t *testing.T) {
 	} {
 		t.Setenv(name, "")
 	}
-	for _, command := range []string{"migrate", "serve"} {
+	commands := map[string][]string{
+		"migrate": {"migrate"}, "serve": {"serve"},
+		"backup":  {"backup", "--output", filepath.Join(t.TempDir(), "backup.json")},
+		"restore": {"restore", "--input", filepath.Join(t.TempDir(), "backup.json")},
+	}
+	for command, args := range commands {
 		var stderr bytes.Buffer
-		if got := run([]string{command}, &stderr); got != exitRunLevelFailure {
+		if got := run(args, &stderr); got != exitRunLevelFailure {
 			t.Fatalf("run(%s) = %d, stderr=%q", command, got, stderr.String())
 		}
 		if !strings.Contains(stderr.String(), "TURSO_DATABASE_URL is required") {
@@ -176,7 +181,7 @@ func TestWebCommandsRequireProductionConfiguration(t *testing.T) {
 }
 
 func TestWebCommandHelpDoesNotRequireConfiguration(t *testing.T) {
-	for _, command := range []string{"migrate", "serve"} {
+	for _, command := range []string{"migrate", "backup", "restore", "serve"} {
 		var stderr bytes.Buffer
 		if got := run([]string{command, "--help"}, &stderr); got != exitSuccess {
 			t.Fatalf("run(%s --help) = %d, stderr=%q", command, got, stderr.String())
@@ -184,6 +189,38 @@ func TestWebCommandHelpDoesNotRequireConfiguration(t *testing.T) {
 		if !strings.Contains(stderr.String(), "usage: bokiccio "+command) {
 			t.Fatalf("run(%s --help) stderr=%q", command, stderr.String())
 		}
+	}
+}
+
+func TestWriteNewPrivateFileIsAtomicAndDoesNotOverwrite(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "backup.json")
+	if err := writeNewPrivateFile(path, []byte("first")); err != nil {
+		t.Fatalf("writeNewPrivateFile() error = %v", err)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("Stat() error = %v", err)
+	}
+	if info.Mode().Perm() != 0o600 {
+		t.Fatalf("mode = %o, want 600", info.Mode().Perm())
+	}
+	if err := writeNewPrivateFile(path, []byte("second")); err == nil {
+		t.Fatal("writeNewPrivateFile(existing) error = nil")
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile() error = %v", err)
+	}
+	if string(data) != "first" {
+		t.Fatalf("content = %q, want first", data)
+	}
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		t.Fatalf("ReadDir() error = %v", err)
+	}
+	if len(entries) != 1 || entries[0].Name() != "backup.json" {
+		t.Fatalf("directory entries = %+v", entries)
 	}
 }
 

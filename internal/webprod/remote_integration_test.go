@@ -84,4 +84,11 @@ func TestRemoteTursoMigrationAndImport(t *testing.T) {
 		exported[0].Entry.Postings[0].Amount.Value.String() != "2.00" || exported[0].Entry.Postings[1].Amount != nil {
 		t.Fatalf("approved export = %+v", exported)
 	}
+	backup, err := store.Backup(ctx)
+	if err != nil {
+		t.Fatalf("Backup() error = %v", err)
+	}
+	if len(backup) == 0 {
+		t.Fatal("Backup() returned empty output")
+	}
 }
