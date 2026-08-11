@@ -3,6 +3,8 @@ package webapp
 import (
 	"context"
 	"errors"
+
+	"github.com/hirokinko/bokiccio/internal/ledger"
 )
 
 const APISchemaVersion = 1
@@ -17,10 +19,11 @@ var (
 type Repository interface {
 	Import(context.Context, []byte) (ImportResult, error)
 	GetRun(context.Context, string) (RunDetail, error)
-	ListEntries(context.Context, int, string) (EntryPage, error)
+	ListEntries(context.Context, EntryQuery) (EntryPage, error)
 	GetEntry(context.Context, string) (EntryDetail, error)
 	CreateRevision(context.Context, string, RevisionRequest) (RevisionDetail, error)
 	ApproveRevision(context.Context, string, ApprovalRequest) (ApprovalDetail, error)
+	ListApprovedEntries(context.Context, EntryFilter) ([]ApprovedEntry, error)
 }
 
 type ImportResult struct {
@@ -81,11 +84,30 @@ type EntryPage struct {
 }
 
 type EntrySummary struct {
-	ID          string `json:"id"`
-	OccurredAt  string `json:"occurred_at"`
-	Description string `json:"description"`
-	Status      string `json:"status"`
-	Source      Source `json:"source"`
+	ID              string `json:"id"`
+	OccurredAt      string `json:"occurred_at"`
+	Description     string `json:"description"`
+	Status          string `json:"status"`
+	WorkflowStatus  string `json:"workflow_status"`
+	CurrentRevision int    `json:"current_revision"`
+	Source          Source `json:"source"`
+}
+
+type EntryFilter struct {
+	DateFrom        string
+	DateTo          string
+	Account         string
+	Description     string
+	Status          string
+	WorkflowStatus  string
+	SourceNamespace string
+	SourceDisplay   string
+}
+
+type EntryQuery struct {
+	Filter EntryFilter
+	Limit  int
+	Cursor string
 }
 
 type EntryDetail struct {
@@ -141,4 +163,28 @@ type ApprovalDetail struct {
 	Sequence   int64  `json:"sequence"`
 	Revision   int    `json:"revision"`
 	ApprovedAt string `json:"approved_at"`
+}
+
+type ApprovedEntry struct {
+	ID         string
+	Revision   int
+	ApprovedAt string
+	Source     Source
+	Entry      ledger.JournalEntry
+}
+
+type ExportEntry struct {
+	ID          string          `json:"id"`
+	Revision    int             `json:"revision"`
+	ApprovedAt  string          `json:"approved_at"`
+	Source      Source          `json:"source"`
+	OccurredAt  string          `json:"occurred_at"`
+	Description string          `json:"description"`
+	Comments    []string        `json:"comments"`
+	Postings    []PostingDetail `json:"postings"`
+}
+
+type JSONExport struct {
+	SchemaVersion int           `json:"schema_version"`
+	Entries       []ExportEntry `json:"entries"`
 }

@@ -4,7 +4,6 @@ package webstore
 import (
 	"context"
 	"database/sql"
-	"encoding/base64"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -235,49 +234,6 @@ func (store *Store) GetRun(ctx context.Context, runID string) (webapp.RunDetail,
 	return detail, nil
 }
 
-func (store *Store) ListEntries(ctx context.Context, limit int, cursor string) (webapp.EntryPage, error) {
-	sequence, recordIndex, err := decodeCursor(cursor)
-	if err != nil {
-		return webapp.EntryPage{}, webapp.ErrInvalidRequest
-	}
-	rows, err := store.database.QueryContext(ctx, `SELECT e.entry_id, e.occurred_at, e.description,
-        o.status, o.source_namespace, o.source_display, r.sequence, e.record_index
-        FROM entries e JOIN import_runs r ON r.run_id = e.run_id
-        JOIN outcomes o ON o.run_id = e.run_id AND o.record_index = e.record_index
-        WHERE (? = 0 OR r.sequence < ? OR (r.sequence = ? AND e.record_index < ?))
-        ORDER BY r.sequence DESC, e.record_index DESC LIMIT ?`,
-		sequence, sequence, sequence, recordIndex, limit+1)
-	if err != nil {
-		return webapp.EntryPage{}, fmt.Errorf("query entry list: %w", err)
-	}
-	defer rows.Close()
-	type position struct {
-		sequence int64
-		record   int
-	}
-	page := webapp.EntryPage{SchemaVersion: webapp.APISchemaVersion, Entries: []webapp.EntrySummary{}}
-	positions := make([]position, 0, limit+1)
-	for rows.Next() {
-		var entry webapp.EntrySummary
-		var current position
-		if err := rows.Scan(&entry.ID, &entry.OccurredAt, &entry.Description, &entry.Status,
-			&entry.Source.Namespace, &entry.Source.Display, &current.sequence, &current.record); err != nil {
-			return webapp.EntryPage{}, fmt.Errorf("scan entry list: %w", err)
-		}
-		page.Entries = append(page.Entries, entry)
-		positions = append(positions, current)
-	}
-	if err := rows.Err(); err != nil {
-		return webapp.EntryPage{}, fmt.Errorf("iterate entry list: %w", err)
-	}
-	if len(page.Entries) > limit {
-		page.Entries = page.Entries[:limit]
-		last := positions[limit-1]
-		page.NextCursor = encodeCursor(last.sequence, last.record)
-	}
-	return page, nil
-}
-
 func (store *Store) GetEntry(ctx context.Context, entryID string) (webapp.EntryDetail, error) {
 	detail := webapp.EntryDetail{SchemaVersion: webapp.APISchemaVersion, ID: entryID, Comments: []string{}, Postings: []webapp.PostingDetail{}, Diagnostics: []webapp.DiagnosticDetail{}}
 	var precision int
@@ -403,32 +359,4 @@ func notFound(err error) error {
 		return webapp.ErrNotFound
 	}
 	return err
-}
-
-func encodeCursor(sequence int64, recordIndex int) string {
-	value := strconv.FormatInt(sequence, 10) + ":" + strconv.Itoa(recordIndex)
-	return base64.RawURLEncoding.EncodeToString([]byte(value))
-}
-
-func decodeCursor(cursor string) (int64, int, error) {
-	if cursor == "" {
-		return 0, 0, nil
-	}
-	decoded, err := base64.RawURLEncoding.DecodeString(cursor)
-	if err != nil {
-		return 0, 0, err
-	}
-	parts := strings.Split(string(decoded), ":")
-	if len(parts) != 2 {
-		return 0, 0, errors.New("invalid cursor")
-	}
-	sequence, err := strconv.ParseInt(parts[0], 10, 64)
-	if err != nil || sequence < 1 {
-		return 0, 0, errors.New("invalid cursor")
-	}
-	recordIndex, err := strconv.Atoi(parts[1])
-	if err != nil || recordIndex < 0 {
-		return 0, 0, errors.New("invalid cursor")
-	}
-	return sequence, recordIndex, nil
 }

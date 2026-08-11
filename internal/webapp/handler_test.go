@@ -334,6 +334,261 @@ func TestRevisionRequestFailures(t *testing.T) {
 	}
 }
 
+func TestSearchAndApprovedExports(t *testing.T) {
+	database := openDatabase(t)
+	handler := webapp.NewHandler(webstore.New(database))
+	input := []byte(`{
+  "schema_version": 1,
+  "records": [
+    {
+      "source": {"namespace": "receipt", "display": "fixtures/a.json", "external_id": "search-a"},
+      "occurred_at": "2026-08-03",
+      "description": "Alpha original",
+      "postings": [
+        {"account": "費用:食費:外食", "amount": "100.00", "commodity": "JPY"},
+        {"account": "資産:現金", "amount": "-100.00", "commodity": "JPY"}
+      ]
+    },
+    {
+      "source": {"namespace": "mail", "display": "fixtures/b.json", "external_id": "search-b"},
+      "occurred_at": "2026-08-05",
+      "description": "Beta original",
+      "warnings": [{"code": "test.review", "message": "review"}],
+      "postings": [
+        {"account": "費用:未設定", "amount": "300.00", "commodity": "JPY"},
+        {"account": "資産:現金", "amount": "-300.00", "commodity": "JPY"}
+      ]
+    },
+    {
+      "source": {"namespace": "receipt", "display": "fixtures/c.json", "external_id": "search-c"},
+      "occurred_at": "2026-08-02",
+      "description": "Gamma original",
+      "postings": [
+        {"account": "費用:日用品", "amount": "200", "commodity": "JPY"},
+        {"account": "資産:現金", "amount": "-200", "commodity": "JPY"}
+      ]
+    },
+    {
+      "source": {"namespace": "receipt", "display": "fixtures/d.json", "external_id": "search-d"},
+      "occurred_at": "2026-08-04",
+      "description": "Delta original",
+      "postings": [
+        {"account": "費用:日用品", "amount": "400", "commodity": "JPY"},
+        {"account": "資産:現金", "amount": "-400", "commodity": "JPY"}
+      ]
+    }
+  ]
+}`)
+	result := postImport(t, handler, input)
+	runResponse := request(t, handler, http.MethodGet, result.DetailURL, nil, "")
+	var run webapp.RunDetail
+	decodeJSON(t, runResponse.Body.Bytes(), &run)
+	if runResponse.Code != http.StatusOK || len(run.Outcomes) != 4 {
+		t.Fatalf("import run status=%d detail=%+v", runResponse.Code, run)
+	}
+	ids := make([]string, len(run.Outcomes))
+	for index, outcome := range run.Outcomes {
+		ids[index] = outcome.EntryID
+		if ids[index] == "" {
+			t.Fatalf("outcome %d has no entry: %+v", index, outcome)
+		}
+	}
+
+	approveEntry(t, handler, ids[0], 0)
+	approveEntry(t, handler, ids[2], 0)
+	betaRevision := createTestRevision(t, handler, ids[1], 0, map[string]any{
+		"occurred_at": "2026-08-01T10:00:00+09:00", "description": "Beta revised",
+		"comments": []string{"export beta"},
+		"postings": []map[string]any{
+			{"account": "費用:交通", "amount": "300.00", "commodity": "JPY"},
+			{"account": "資産:現金"},
+		},
+	})
+	approveEntry(t, handler, ids[1], betaRevision)
+	createTestRevision(t, handler, ids[2], 0, map[string]any{
+		"occurred_at": "2026-08-02", "description": "Gamma invalid revision",
+		"comments": []string{},
+		"postings": []map[string]any{
+			{"account": "費用:日用品", "amount": "200", "commodity": "JPY"},
+			{"account": "資産:現金", "amount": "-100", "commodity": "JPY"},
+		},
+	})
+
+	page := getEntryPage(t, handler, "/api/v1/entries")
+	if len(page.Entries) != 4 {
+		t.Fatalf("entry count = %d, want 4", len(page.Entries))
+	}
+	wantIDs := []string{ids[3], ids[2], ids[1], ids[0]}
+	wantWorkflow := []string{"unapproved", "invalid", "approved", "approved"}
+	for index := range wantIDs {
+		if page.Entries[index].ID != wantIDs[index] || page.Entries[index].WorkflowStatus != wantWorkflow[index] {
+			t.Fatalf("entry %d = %+v, want id=%q workflow=%q", index, page.Entries[index], wantIDs[index], wantWorkflow[index])
+		}
+	}
+	if page.Entries[2].Description != "Beta revised" || page.Entries[2].OccurredAt != "2026-08-01T10:00:00+09:00" ||
+		page.Entries[2].CurrentRevision != 1 || page.Entries[2].Status != "warning" {
+		t.Fatalf("revised summary = %+v", page.Entries[2])
+	}
+
+	assertEntryIDs(t, getEntryPage(t, handler, "/api/v1/entries?workflow_status=approved"), ids[1], ids[0])
+	assertEntryIDs(t, getEntryPage(t, handler, "/api/v1/entries?workflow_status=invalid"), ids[2])
+	assertEntryIDs(t, getEntryPage(t, handler, "/api/v1/entries?workflow_status=unapproved"), ids[3])
+	assertEntryIDs(t, getEntryPage(t, handler, "/api/v1/entries?account="+url.QueryEscape("費用:食費")), ids[0])
+	assertEntryIDs(t, getEntryPage(t, handler, "/api/v1/entries?description=revised"), ids[1])
+	assertEntryIDs(t, getEntryPage(t, handler, "/api/v1/entries?date_from=2026-08-01&date_to=2026-08-01"), ids[1])
+	assertEntryIDs(t, getEntryPage(t, handler, "/api/v1/entries?status=warning"), ids[1])
+	assertEntryIDs(t, getEntryPage(t, handler, "/api/v1/entries?source_namespace=mail"), ids[1])
+
+	first := getEntryPage(t, handler, "/api/v1/entries?workflow_status=approved&limit=1")
+	if len(first.Entries) != 1 || first.NextCursor == "" {
+		t.Fatalf("first filtered page = %+v", first)
+	}
+	second := getEntryPage(t, handler, "/api/v1/entries?workflow_status=approved&limit=1&cursor="+url.QueryEscape(first.NextCursor))
+	assertEntryIDs(t, second, ids[0])
+	assertProblem(t, request(t, handler, http.MethodGet,
+		"/api/v1/entries?workflow_status=invalid&limit=1&cursor="+url.QueryEscape(first.NextCursor), nil, ""),
+		http.StatusBadRequest, "invalid_request")
+	for _, path := range []string{
+		"/api/v1/entries?date_from=2026-02-30",
+		"/api/v1/entries?date_from=2026-08-02&date_to=2026-08-01",
+		"/api/v1/entries?status=error",
+		"/api/v1/entries?workflow_status=reviewed",
+	} {
+		assertProblem(t, request(t, handler, http.MethodGet, path, nil, ""), http.StatusBadRequest, "invalid_request")
+	}
+
+	jsonResponse := request(t, handler, http.MethodGet, "/api/v1/exports/json", nil, "")
+	if jsonResponse.Code != http.StatusOK || jsonResponse.Header().Get("Content-Type") != "application/json; charset=utf-8" {
+		t.Fatalf("JSON export status=%d content-type=%q body=%s", jsonResponse.Code, jsonResponse.Header().Get("Content-Type"), jsonResponse.Body.String())
+	}
+	var exported webapp.JSONExport
+	decodeJSON(t, jsonResponse.Body.Bytes(), &exported)
+	if exported.SchemaVersion != 1 || len(exported.Entries) != 2 || exported.Entries[0].ID != ids[1] ||
+		exported.Entries[0].Revision != 1 || exported.Entries[1].ID != ids[0] {
+		t.Fatalf("JSON export = %+v", exported)
+	}
+	if exported.Entries[0].Postings[0].Amount == nil || *exported.Entries[0].Postings[0].Amount != "300.00" ||
+		exported.Entries[0].Postings[1].Amount != nil {
+		t.Fatalf("revised export postings = %+v", exported.Entries[0].Postings)
+	}
+	filteredJSON := request(t, handler, http.MethodGet, "/api/v1/exports/json?account="+url.QueryEscape("費用:食費"), nil, "")
+	var filtered webapp.JSONExport
+	decodeJSON(t, filteredJSON.Body.Bytes(), &filtered)
+	if filteredJSON.Code != http.StatusOK || len(filtered.Entries) != 1 || filtered.Entries[0].ID != ids[0] {
+		t.Fatalf("filtered JSON export status=%d export=%+v", filteredJSON.Code, filtered)
+	}
+	assertProblem(t, request(t, handler, http.MethodGet, "/api/v1/exports/json?workflow_status=invalid", nil, ""),
+		http.StatusBadRequest, "invalid_request")
+
+	tacklerResponse := request(t, handler, http.MethodGet, "/api/v1/exports/tackler", nil, "")
+	wantTackler := "2026-08-01T10:00:00+09:00  'Beta revised\n" +
+		"    ; export beta\n" +
+		"    費用:交通  300.00 JPY\n" +
+		"    資産:現金\n\n" +
+		"2026-08-03  'Alpha original\n" +
+		"    ; source: fixtures/a.json\n" +
+		"    費用:食費:外食  100.00 JPY\n" +
+		"    資産:現金  -100.00 JPY\n"
+	if tacklerResponse.Code != http.StatusOK || tacklerResponse.Header().Get("Content-Type") != "text/plain; charset=utf-8" ||
+		tacklerResponse.Body.String() != wantTackler {
+		t.Fatalf("Tackler export status=%d content-type=%q\ngot:\n%s\nwant:\n%s", tacklerResponse.Code,
+			tacklerResponse.Header().Get("Content-Type"), tacklerResponse.Body.String(), wantTackler)
+	}
+	emptyTackler := request(t, handler, http.MethodGet, "/api/v1/exports/tackler?description=missing", nil, "")
+	if emptyTackler.Code != http.StatusOK || emptyTackler.Body.Len() != 0 {
+		t.Fatalf("empty Tackler export status=%d body=%q", emptyTackler.Code, emptyTackler.Body.String())
+	}
+	emptyJSON := request(t, handler, http.MethodGet, "/api/v1/exports/json?description=missing", nil, "")
+	var noEntries webapp.JSONExport
+	decodeJSON(t, emptyJSON.Body.Bytes(), &noEntries)
+	if emptyJSON.Code != http.StatusOK || noEntries.SchemaVersion != 1 || noEntries.Entries == nil || len(noEntries.Entries) != 0 {
+		t.Fatalf("empty JSON export status=%d export=%+v", emptyJSON.Code, noEntries)
+	}
+}
+
+func TestApprovedExportOrdersDateBeforeTimestampAndTimestampsByInstant(t *testing.T) {
+	database := openDatabase(t)
+	handler := webapp.NewHandler(webstore.New(database))
+	input := []byte(`{
+  "schema_version": 1,
+  "records": [
+    {"source":{"namespace":"ordering","display":"date","external_id":"order-date"},"occurred_at":"2026-08-01","description":"date","postings":[{"account":"資産:確認","amount":"1","commodity":"UNIT"},{"account":"負債:確認","amount":"-1","commodity":"UNIT"}]},
+    {"source":{"namespace":"ordering","display":"later","external_id":"order-later"},"occurred_at":"2026-08-01T10:00:00+09:00","description":"later instant","postings":[{"account":"資産:確認","amount":"1","commodity":"UNIT"},{"account":"負債:確認","amount":"-1","commodity":"UNIT"}]},
+    {"source":{"namespace":"ordering","display":"earlier","external_id":"order-earlier"},"occurred_at":"2026-08-01T00:30:00Z","description":"earlier instant","postings":[{"account":"資産:確認","amount":"1","commodity":"UNIT"},{"account":"負債:確認","amount":"-1","commodity":"UNIT"}]}
+  ]
+}`)
+	result := postImport(t, handler, input)
+	runResponse := request(t, handler, http.MethodGet, result.DetailURL, nil, "")
+	var run webapp.RunDetail
+	decodeJSON(t, runResponse.Body.Bytes(), &run)
+	if runResponse.Code != http.StatusOK || len(run.Outcomes) != 3 {
+		t.Fatalf("ordering import run status=%d detail=%+v", runResponse.Code, run)
+	}
+	for _, outcome := range run.Outcomes {
+		approveEntry(t, handler, outcome.EntryID, 0)
+	}
+	response := request(t, handler, http.MethodGet, "/api/v1/exports/json?source_namespace=ordering", nil, "")
+	var exported webapp.JSONExport
+	decodeJSON(t, response.Body.Bytes(), &exported)
+	want := []string{"date", "earlier instant", "later instant"}
+	if response.Code != http.StatusOK || len(exported.Entries) != len(want) {
+		t.Fatalf("ordering export status=%d export=%+v", response.Code, exported)
+	}
+	for index, description := range want {
+		if exported.Entries[index].Description != description {
+			t.Fatalf("exported entry %d description=%q, want=%q", index, exported.Entries[index].Description, description)
+		}
+	}
+}
+
+func createTestRevision(t *testing.T, handler http.Handler, entryID string, baseRevision int, fields map[string]any) int {
+	t.Helper()
+	fields["base_revision"] = baseRevision
+	response := requestJSON(t, handler, http.MethodPost,
+		"/api/v1/entries/"+url.PathEscape(entryID)+"/revisions", fields)
+	if response.Code != http.StatusCreated {
+		t.Fatalf("create revision status=%d body=%s", response.Code, response.Body.String())
+	}
+	var revision struct {
+		SchemaVersion int `json:"schema_version"`
+		webapp.RevisionDetail
+	}
+	decodeJSON(t, response.Body.Bytes(), &revision)
+	return revision.Revision
+}
+
+func approveEntry(t *testing.T, handler http.Handler, entryID string, revision int) {
+	t.Helper()
+	response := requestJSON(t, handler, http.MethodPost,
+		"/api/v1/entries/"+url.PathEscape(entryID)+"/approvals", map[string]any{"revision": revision})
+	if response.Code != http.StatusCreated {
+		t.Fatalf("approve revision %d status=%d body=%s", revision, response.Code, response.Body.String())
+	}
+}
+
+func getEntryPage(t *testing.T, handler http.Handler, path string) webapp.EntryPage {
+	t.Helper()
+	response := request(t, handler, http.MethodGet, path, nil, "")
+	if response.Code != http.StatusOK {
+		t.Fatalf("GET %s status=%d body=%s", path, response.Code, response.Body.String())
+	}
+	var page webapp.EntryPage
+	decodeJSON(t, response.Body.Bytes(), &page)
+	return page
+}
+
+func assertEntryIDs(t *testing.T, page webapp.EntryPage, want ...string) {
+	t.Helper()
+	if len(page.Entries) != len(want) {
+		t.Fatalf("entry count=%d, want=%d page=%+v", len(page.Entries), len(want), page)
+	}
+	for index, id := range want {
+		if page.Entries[index].ID != id {
+			t.Fatalf("entry %d id=%q, want=%q page=%+v", index, page.Entries[index].ID, id, page)
+		}
+	}
+}
+
 func TestMigrationRejectsFutureVersion(t *testing.T) {
 	database := openDatabase(t)
 	if _, err := database.Exec(`UPDATE schema_metadata SET version = ? WHERE singleton = 1`, webstore.SchemaVersion+1); err != nil {

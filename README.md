@@ -25,6 +25,8 @@ Bokiccio（ボキッチョ）は、複数の明細・メール・レシートか
 - Turso Cloud remote driver、明示migration、Cloud Run向けHTTP server
 - Cloud Run direct IAP JWT、single-owner、same-origin mutationの検証
 - immutableな仕訳revision、domain再validation、append-onlyな承認履歴
+- 最新revisionを対象にした日付・勘定科目・摘要・状態・source検索
+- 現在承認済みの仕訳だけを対象にしたTackler/JSON export
 - 匿名化fixtureによるgolden test
 - Tackler 26.1.2を使った任意実行の互換性test
 
@@ -64,6 +66,7 @@ cmd/bokiccio
 internal/webapp / internal/webstore / internal/webprod
   ├─ HTTP handler and database/sql persistence
   ├─ single-owner IAP and origin boundary
+  ├─ revision, approval, search, and approved export
   └─ Turso Cloud production composition
 ```
 

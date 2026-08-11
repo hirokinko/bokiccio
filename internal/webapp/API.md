@@ -1,6 +1,6 @@
 # Web API v1
 
-`webapp.Handler` is the storage-backed read-only vertical slice for Bokiccio.
+`webapp.Handler` is the storage-backed Web API for Bokiccio.
 Tests use the local `tursogo` driver. Production composition uses remote Turso
 Cloud and an IAP-protected server command.
 
@@ -11,8 +11,10 @@ Cloud and an IAP-protected server command.
   runs with record-level errors.
 - `GET /api/v1/imports/{run-identity}` returns ordered outcomes, source
   references, diagnostics, and generated entry IDs.
-- `GET /api/v1/entries?limit=50&cursor=...` returns generated entries in newest
-  run/record order. Limits are from 1 through 100 and cursors are opaque.
+- `GET /api/v1/entries?limit=50&cursor=...` returns current entry candidates in
+  newest run/record order. Limits are from 1 through 100 and cursors are opaque.
+  Optional filters are `date_from`, `date_to`, `account`, `description`,
+  `status`, `workflow_status`, `source_namespace`, and `source_display`.
 - `GET /api/v1/entries/{entry-id}` returns ordered comments and postings plus
   the immutable original, source, outcome diagnostics, revision history, and
   approval history.
@@ -22,10 +24,31 @@ Cloud and an IAP-protected server command.
 - `POST /api/v1/entries/{entry-id}/approvals` approves the specified latest
   revision. Invalid revisions return `422 Unprocessable Entity`; stale
   revisions return `409 Conflict`. Revision `0` is the original import entry.
+- `GET /api/v1/exports/tackler` exports approved current candidates as
+  deterministic UTF-8 Tackler-compatible text while preserving an omitted
+  final posting amount.
+- `GET /api/v1/exports/json` exports the same approved snapshots as versioned
+  JSON without pagination.
 
-Every response carries `schema_version: 1`. Amounts are decimal strings rather
-than JSON numbers. An omitted posting amount omits both `amount` and
+Every JSON response carries `schema_version: 1`. Amounts are decimal strings
+rather than JSON numbers. An omitted posting amount omits both `amount` and
 `commodity`.
+
+Entry filters are combined with AND. Date bounds are inclusive and compare the
+recorded local date. Account matching includes the exact account and its
+colon-separated descendants. Description and source display use case-sensitive
+substring matching; source namespace is exact. `status` remains the import
+outcome (`success` or `warning`), while `workflow_status` is `unapproved`,
+`invalid`, or `approved` for the current candidate. A cursor is bound to its
+normalized filters and cannot be reused with different filters.
+
+Exports accept the same filters, but `workflow_status` may only be omitted or
+set to `approved`. They include only a currently approved candidate: an entry
+whose older revision was approved but whose latest revision is unapproved or
+invalid is excluded. Export order is recorded local date ascending, date-only
+before timestamps on the same date, timestamp instant ascending, then import
+and record order ascending. Empty Tackler and JSON exports return empty bytes
+and `entries: []`, respectively.
 
 Errors contain only a stable code and safe message. Request bodies, accounting
 values, SQL details, paths, and credentials are not reflected in error bodies.

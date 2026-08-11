@@ -62,4 +62,26 @@ func TestRemoteTursoMigrationAndImport(t *testing.T) {
 	if _, err := store.ApproveRevision(ctx, run.Outcomes[0].EntryID, webapp.ApprovalRequest{Revision: &revision.Revision}); err != nil {
 		t.Fatalf("ApproveRevision() error = %v", err)
 	}
+	page, err := store.ListEntries(ctx, webapp.EntryQuery{
+		Filter: webapp.EntryFilter{SourceNamespace: "remote-integration", SourceDisplay: nonce},
+		Limit:  10,
+	})
+	if err != nil {
+		t.Fatalf("ListEntries() error = %v", err)
+	}
+	if len(page.Entries) != 1 || page.Entries[0].ID != run.Outcomes[0].EntryID ||
+		page.Entries[0].WorkflowStatus != "approved" || page.Entries[0].CurrentRevision != revision.Revision {
+		t.Fatalf("searched entry = %+v", page)
+	}
+	exported, err := store.ListApprovedEntries(ctx, webapp.EntryFilter{
+		SourceNamespace: "remote-integration", SourceDisplay: nonce,
+	})
+	if err != nil {
+		t.Fatalf("ListApprovedEntries() error = %v", err)
+	}
+	if len(exported) != 1 || exported[0].ID != run.Outcomes[0].EntryID || exported[0].Revision != revision.Revision ||
+		len(exported[0].Entry.Postings) != 2 || exported[0].Entry.Postings[0].Amount == nil ||
+		exported[0].Entry.Postings[0].Amount.Value.String() != "2.00" || exported[0].Entry.Postings[1].Amount != nil {
+		t.Fatalf("approved export = %+v", exported)
+	}
 }

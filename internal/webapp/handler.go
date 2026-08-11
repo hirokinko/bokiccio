@@ -11,6 +11,8 @@ import (
 	"strings"
 
 	"github.com/hirokinko/bokiccio/internal/ingest"
+	"github.com/hirokinko/bokiccio/internal/ledger"
+	"github.com/hirokinko/bokiccio/internal/tacklerfmt"
 )
 
 const (
@@ -46,6 +48,18 @@ func (handler *Handler) ServeHTTP(response http.ResponseWriter, request *http.Re
 			return
 		}
 		handler.listEntries(response, request)
+	case request.URL.Path == "/api/v1/exports/tackler":
+		if request.Method != http.MethodGet {
+			handler.methodNotAllowed(response)
+			return
+		}
+		handler.exportTackler(response, request)
+	case request.URL.Path == "/api/v1/exports/json":
+		if request.Method != http.MethodGet {
+			handler.methodNotAllowed(response)
+			return
+		}
+		handler.exportJSON(response, request)
 	case strings.HasPrefix(request.URL.Path, "/api/v1/entries/"):
 		handler.entryResource(response, request, strings.TrimPrefix(request.URL.Path, "/api/v1/entries/"))
 	default:
@@ -138,12 +152,72 @@ func (handler *Handler) listEntries(response http.ResponseWriter, request *http.
 		}
 		limit = value
 	}
-	page, err := handler.repository.ListEntries(request.Context(), limit, request.URL.Query().Get("cursor"))
+	page, err := handler.repository.ListEntries(request.Context(), EntryQuery{
+		Filter: entryFilter(request), Limit: limit, Cursor: request.URL.Query().Get("cursor"),
+	})
 	if err != nil {
 		handler.writeRepositoryError(response, err)
 		return
 	}
 	writeJSON(response, http.StatusOK, page)
+}
+
+func entryFilter(request *http.Request) EntryFilter {
+	query := request.URL.Query()
+	return EntryFilter{
+		DateFrom: query.Get("date_from"), DateTo: query.Get("date_to"), Account: query.Get("account"),
+		Description: query.Get("description"), Status: query.Get("status"),
+		WorkflowStatus: query.Get("workflow_status"), SourceNamespace: query.Get("source_namespace"),
+		SourceDisplay: query.Get("source_display"),
+	}
+}
+
+func (handler *Handler) exportTackler(response http.ResponseWriter, request *http.Request) {
+	approved, err := handler.repository.ListApprovedEntries(request.Context(), entryFilter(request))
+	if err != nil {
+		handler.writeRepositoryError(response, err)
+		return
+	}
+	entries := make([]ledger.JournalEntry, 0, len(approved))
+	for _, item := range approved {
+		entries = append(entries, item.Entry)
+	}
+	output, err := tacklerfmt.Export(entries, tacklerfmt.Options{OmittedAmounts: tacklerfmt.PreserveOmitted})
+	if err != nil {
+		handler.writeRepositoryError(response, err)
+		return
+	}
+	response.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	response.Header().Set("Content-Disposition", `attachment; filename="bokiccio-export.txn"`)
+	response.WriteHeader(http.StatusOK)
+	_, _ = response.Write(output)
+}
+
+func (handler *Handler) exportJSON(response http.ResponseWriter, request *http.Request) {
+	approved, err := handler.repository.ListApprovedEntries(request.Context(), entryFilter(request))
+	if err != nil {
+		handler.writeRepositoryError(response, err)
+		return
+	}
+	exported := JSONExport{SchemaVersion: APISchemaVersion, Entries: []ExportEntry{}}
+	for _, item := range approved {
+		entry := ExportEntry{
+			ID: item.ID, Revision: item.Revision, ApprovedAt: item.ApprovedAt, Source: item.Source,
+			OccurredAt: item.Entry.Date.String(), Description: item.Entry.Description,
+			Comments: append([]string(nil), item.Entry.Comments...), Postings: []PostingDetail{},
+		}
+		for _, posting := range item.Entry.Postings {
+			detail := PostingDetail{Account: posting.Account, Comment: posting.Comment}
+			if posting.Amount != nil {
+				amount := posting.Amount.Value.String()
+				detail.Amount = &amount
+				detail.Commodity = string(posting.Amount.Commodity)
+			}
+			entry.Postings = append(entry.Postings, detail)
+		}
+		exported.Entries = append(exported.Entries, entry)
+	}
+	writeJSON(response, http.StatusOK, exported)
 }
 
 func (handler *Handler) getEntry(response http.ResponseWriter, request *http.Request, id string) {
