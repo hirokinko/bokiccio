@@ -87,10 +87,10 @@ request must have a valid ES256 `X-Goog-IAP-JWT-Assertion` with the configured
 audience, the IAP issuer, a subject, and the configured owner email. The
 application does not trust unsigned identity or forwarded-host headers.
 
-State-changing methods additionally require an `Origin` exactly matching
-`BOKICCIO_EXTERNAL_ORIGIN`. The application has no login endpoint, session
-store, or cookie; IAP owns the login session. `/livez` returns only `ok` and
-does not inspect storage.
+State-changing methods additionally require an `Origin` exactly matching one of
+the comma-separated HTTPS origins in `BOKICCIO_EXTERNAL_ORIGIN`. The application
+has no login endpoint, session store, or cookie; IAP owns the login session.
+`/livez` returns only `ok` and does not inspect storage.
 
 `bokiccio migrate` applies versioned migrations explicitly. `bokiccio serve`
 never migrates implicitly and refuses to start unless the schema is current.

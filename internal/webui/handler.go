@@ -6,18 +6,23 @@ import (
 	"errors"
 	"io"
 	"mime"
+	"mime/multipart"
 	"net/http"
 	"net/url"
 	"strconv"
 	"strings"
 
 	"github.com/a-h/templ"
+	"github.com/hirokinko/bokiccio/internal/ingest"
 	"github.com/hirokinko/bokiccio/internal/webapp"
 )
 
 const (
-	defaultPageSize   = 50
-	maxSearchFormBody = 16 << 10
+	defaultPageSize      = 50
+	maxSearchFormBody    = 16 << 10
+	maxImportFileSize    = 10 << 20
+	maxImportRequestSize = maxImportFileSize + (64 << 10)
+	importFileField      = "file"
 )
 
 //go:embed assets/app.css assets/htmx-2.0.10.min.js
@@ -29,6 +34,22 @@ type Handler struct {
 
 func NewHandler(repository webapp.Repository) *Handler {
 	return &Handler{repository: repository}
+}
+
+func RenderSecurityError(response http.ResponseWriter, request *http.Request, securityError webapp.SecurityError) {
+	setPrivateHeaders(response)
+	requestLocale, _ := localeRoute(request.URL.Path)
+	msg := messagesFor(requestLocale)
+	title := msg.SecurityForbiddenTitle
+	message := msg.SecurityForbiddenMessage
+	if securityError.Status == http.StatusUnauthorized {
+		title = msg.SecurityUnauthorizedTitle
+		message = msg.SecurityUnauthorizedMessage
+	}
+	render(response, request, securityError.Status, errorPage(errorPageModel{
+		Page: newPageContext(requestLocale, "/"), Status: securityError.Status,
+		Title: title, Message: message,
+	}))
 }
 
 func (handler *Handler) ServeHTTP(response http.ResponseWriter, request *http.Request) {
@@ -60,6 +81,12 @@ func (handler *Handler) ServeHTTP(response http.ResponseWriter, request *http.Re
 			return
 		}
 		handler.searchEntries(response, request, requestLocale)
+	case localPath == "/ui/imports":
+		if request.Method != http.MethodPost {
+			handler.methodNotAllowed(response, request, requestLocale, localPath, "POST")
+			return
+		}
+		handler.importRecords(response, request, requestLocale)
 	case strings.HasPrefix(localPath, "/entries/"):
 		if request.Method != http.MethodGet && request.Method != http.MethodHead {
 			handler.methodNotAllowed(response, request, requestLocale, localPath, "GET, HEAD")
@@ -111,6 +138,24 @@ func (handler *Handler) searchEntries(response http.ResponseWriter, request *htt
 		return
 	}
 	render(response, request, http.StatusOK, indexPage(model))
+}
+
+func (handler *Handler) importRecords(response http.ResponseWriter, request *http.Request, requestLocale locale) {
+	body, uploadStatus, ok := decodeImportUpload(response, request)
+	if !ok {
+		handler.invalidUpload(response, request, requestLocale, uploadStatus)
+		return
+	}
+	result, err := handler.repository.Import(request.Context(), body)
+	if errors.Is(err, ingest.ErrInvalidInput) || errors.Is(err, webapp.ErrInvalidRequest) {
+		handler.invalidUpload(response, request, requestLocale, http.StatusBadRequest)
+		return
+	}
+	if err != nil {
+		handler.uploadFailed(response, request, requestLocale)
+		return
+	}
+	http.Redirect(response, request, runHref(requestLocale, result.RunIdentity), http.StatusSeeOther)
 }
 
 func (handler *Handler) entry(response http.ResponseWriter, request *http.Request, requestLocale locale, escapedID string) {
@@ -226,9 +271,36 @@ func (handler *Handler) invalidSearch(response http.ResponseWriter, request *htt
 	}))
 }
 
+func (handler *Handler) invalidUpload(response http.ResponseWriter, request *http.Request, requestLocale locale, status int) {
+	msg := messagesFor(requestLocale)
+	title := msg.InvalidUploadTitle
+	message := msg.InvalidUploadMessage
+	switch status {
+	case http.StatusRequestEntityTooLarge:
+		title = msg.UploadTooLargeTitle
+		message = msg.UploadTooLargeMessage
+	case http.StatusUnsupportedMediaType:
+		title = msg.UnsupportedUploadTitle
+		message = msg.UnsupportedUploadMessage
+	}
+	render(response, request, status, errorPage(errorPageModel{
+		Page: newPageContext(requestLocale, "/"), Status: status,
+		Title: title, Message: message,
+	}))
+}
+
+func (handler *Handler) uploadFailed(response http.ResponseWriter, request *http.Request, requestLocale locale) {
+	msg := messagesFor(requestLocale)
+	render(response, request, http.StatusInternalServerError, errorPage(errorPageModel{
+		Page: newPageContext(requestLocale, "/"), Status: http.StatusInternalServerError,
+		Title: msg.UploadFailedTitle, Message: msg.UploadFailedMessage,
+	}))
+}
+
 func newIndexPageModel(requestLocale locale, filter webapp.EntryFilter, page webapp.EntryPage, searchApplied bool) indexPageModel {
 	model := indexPageModel{
 		Page:          newPageContext(requestLocale, "/"),
+		Upload:        uploadFormModel{Action: importHref(requestLocale)},
 		Search:        searchFormModel{Action: searchHref(requestLocale), ResetHref: localizedPath(requestLocale, "/"), Filter: filter},
 		Entries:       make([]entrySummaryModel, 0, len(page.Entries)),
 		NextCursor:    page.NextCursor,
@@ -242,6 +314,69 @@ func newIndexPageModel(requestLocale locale, filter webapp.EntryFilter, page web
 		})
 	}
 	return model
+}
+
+func decodeImportUpload(response http.ResponseWriter, request *http.Request) ([]byte, int, bool) {
+	if request.URL.RawQuery != "" {
+		return nil, http.StatusBadRequest, false
+	}
+	mediaType, params, err := mime.ParseMediaType(request.Header.Get("Content-Type"))
+	if err != nil || mediaType != "multipart/form-data" {
+		return nil, http.StatusUnsupportedMediaType, false
+	}
+	boundary := params["boundary"]
+	if boundary == "" {
+		return nil, http.StatusBadRequest, false
+	}
+
+	reader := multipart.NewReader(http.MaxBytesReader(response, request.Body, maxImportRequestSize), boundary)
+	var body []byte
+	fileSeen := false
+	for {
+		part, err := reader.NextPart()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			if requestTooLarge(err) {
+				return nil, http.StatusRequestEntityTooLarge, false
+			}
+			return nil, http.StatusBadRequest, false
+		}
+		data, status, ok := readImportPart(part, fileSeen)
+		_ = part.Close()
+		if !ok {
+			return nil, status, false
+		}
+		body = data
+		fileSeen = true
+	}
+	if !fileSeen {
+		return nil, http.StatusBadRequest, false
+	}
+	return body, http.StatusOK, true
+}
+
+func readImportPart(part *multipart.Part, fileSeen bool) ([]byte, int, bool) {
+	if fileSeen || part.FormName() != importFileField || part.FileName() == "" {
+		return nil, http.StatusBadRequest, false
+	}
+	body, err := io.ReadAll(io.LimitReader(part, maxImportFileSize+1))
+	if err != nil {
+		if requestTooLarge(err) {
+			return nil, http.StatusRequestEntityTooLarge, false
+		}
+		return nil, http.StatusBadRequest, false
+	}
+	if len(body) > maxImportFileSize {
+		return nil, http.StatusRequestEntityTooLarge, false
+	}
+	return body, http.StatusOK, true
+}
+
+func requestTooLarge(err error) bool {
+	var maxBytesError *http.MaxBytesError
+	return errors.As(err, &maxBytesError)
 }
 
 func render(response http.ResponseWriter, request *http.Request, status int, component templ.Component) {
@@ -355,6 +490,6 @@ func localeRoute(path string) (locale, string) {
 func setPrivateHeaders(response http.ResponseWriter) {
 	response.Header().Set("Cache-Control", "no-store")
 	response.Header().Set("Content-Security-Policy", "default-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'")
-	response.Header().Set("Referrer-Policy", "no-referrer")
+	response.Header().Set("Referrer-Policy", "same-origin")
 	response.Header().Set("X-Content-Type-Options", "nosniff")
 }

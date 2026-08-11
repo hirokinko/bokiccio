@@ -34,6 +34,10 @@ func runHref(l locale, id string) string {
 	return localizedPath(l, "/imports/"+url.PathEscape(id))
 }
 
+func importHref(l locale) string {
+	return localizedPath(l, "/ui/imports")
+}
+
 func searchHref(l locale) string {
 	return localizedPath(l, "/ui/entries/search")
 }

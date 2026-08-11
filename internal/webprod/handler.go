@@ -3,8 +3,10 @@ package webprod
 import (
 	"errors"
 	"net/http"
+	"strings"
 
 	"github.com/hirokinko/bokiccio/internal/webapp"
+	"github.com/hirokinko/bokiccio/internal/webui"
 )
 
 func NewApplicationHandler(api, ui http.Handler) (http.Handler, error) {
@@ -22,7 +24,7 @@ func NewProductionHandler(application http.Handler, validator webapp.IAPTokenVal
 	if application == nil {
 		return nil, errors.New("application handler is required")
 	}
-	private, err := webapp.RequireIAP(application, validator, security)
+	private, err := webapp.RequireIAPWithErrorWriter(application, validator, security, writeProductionSecurityError)
 	if err != nil {
 		return nil, err
 	}
@@ -42,4 +44,12 @@ func NewProductionHandler(application http.Handler, validator webapp.IAPTokenVal
 	})
 	mux.Handle("/", private)
 	return mux, nil
+}
+
+func writeProductionSecurityError(response http.ResponseWriter, request *http.Request, securityError webapp.SecurityError) {
+	if request.URL.Path == "/api" || strings.HasPrefix(request.URL.Path, "/api/") {
+		webapp.WriteSecurityJSON(response, securityError)
+		return
+	}
+	webui.RenderSecurityError(response, request, securityError)
 }

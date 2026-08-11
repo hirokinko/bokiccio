@@ -23,10 +23,12 @@ func (validator *stubIAPValidator) Validate(_ context.Context, token, audience s
 }
 
 func TestRequireIAP(t *testing.T) {
+	primaryOrigin := "https://bokiccio.example.com"
+	secondaryOrigin := "https://bokiccio-123.asia-northeast1.run.app"
 	security := IAPSecurity{
 		Audience:       "/projects/123/locations/asia-northeast1/services/bokiccio",
 		OwnerEmail:     "owner@example.com",
-		ExternalOrigin: "https://bokiccio.example.com",
+		ExternalOrigin: primaryOrigin + "," + secondaryOrigin,
 	}
 	validClaims := IAPClaims{
 		Issuer:   iapIssuer,
@@ -45,7 +47,8 @@ func TestRequireIAP(t *testing.T) {
 		status int
 	}{
 		{name: "authenticated read", method: http.MethodGet, token: "signed", claims: validClaims, status: http.StatusNoContent},
-		{name: "authenticated mutation", method: http.MethodPost, token: "signed", origin: security.ExternalOrigin, claims: validClaims, status: http.StatusNoContent},
+		{name: "authenticated mutation primary origin", method: http.MethodPost, token: "signed", origin: primaryOrigin, claims: validClaims, status: http.StatusNoContent},
+		{name: "authenticated mutation secondary origin", method: http.MethodPost, token: "signed", origin: secondaryOrigin, claims: validClaims, status: http.StatusNoContent},
 		{name: "missing token", method: http.MethodGet, claims: validClaims, status: http.StatusUnauthorized},
 		{name: "invalid signature", method: http.MethodGet, token: "invalid", claims: validClaims, err: errors.New("invalid"), status: http.StatusUnauthorized},
 		{name: "wrong issuer", method: http.MethodGet, token: "signed", claims: replaceClaims(validClaims, func(value *IAPClaims) { value.Issuer = "https://accounts.google.com" }), status: http.StatusUnauthorized},
@@ -85,12 +88,14 @@ func TestRequireIAP(t *testing.T) {
 
 func TestIAPSecurityValidation(t *testing.T) {
 	valid := IAPSecurity{Audience: "audience", OwnerEmail: "owner@example.com", ExternalOrigin: "https://example.com"}
+	validMultiple := IAPSecurity{Audience: "audience", OwnerEmail: "owner@example.com", ExternalOrigin: "https://example.com, https://service.run.app/"}
 	tests := []IAPSecurity{
 		{},
 		{Audience: " audience", OwnerEmail: valid.OwnerEmail, ExternalOrigin: valid.ExternalOrigin},
 		{Audience: valid.Audience, OwnerEmail: "owner", ExternalOrigin: valid.ExternalOrigin},
 		{Audience: valid.Audience, OwnerEmail: valid.OwnerEmail, ExternalOrigin: "http://example.com"},
 		{Audience: valid.Audience, OwnerEmail: valid.OwnerEmail, ExternalOrigin: "https://example.com/path"},
+		{Audience: valid.Audience, OwnerEmail: valid.OwnerEmail, ExternalOrigin: "https://example.com,"},
 	}
 	for _, security := range tests {
 		if err := security.Validate(); err == nil {
@@ -99,6 +104,9 @@ func TestIAPSecurityValidation(t *testing.T) {
 	}
 	if err := valid.Validate(); err != nil {
 		t.Fatalf("valid security error = %v", err)
+	}
+	if err := validMultiple.Validate(); err != nil {
+		t.Fatalf("valid multiple security error = %v", err)
 	}
 }
 

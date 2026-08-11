@@ -12,7 +12,7 @@ func TestLoadServerConfig(t *testing.T) {
 		DatabaseTokenEnv:  "private-token",
 		IAPAudienceEnv:    "/projects/123/locations/asia-northeast1/services/bokiccio",
 		OwnerEmailEnv:     "owner@example.com",
-		ExternalOriginEnv: "https://bokiccio.example.com",
+		ExternalOriginEnv: "https://bokiccio.example.com,https://bokiccio-123.asia-northeast1.run.app",
 		PortEnv:           "8080",
 	}
 	config, err := LoadServerConfig(mapLookup(values))
@@ -24,6 +24,9 @@ func TestLoadServerConfig(t *testing.T) {
 	}
 	if config.Security.Audience != values[IAPAudienceEnv] || config.Security.OwnerEmail != values[OwnerEmailEnv] {
 		t.Fatalf("security = %+v", config.Security)
+	}
+	if config.Security.ExternalOrigin != values[ExternalOriginEnv] {
+		t.Fatalf("external origin = %q, want %q", config.Security.ExternalOrigin, values[ExternalOriginEnv])
 	}
 }
 

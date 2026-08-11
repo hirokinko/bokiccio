@@ -60,7 +60,7 @@ func TestProductionHandlerOnlyExemptsHealth(t *testing.T) {
 	application := http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
 		response.WriteHeader(http.StatusNoContent)
 	})
-	security := webapp.IAPSecurity{Audience: "audience", OwnerEmail: "owner@example.com", ExternalOrigin: "https://example.com"}
+	security := webapp.IAPSecurity{Audience: "audience", OwnerEmail: "owner@example.com", ExternalOrigin: "https://example.com,https://service.run.app"}
 	handler, err := NewProductionHandler(application, acceptingValidator{}, security)
 	if err != nil {
 		t.Fatalf("NewProductionHandler() error = %v", err)
@@ -114,26 +114,48 @@ func TestProductionHandlerOnlyExemptsHealth(t *testing.T) {
 		}
 	}
 
-	for _, test := range []struct {
-		name   string
-		origin string
-		status int
-	}{
-		{name: "missing origin", status: http.StatusForbidden},
-		{name: "wrong origin", origin: "https://other.example.com", status: http.StatusForbidden},
-		{name: "configured origin", origin: "https://example.com", status: http.StatusNoContent},
-	} {
-		t.Run("search POST "+test.name, func(t *testing.T) {
-			response := httptest.NewRecorder()
-			request := httptest.NewRequest(http.MethodPost, "/ui/entries/search", nil)
-			request.Header.Set("X-Goog-IAP-JWT-Assertion", "signed")
-			if test.origin != "" {
-				request.Header.Set("Origin", test.origin)
-			}
-			handler.ServeHTTP(response, request)
-			if response.Code != test.status {
-				t.Fatalf("status=%d body=%q", response.Code, response.Body.String())
-			}
-		})
+	for _, path := range []string{"/ui/entries/search", "/ui/imports"} {
+		for _, test := range []struct {
+			name   string
+			origin string
+			status int
+		}{
+			{name: "missing origin", status: http.StatusForbidden},
+			{name: "wrong origin", origin: "https://other.example.com", status: http.StatusForbidden},
+			{name: "configured origin", origin: "https://example.com", status: http.StatusNoContent},
+			{name: "secondary configured origin", origin: "https://service.run.app", status: http.StatusNoContent},
+		} {
+			t.Run(path+" POST "+test.name, func(t *testing.T) {
+				response := httptest.NewRecorder()
+				request := httptest.NewRequest(http.MethodPost, path, nil)
+				request.Header.Set("X-Goog-IAP-JWT-Assertion", "signed")
+				if test.origin != "" {
+					request.Header.Set("Origin", test.origin)
+				}
+				handler.ServeHTTP(response, request)
+				if response.Code != test.status {
+					t.Fatalf("status=%d body=%q", response.Code, response.Body.String())
+				}
+				if test.status == http.StatusForbidden && test.origin == "" {
+					if got := response.Header().Get("Content-Type"); got != "text/html; charset=utf-8" {
+						t.Fatalf("UI security content-type = %q", got)
+					}
+					if body := response.Body.String(); !bytes.Contains([]byte(body), []byte("Request blocked")) {
+						t.Fatalf("UI security body=%q", body)
+					}
+				}
+			})
+		}
+	}
+
+	apiForbidden := httptest.NewRecorder()
+	apiRequest := httptest.NewRequest(http.MethodPost, "/api/v1/entries", nil)
+	apiRequest.Header.Set("X-Goog-IAP-JWT-Assertion", "signed")
+	handler.ServeHTTP(apiForbidden, apiRequest)
+	if apiForbidden.Code != http.StatusForbidden || apiForbidden.Header().Get("Content-Type") != "application/json; charset=utf-8" {
+		t.Fatalf("API security status=%d content-type=%q body=%q", apiForbidden.Code, apiForbidden.Header().Get("Content-Type"), apiForbidden.Body.String())
+	}
+	if body := apiForbidden.Body.String(); !bytes.Contains([]byte(body), []byte(`"code":"origin_forbidden"`)) {
+		t.Fatalf("API security body=%q", body)
 	}
 }

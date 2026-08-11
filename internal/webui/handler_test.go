@@ -1,13 +1,17 @@
 package webui_test
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"database/sql"
 	"fmt"
+	"io"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
 	"strings"
 	"testing"
 
@@ -171,6 +175,94 @@ func TestLocalizedEmptyAndErrorRoutes(t *testing.T) {
 	}
 }
 
+func TestUIImportUploadRedirectsToRunPage(t *testing.T) {
+	database := openUIDatabase(t)
+	store := webstore.New(database)
+	handler := webui.NewHandler(store)
+	input := []byte(`{"schema_version":1,"records":[{"source":{"namespace":"ui-upload","display":"fixtures/upload.json","external_id":"upload-entry"},"occurred_at":"2026-08-11","description":"Uploaded candidate","warnings":[{"code":"ui.upload","message":"Needs review"}],"postings":[{"account":"費用:取込","amount":"1200","commodity":"JPY"},{"account":"資産:現金"}]}]}`)
+
+	response := serveUpload(handler, "/ui/imports", "private-upload.json", input)
+	if response.Code != http.StatusSeeOther {
+		t.Fatalf("upload status=%d body=%s", response.Code, response.Body.String())
+	}
+	location := response.Header().Get("Location")
+	if !strings.HasPrefix(location, "/imports/") {
+		t.Fatalf("Location = %q", location)
+	}
+	assertNotContainsAny(t, response.Body.String(), []string{"private-upload.json", string(input)})
+
+	runPage := serve(handler, http.MethodGet, location)
+	assertHTMLResponse(t, runPage, http.StatusOK)
+	assertContainsAll(t, runPage.Body.String(), []string{"取込結果", "fixtures/upload.json", "完了", "/entries/"})
+
+	englishInput := []byte(`{"schema_version":1,"records":[{"source":{"namespace":"ui-upload","display":"fixtures/upload-en.json","external_id":"upload-entry-en"},"occurred_at":"2026-08-12","description":"English uploaded candidate","postings":[{"account":"費用:取込","amount":"1500","commodity":"JPY"},{"account":"資産:現金"}]}]}`)
+	english := serveUpload(handler, "/en/ui/imports", "private-english.json", englishInput)
+	if english.Code != http.StatusSeeOther || !strings.HasPrefix(english.Header().Get("Location"), "/en/imports/") {
+		t.Fatalf("English upload status=%d Location=%q body=%s", english.Code, english.Header().Get("Location"), english.Body.String())
+	}
+}
+
+func TestUIImportUploadCommitsRunWithRecordErrors(t *testing.T) {
+	store := webstore.New(openUIDatabase(t))
+	handler := webui.NewHandler(store)
+
+	response := serveUpload(handler, "/ui/imports", "mixed-private.json", readWebFixture(t, "../ingest/testdata/mixed-outcomes-v1.json"))
+	if response.Code != http.StatusSeeOther {
+		t.Fatalf("upload status=%d body=%s", response.Code, response.Body.String())
+	}
+	runPage := serve(handler, http.MethodGet, response.Header().Get("Location"))
+	assertHTMLResponse(t, runPage, http.StatusOK)
+	assertContainsAll(t, runPage.Body.String(), []string{"取込結果", "要確認", "error"})
+}
+
+func TestUIImportUploadRejectsInvalidInputPrivately(t *testing.T) {
+	handler := webui.NewHandler(webstore.New(openUIDatabase(t)))
+	for _, test := range []struct {
+		name   string
+		path   string
+		parts  []uploadPart
+		status int
+	}{
+		{name: "invalid json", path: "/ui/imports", parts: []uploadPart{{field: "file", filename: "secret-invalid.json", body: []byte("private-content")}}, status: http.StatusBadRequest},
+		{name: "missing file", path: "/ui/imports", status: http.StatusBadRequest},
+		{name: "extra field", path: "/ui/imports", parts: []uploadPart{{field: "note", body: []byte("private-note")}, {field: "file", filename: "valid.json", body: []byte(`{"schema_version":1,"records":[]}`)}}, status: http.StatusBadRequest},
+		{name: "multiple files", path: "/ui/imports", parts: []uploadPart{{field: "file", filename: "first-secret.json", body: []byte(`{"schema_version":1,"records":[]}`)}, {field: "file", filename: "second-secret.json", body: []byte(`{"schema_version":1,"records":[]}`)}}, status: http.StatusBadRequest},
+		{name: "query string", path: "/ui/imports?source=private", parts: []uploadPart{{field: "file", filename: "valid.json", body: []byte(`{"schema_version":1,"records":[]}`)}}, status: http.StatusBadRequest},
+		{name: "too large", path: "/ui/imports", parts: []uploadPart{{field: "file", filename: "too-large-private.json", body: bytes.Repeat([]byte("x"), (10<<20)+1)}}, status: http.StatusRequestEntityTooLarge},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			response := serveMultipart(handler, test.path, test.parts)
+			assertHTMLResponse(t, response, test.status)
+			assertNotContainsAny(t, response.Body.String(), []string{
+				"secret-invalid.json", "private-content", "private-note", "first-secret.json",
+				"second-secret.json", "source=private", "too-large-private.json",
+			})
+		})
+	}
+
+	wrongMedia := serveRawForm(handler, "/en/ui/imports", "text/plain", "private-content", nil)
+	assertHTMLResponse(t, wrongMedia, http.StatusUnsupportedMediaType)
+	assertContainsAll(t, wrongMedia.Body.String(), []string{`<html lang="en">`, "Unsupported upload"})
+	assertNotContainsAny(t, wrongMedia.Body.String(), []string{"private-content"})
+
+	method := serve(webui.NewHandler(nil), http.MethodGet, "/ui/imports")
+	assertHTMLResponse(t, method, http.StatusMethodNotAllowed)
+	if method.Header().Get("Allow") != "POST" {
+		t.Fatalf("Allow = %q", method.Header().Get("Allow"))
+	}
+}
+
+func TestUIImportUploadRepositoryFailureIsPrivateSafe(t *testing.T) {
+	database := openUIDatabase(t)
+	store := webstore.New(database)
+	if err := database.Close(); err != nil {
+		t.Fatalf("Close() error = %v", err)
+	}
+	response := serveUpload(webui.NewHandler(store), "/ui/imports", "private-storage.json", []byte(`{"schema_version":1,"records":[]}`))
+	assertHTMLResponse(t, response, http.StatusInternalServerError)
+	assertNotContainsAny(t, response.Body.String(), []string{"database is closed", "SQL", "private-storage.json", "schema_version"})
+}
+
 func TestUISearchFullPageAndHtmxFragment(t *testing.T) {
 	database := openUIDatabase(t)
 	store := webstore.New(database)
@@ -323,13 +415,60 @@ func serveRawForm(handler http.Handler, path, contentType, body string, headers 
 	return response
 }
 
+type uploadPart struct {
+	field    string
+	filename string
+	body     []byte
+}
+
+func serveUpload(handler http.Handler, path, filename string, body []byte) *httptest.ResponseRecorder {
+	return serveMultipart(handler, path, []uploadPart{{field: "file", filename: filename, body: body}})
+}
+
+func serveMultipart(handler http.Handler, path string, parts []uploadPart) *httptest.ResponseRecorder {
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	for _, part := range parts {
+		var file io.Writer
+		var err error
+		if part.filename == "" {
+			file, err = writer.CreateFormField(part.field)
+		} else {
+			file, err = writer.CreateFormFile(part.field, part.filename)
+		}
+		if err != nil {
+			panic(err)
+		}
+		if _, err := file.Write(part.body); err != nil {
+			panic(err)
+		}
+	}
+	if err := writer.Close(); err != nil {
+		panic(err)
+	}
+	response := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, path, &body)
+	request.Header.Set("Content-Type", writer.FormDataContentType())
+	handler.ServeHTTP(response, request)
+	return response
+}
+
+func readWebFixture(t *testing.T, path string) []byte {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile() error = %v", err)
+	}
+	return data
+}
+
 func assertHTMLResponse(t *testing.T, response *httptest.ResponseRecorder, status int) {
 	t.Helper()
 	if response.Code != status || response.Header().Get("Content-Type") != "text/html; charset=utf-8" {
 		t.Fatalf("status=%d content-type=%q body=%s", response.Code, response.Header().Get("Content-Type"), response.Body.String())
 	}
 	for header, want := range map[string]string{
-		"Cache-Control": "no-store", "Referrer-Policy": "no-referrer", "X-Content-Type-Options": "nosniff",
+		"Cache-Control": "no-store", "Referrer-Policy": "same-origin", "X-Content-Type-Options": "nosniff",
 	} {
 		if got := response.Header().Get(header); got != want {
 			t.Errorf("%s = %q, want %q", header, got, want)

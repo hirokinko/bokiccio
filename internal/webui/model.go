@@ -4,10 +4,15 @@ import "github.com/hirokinko/bokiccio/internal/webapp"
 
 type indexPageModel struct {
 	Page          pageContext
+	Upload        uploadFormModel
 	Search        searchFormModel
 	Entries       []entrySummaryModel
 	NextCursor    string
 	SearchApplied bool
+}
+
+type uploadFormModel struct {
+	Action string
 }
 
 type searchFormModel struct {

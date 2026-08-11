@@ -39,11 +39,23 @@ templ indexPage(model indexPageModel) {
 						<h1>{ model.Page.Messages.IndexTitle }</h1>
 					</div>
 				</header>
+				@uploadForm(model)
 				@searchForm(model)
 				@entryResults(model)
 			</main>
 		</body>
 	</html>
+}
+
+templ uploadForm(model indexPageModel) {
+	<form class="upload-panel" method="post" action={ model.Upload.Action } enctype="multipart/form-data" aria-label={ model.Page.Messages.UploadFormLabel }>
+		<div>
+			<h2>{ model.Page.Messages.UploadHeading }</h2>
+			<p>{ model.Page.Messages.UploadHelp }</p>
+		</div>
+		<label>{ model.Page.Messages.UploadFileLabel }<input type="file" name="file" accept="application/json,.json" required/></label>
+		<button type="submit">{ model.Page.Messages.UploadSubmit }</button>
+	</form>
 }
 
 templ searchForm(model indexPageModel) {

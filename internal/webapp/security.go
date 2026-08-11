@@ -30,6 +30,14 @@ type IAPSecurity struct {
 	ExternalOrigin string
 }
 
+type SecurityError struct {
+	Status  int
+	Code    string
+	Message string
+}
+
+type SecurityErrorWriter func(http.ResponseWriter, *http.Request, SecurityError)
+
 func (security IAPSecurity) Validate() error {
 	if security.Audience == "" || strings.TrimSpace(security.Audience) != security.Audience {
 		return errors.New("IAP audience is required")
@@ -37,38 +45,79 @@ func (security IAPSecurity) Validate() error {
 	if security.OwnerEmail == "" || strings.TrimSpace(security.OwnerEmail) != security.OwnerEmail || !strings.Contains(security.OwnerEmail, "@") {
 		return errors.New("owner email is invalid")
 	}
-	origin, err := url.Parse(security.ExternalOrigin)
-	if err != nil || origin.Scheme != "https" || origin.Host == "" || origin.User != nil || origin.RawQuery != "" || origin.Fragment != "" || (origin.Path != "" && origin.Path != "/") {
-		return errors.New("external origin must be an HTTPS origin without path, query, or fragment")
-	}
-	if origin.String() != security.ExternalOrigin && strings.TrimSuffix(origin.String(), "/") != security.ExternalOrigin {
-		return errors.New("external origin must be canonical")
+	if _, err := allowedExternalOrigins(security.ExternalOrigin); err != nil {
+		return err
 	}
 	return nil
 }
 
 func RequireIAP(next http.Handler, validator IAPTokenValidator, security IAPSecurity) (http.Handler, error) {
+	return RequireIAPWithErrorWriter(next, validator, security, nil)
+}
+
+func RequireIAPWithErrorWriter(next http.Handler, validator IAPTokenValidator, security IAPSecurity, writeError SecurityErrorWriter) (http.Handler, error) {
 	if next == nil || validator == nil {
 		return nil, errors.New("IAP middleware dependencies are required")
 	}
 	if err := security.Validate(); err != nil {
 		return nil, err
 	}
-	externalOrigin := strings.TrimSuffix(security.ExternalOrigin, "/")
+	origins, err := allowedExternalOrigins(security.ExternalOrigin)
+	if err != nil {
+		return nil, err
+	}
+	allowedOrigins := make(map[string]struct{}, len(origins))
+	for _, origin := range origins {
+		allowedOrigins[origin] = struct{}{}
+	}
+	if writeError == nil {
+		writeError = writeSecurityError
+	}
 	return http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
 		token := request.Header.Get("X-Goog-IAP-JWT-Assertion")
 		claims, err := validator.Validate(request.Context(), token, security.Audience)
 		if err != nil || token == "" || !validIAPClaims(claims, security.OwnerEmail, time.Now()) {
-			writeSecurityError(response, http.StatusUnauthorized, "unauthorized", "authentication required")
+			writeError(response, request, SecurityError{Status: http.StatusUnauthorized, Code: "unauthorized", Message: "authentication required"})
 			return
 		}
-		if changesState(request.Method) && request.Header.Get("Origin") != externalOrigin {
-			writeSecurityError(response, http.StatusForbidden, "origin_forbidden", "request origin is not allowed")
+		if changesState(request.Method) && !originAllowed(request.Header.Get("Origin"), allowedOrigins) {
+			writeError(response, request, SecurityError{Status: http.StatusForbidden, Code: "origin_forbidden", Message: "request origin is not allowed"})
 			return
 		}
 		response.Header().Set("Cache-Control", "no-store")
 		next.ServeHTTP(response, request)
 	}), nil
+}
+
+func allowedExternalOrigins(value string) ([]string, error) {
+	origins := strings.Split(value, ",")
+	allowed := make([]string, 0, len(origins))
+	seen := make(map[string]struct{}, len(origins))
+	for _, originText := range origins {
+		originText = strings.TrimSpace(originText)
+		if originText == "" {
+			return nil, errors.New("external origin must not contain empty entries")
+		}
+		origin, err := url.Parse(originText)
+		if err != nil || origin.Scheme != "https" || origin.Host == "" || origin.User != nil || origin.RawQuery != "" || origin.Fragment != "" || (origin.Path != "" && origin.Path != "/") {
+			return nil, errors.New("external origin must be an HTTPS origin without path, query, or fragment")
+		}
+		if origin.String() != originText && strings.TrimSuffix(origin.String(), "/") != originText {
+			return nil, errors.New("external origin must be canonical")
+		}
+		normalized := strings.TrimSuffix(origin.String(), "/")
+		if _, ok := seen[normalized]; ok {
+			continue
+		}
+		seen[normalized] = struct{}{}
+		allowed = append(allowed, normalized)
+	}
+	return allowed, nil
+}
+
+func originAllowed(origin string, allowed map[string]struct{}) bool {
+	_, ok := allowed[origin]
+	return ok
 }
 
 func validIAPClaims(claims IAPClaims, ownerEmail string, now time.Time) bool {
@@ -92,13 +141,17 @@ func changesState(method string) bool {
 	}
 }
 
-func writeSecurityError(response http.ResponseWriter, status int, code, message string) {
+func WriteSecurityJSON(response http.ResponseWriter, securityError SecurityError) {
+	writeSecurityError(response, nil, securityError)
+}
+
+func writeSecurityError(response http.ResponseWriter, _ *http.Request, securityError SecurityError) {
 	response.Header().Set("Content-Type", "application/json; charset=utf-8")
 	response.Header().Set("Cache-Control", "no-store")
-	response.WriteHeader(status)
+	response.WriteHeader(securityError.Status)
 	_ = json.NewEncoder(response).Encode(struct {
 		SchemaVersion int    `json:"schema_version"`
 		Code          string `json:"code"`
 		Message       string `json:"message"`
-	}{SchemaVersion: APISchemaVersion, Code: code, Message: message})
+	}{SchemaVersion: APISchemaVersion, Code: securityError.Code, Message: securityError.Message})
 }

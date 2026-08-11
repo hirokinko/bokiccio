@@ -6,7 +6,7 @@ Bokiccio（ボキッチョ）は、複数の明細・メール・レシートか
 
 名前は、メモ帳のように扱える「簿記帖」と、会計が得意でなくても使える「ぶきっちょ」に由来します。
 
-現在は初期基盤の段階です。Tacklerから独立した仕訳ドメイン、Tackler journal formatの互換subset exporter、ローカル取込workflow、Tursoへ永続化するsingle-user Web APIと日本語・英語対応のread-only Web画面を実装しています。外部サービス連携はまだありません。
+現在は初期基盤の段階です。Tacklerから独立した仕訳ドメイン、Tackler journal formatの互換subset exporter、ローカル取込workflow、Tursoへ永続化するsingle-user Web APIと日本語・英語対応のWeb画面を実装しています。外部サービス連携はまだありません。
 
 ## 実装済み
 
@@ -21,10 +21,11 @@ Bokiccio（ボキッチョ）は、複数の明細・メール・レシートか
 - version付きreport・deduplication stateと決定的なrun identity
 - immutable run bundleとstate manifestを最後にcommitする安全なローカル公開
 - `bokiccio import`による外部service不要のローカル取込
-- Turso互換schemaとread-only JSON APIによるlocal Web vertical slice
+- Turso互換schemaとJSON APIによるlocal Web vertical slice
 - Turso Cloud remote driver、明示migration、Cloud Run向けHTTP server
 - Cloud Run direct IAP JWT、single-owner、same-origin mutationの検証
 - templによる型付きserver-side renderingの日本語・英語対応仕訳検索・取込履歴閲覧画面
+- Web UIからのnormalized JSON upload
 - immutableな仕訳revision、domain再validation、append-onlyな承認履歴
 - 最新revisionを対象にした日付・勘定科目・摘要・状態・source検索
 - 現在承認済みの仕訳だけを対象にしたTackler/JSON export
@@ -74,7 +75,7 @@ internal/webapp / internal/webstore / internal/webprod
 
 internal/webui
   ├─ templによる型付きserver-side rendering
-  ├─ 仕訳検索・取込履歴の日本語・英語read-only画面
+  ├─ normalized JSON upload、仕訳検索、取込履歴の日本語・英語画面
   └─ 同梱したCSS、htmx asset、development-only Biome設定
 ```
 
@@ -148,7 +149,7 @@ PORT=8080 \
 go run ./cmd/bokiccio serve
 ```
 
-`TURSO_AUTH_TOKEN`はCloud RunのSecret Manager environment injectionで渡し、image、source、通常の環境設定へ保存しません。`BOKICCIO_EXTERNAL_ORIGIN`は利用者がアクセスするHTTPS originそのものとし、末尾pathを含めません。serverはmigrationを暗黙実行せず、schemaがcurrentでなければ起動しません。
+`TURSO_AUTH_TOKEN`はCloud RunのSecret Manager environment injectionで渡し、image、source、通常の環境設定へ保存しません。`BOKICCIO_EXTERNAL_ORIGIN`は利用者がアクセスするHTTPS originそのものとし、末尾pathを含めません。複数のCloud Run URLやcustom domainを併用する場合は、comma-separated HTTPS originsとして指定します。serverはmigrationを暗黙実行せず、schemaがcurrentでなければ起動しません。
 
 route、JSON、認証境界、remote integration testは[Web API v1](internal/webapp/API.md)、画面routeとassetの構成は[Web UI](internal/webui/UI.md)を参照してください。
 
@@ -183,7 +184,7 @@ exporterは日付、timezone付きRFC 3339日時、摘要、取引・postingコ�
 ## 現在の非対応範囲
 
 - Tackler journal parser
-- Web UIからのupload・修正・承認、テナント管理
+- Web UIからの修正・承認、テナント管理
 - production deployment manifestと自動migration
 - Gmail、Google Drive、Cloud Vision、Vertex AIとの連携
 - 定期batchとjob管理

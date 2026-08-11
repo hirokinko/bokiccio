@@ -87,12 +87,46 @@ button {
 	font-family: ui-serif, Georgia, serif;
 	font-size: clamp(2rem, 5vw, 3.5rem);
 }
+.upload-panel,
 .search-panel {
 	margin-bottom: 1.5rem;
 	padding: 1.25rem;
 	border: 1px solid #d8d4ca;
 	border-radius: 0.5rem;
 	background: #fff;
+}
+.upload-panel {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) minmax(14rem, 24rem) auto;
+	gap: 1rem;
+	align-items: end;
+}
+.upload-panel h2,
+.upload-panel p {
+	margin: 0;
+}
+.upload-panel p {
+	margin-top: 0.35rem;
+	color: #667066;
+}
+.upload-panel label {
+	display: grid;
+	gap: 0.35rem;
+	color: #667066;
+	font-size: 0.85rem;
+	font-weight: 700;
+}
+.upload-panel input {
+	min-height: 2.5rem;
+	width: 100%;
+	border: 1px solid #bdb8ad;
+	border-radius: 0.35rem;
+	padding: 0.45rem;
+	background: #fff;
+	color: #20231f;
+}
+.upload-panel button {
+	min-height: 2.5rem;
 }
 .search-panel h2,
 .results-heading h2 {
@@ -253,11 +287,15 @@ td {
 	.site-header,
 	.site-title,
 	.page-heading,
+	.upload-panel,
 	.form-actions,
 	.results-heading,
 	.entry-card {
 		align-items: stretch;
 		flex-direction: column;
+	}
+	.upload-panel {
+		display: flex;
 	}
 	.search-grid {
 		grid-template-columns: 1fr;
