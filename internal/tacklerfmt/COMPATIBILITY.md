@@ -18,14 +18,19 @@ The compatibility reference is:
 - single-line transaction and posting comments introduced by `; `
 - Tackler-compatible colon-separated account identifiers
 - signed integer or fixed-point amounts with an explicit commodity
+- a total-price value position written as `quantity commodity = total commodity`
 - two or more postings in input order
 - an amount omitted only from the final posting
 - exactly one blank line between exported transactions and a final newline
 - importing one or more transactions in the supported subset, with blank lines
   ignored between entries
 
-Timestamps without a UTC offset, transaction codes, metadata, tags, prices,
-costs, and commodity conversion are outside this subset.
+When a posting has a total price, balancing uses that total instead of the
+posting quantity. The quantity and total price are preserved separately.
+
+Timestamps without a UTC offset, transaction codes, metadata, tags, unit-price
+value positions (`@`), opening positions, costs, and price database directives
+are outside this subset.
 
 ## Fixtures
 

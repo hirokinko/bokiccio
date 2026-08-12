@@ -41,6 +41,12 @@
       "path": "accept/decimal-commodity.txn"
     },
     {
+      "id": "accept-total-price",
+      "feature": "total-price value position",
+      "expect": "accept",
+      "path": "accept/total-price.txn"
+    },
+    {
       "id": "accept-omitted-final",
       "feature": "omitted final posting amount",
       "expect": "accept",

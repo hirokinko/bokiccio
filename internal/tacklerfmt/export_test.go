@@ -110,6 +110,29 @@ func TestExportOmittedFinalAmount(t *testing.T) {
 	}
 }
 
+func TestExportTotalPriceValuePosition(t *testing.T) {
+	t.Parallel()
+	entry := omittedEntry(t)
+	entry.Postings = []ledger.Posting{
+		{
+			Account:    "資産:投資信託",
+			Amount:     amount(t, "350", "口"),
+			TotalPrice: amount(t, "675", "JPY"),
+			Comment:    "sample",
+		},
+		{Account: "資産:購入予定"},
+	}
+
+	got, err := Export([]ledger.JournalEntry{entry}, Options{OmittedAmounts: PreserveOmitted})
+	if err != nil {
+		t.Fatalf("Export() error = %v", err)
+	}
+	want := "    資産:投資信託  350 口 = 675 JPY     ; sample\n"
+	if !bytes.Contains(got, []byte(want)) {
+		t.Fatalf("Export() = %q, want line %q", got, want)
+	}
+}
+
 func TestExportRejectsInvalidInputWithoutPartialOutput(t *testing.T) {
 	t.Parallel()
 	tests := []struct {

@@ -63,6 +63,9 @@ func Export(entries []ledger.JournalEntry, options Options) ([]byte, error) {
 			if amount != nil {
 				fmt.Fprintf(&output, "  %s %s", amount.Value.String(), amount.Commodity)
 			}
+			if posting.TotalPrice != nil {
+				fmt.Fprintf(&output, " = %s %s", posting.TotalPrice.Value.String(), posting.TotalPrice.Commodity)
+			}
 			if posting.Comment != "" {
 				fmt.Fprintf(&output, "     ; %s", posting.Comment)
 			}

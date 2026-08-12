@@ -1,6 +1,7 @@
 package tacklerfmt
 
 import (
+	"bytes"
 	"errors"
 	"strings"
 	"testing"
@@ -60,6 +61,30 @@ func TestParseRoundTripsExportedSubset(t *testing.T) {
 	}
 }
 
+func TestParseTotalPriceValuePosition(t *testing.T) {
+	t.Parallel()
+	input := []byte("2026-08-10  '匿名投資取引\n    資産:投資信託  350 口 = 675 JPY     ; sample\n    資産:購入予定\n")
+
+	entries, err := Parse(input)
+	if err != nil {
+		t.Fatalf("Parse() error = %v", err)
+	}
+	posting := entries[0].Postings[0]
+	if posting.Amount == nil || posting.Amount.Value.String() != "350" || posting.Amount.Commodity != "口" {
+		t.Fatalf("posting amount = %+v", posting.Amount)
+	}
+	if posting.TotalPrice == nil || posting.TotalPrice.Value.String() != "675" || posting.TotalPrice.Commodity != "JPY" {
+		t.Fatalf("posting total price = %+v", posting.TotalPrice)
+	}
+	output, err := Export(entries, Options{OmittedAmounts: PreserveOmitted})
+	if err != nil {
+		t.Fatalf("Export() error = %v", err)
+	}
+	if !bytes.Equal(output, input) {
+		t.Fatalf("Export(Parse()) = %q, want %q", output, input)
+	}
+}
+
 func TestParseRejectsOutsideSubset(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
@@ -72,6 +97,7 @@ func TestParseRejectsOutsideSubset(t *testing.T) {
 		{name: "timestamp without offset", input: "2026-08-10T14:30:00  'local\n    費用:食費 120 JPY\n    資産:現金\n", err: ledger.ErrInvalidEntryTime},
 		{name: "metadata", input: "2026-08-10  'metadata\n    # uuid: sample\n    費用:食費 120 JPY\n    資産:現金\n", err: ErrInvalidInput},
 		{name: "posting without commodity", input: "2026-08-10  'missing commodity\n    費用:食費 120\n    資産:現金\n", err: ErrInvalidInput},
+		{name: "unit price", input: "2026-08-10  'unit price\n    費用:食費 2 USD @ 150 JPY\n    資産:現金\n", err: ErrInvalidInput},
 		{name: "non-final omission", input: "2026-08-10  'non final\n    費用:食費\n    資産:現金 -120 JPY\n", err: ledger.ErrInvalidOmitted},
 		{name: "unbalanced", input: "2026-08-10  'unbalanced\n    費用:食費 120 JPY\n    資産:現金 -100 JPY\n", err: ledger.ErrUnbalancedEntry},
 	}

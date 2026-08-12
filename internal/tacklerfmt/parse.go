@@ -195,8 +195,8 @@ func parseHeader(line string) (ledger.JournalEntry, error) {
 func parsePosting(line string) (ledger.Posting, error) {
 	body, comment, _ := strings.Cut(strings.TrimSpace(line), ";")
 	fields := strings.Fields(body)
-	if len(fields) != 1 && len(fields) != 3 {
-		return ledger.Posting{}, errors.New("posting must be account or account amount commodity")
+	if len(fields) != 1 && len(fields) != 3 && len(fields) != 6 {
+		return ledger.Posting{}, errors.New("posting must be account, account amount commodity, or account amount commodity = total-price commodity")
 	}
 	posting := ledger.Posting{Account: fields[0], Comment: strings.TrimSpace(comment)}
 	if len(fields) == 1 {
@@ -208,6 +208,17 @@ func parsePosting(line string) (ledger.Posting, error) {
 		return ledger.Posting{}, fmt.Errorf("invalid posting amount: %w", err)
 	}
 	posting.Amount = &ledger.Amount{Value: value, Commodity: ledger.Commodity(fields[2])}
+	if len(fields) == 6 {
+		if fields[3] != "=" {
+			return ledger.Posting{}, errors.New("only total-price value position '=' is supported")
+		}
+		totalPriceText := strings.TrimPrefix(fields[4], "+")
+		totalPrice, err := ledger.ParseDecimal(totalPriceText)
+		if err != nil {
+			return ledger.Posting{}, fmt.Errorf("invalid total price: %w", err)
+		}
+		posting.TotalPrice = &ledger.Amount{Value: totalPrice, Commodity: ledger.Commodity(fields[5])}
+	}
 	return posting, nil
 }
 
@@ -235,6 +246,9 @@ func entryError(entryNumber int, code, message string, err error) error {
 }
 
 func parseCode(err error) string {
+	if strings.Contains(err.Error(), "invalid total price") {
+		return "invalid_total_price"
+	}
 	switch {
 	case errors.Is(err, ledger.ErrInvalidEntryTime):
 		return "invalid_header_date"
@@ -246,7 +260,10 @@ func parseCode(err error) string {
 	if strings.Contains(err.Error(), "description") {
 		return "invalid_header"
 	}
-	if strings.Contains(err.Error(), "amount commodity") {
+	if strings.Contains(err.Error(), "total price") {
+		return "invalid_total_price"
+	}
+	if strings.Contains(err.Error(), "amount commodity") || strings.Contains(err.Error(), "total-price") {
 		return "invalid_posting_shape"
 	}
 	return "invalid_syntax"
@@ -262,8 +279,10 @@ func parseMessage(err error) string {
 		return "posting amount exceeds the supported decimal range"
 	case "invalid_header":
 		return "entry header must be date followed by single-quote description"
+	case "invalid_total_price":
+		return "total-price value position must use = followed by amount and commodity"
 	case "invalid_posting_shape":
-		return "posting must be account or account amount commodity"
+		return "posting must be account, account amount commodity, or account amount commodity = total-price commodity"
 	default:
 		return "line is outside the supported Tackler subset"
 	}
@@ -275,6 +294,8 @@ func validationCode(err error) string {
 		return "invalid_entry"
 	case errors.Is(err, ledger.ErrInvalidAccount):
 		return "invalid_account"
+	case errors.Is(err, ledger.ErrInvalidTotalPrice):
+		return "invalid_total_price"
 	case errors.Is(err, ledger.ErrInvalidCommodity):
 		return "invalid_commodity"
 	case errors.Is(err, ledger.ErrCommodityMismatch):
@@ -293,8 +314,10 @@ func validationMessage(err error) string {
 		return "posting account is outside the supported account syntax"
 	case "invalid_commodity":
 		return "posting commodity is outside the supported commodity syntax"
+	case "invalid_total_price":
+		return "posting total price is invalid"
 	case "commodity_mismatch":
-		return "all explicit posting amounts must use one commodity"
+		return "all effective posting amounts must use one commodity"
 	case "unbalanced_entry":
 		return "explicit posting amounts must balance or the final posting must omit its amount"
 	case "invalid_omitted_amount":
