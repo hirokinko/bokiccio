@@ -21,28 +21,38 @@ Bokiccioは、さまざまな取引記録を検証可能な仕訳へ変換し、
 - `bokiccio import`による検証・export
 - 匿名化fixtureを使ったend-to-end test
 
-## In progress: Single-user web application
+## Available: Single-user web application
 
-仕訳の取込から確認、修正、exportまでをWeb上で扱える、単一利用者向けapplicationへ発展させます。
+単一利用者が、取込結果と仕訳候補をprivateなWeb/API境界で確認し、修正・承認・export・backupを行える基盤を提供しています。
 
-現在はnormalized import、Turso Cloud永続化、取込結果・仕訳候補のJSON API、Cloud Run direct IAPによるsingle-owner公開境界、日本語・英語でnormalized JSON upload、仕訳検索、取込履歴閲覧を行うserver-rendered画面、immutableな修正・承認履歴、最新revisionの検索、承認済み仕訳のexport、checksum付きlogical backupと空databaseへのtransactional restoreまでを実装しています。初期Web UI foundationは完了し、次の焦点は仕訳候補の修正・承認操作と運用系画面です。
+normalized import、Turso Cloud永続化、取込結果・仕訳候補のJSON API、Cloud Run direct IAPによるsingle-owner公開境界、日本語・英語でnormalized JSON upload、仕訳検索、取込履歴閲覧を行うserver-rendered画面、immutableな修正・承認履歴、最新revisionの検索、承認済み仕訳のexport、checksum付きlogical backupと空databaseへのtransactional restoreまでを実装・検証済みです。
 
 - journalとpostingの永続化
 - 取込履歴、処理状態、sourceの表示
 - Web UIからのnormalized JSON upload
 - 日本語・英語のserver-rendered閲覧画面
 - signed IAP JWTとowner identityを検証するproduction server
-- 仕訳候補の確認・修正・承認
+- APIによる仕訳候補の修正・承認
+- 最新revisionを対象にした検索、絞り込み、期間別の閲覧
+- 承認済み仕訳のTackler互換形式と機械可読形式でのexport
+- checksum付きlogical backupと空database限定のtransactional restore
+
+## In progress: Web operation workflow
+
+Single-user web applicationの基盤の上に、日常操作をWeb UIで完結させる画面を追加します。
+
+- 仕訳候補の修正・承認UI
+- Tackler互換subsetの`.txn` file import
+- 承認済み仕訳のexport導線
+- backup/restoreやdeployment確認の運用runbook
 - 勘定科目と分類ruleの管理
-- 検索、絞り込み、期間別の閲覧
-- Tackler互換形式と機械可読形式でのexport
-- backupとrestore
 
 ## Planned: Automated ingestion
 
 利用者が許可した外部sourceから取引記録を継続的に取り込み、手作業を減らします。
 
 - メール、クラウドストレージ、ファイルuploadのconnector
+- スマートフォンのカメラで撮影したレシート・請求書からの取引登録
 - 画像・文書からのOCRと構造化抽出
 - AIによる摘要・勘定科目候補の提案
 - 定期実行、retry、rate limit、部分成功の管理
@@ -50,6 +60,19 @@ Bokiccioは、さまざまな取引記録を検証可能な仕訳へ変換し、
 - confidenceとWARNに基づくhuman review
 
 外部連携は明示的な許可、最小権限、認証情報の安全な保管を前提とします。AIの推論結果は確定仕訳として無条件に採用せず、検証可能な候補として扱います。
+
+## Future: Editor and interoperability
+
+plain text accountingの可搬性を維持しながら、Web editorと外部toolとの連携を強化します。Tackler形式のimportや編集補助に効く領域ですが、当面は取引登録と日常操作の価値を優先します。
+
+- Tackler互換subsetのTree-sitter grammar
+- browser向けincremental parsingとsyntax highlighting
+- LSPによる勘定科目補完、commodity検証、貸借診断
+- formatter、parser、LSPで共有するcompatibility corpus
+- import・export用のversioned API
+- formatやstorageに依存しないdata portability
+
+Tree-sitterは構文解析、LSPは意味検証を担当し、会計データmodelとeditor固有の表現は分離します。
 
 ## Future: Multi-user service
 
@@ -62,19 +85,6 @@ Bokiccioは、さまざまな取引記録を検証可能な仕訳へ変換し、
 - 利用量とquotaの管理
 - backup、障害復旧、observability
 - securityとprivacyに対する継続的な検証
-
-## Future: Editor and interoperability
-
-plain text accountingの可搬性を維持しながら、Web editorと外部toolとの連携を強化します。
-
-- Tackler互換subsetのTree-sitter grammar
-- browser向けincremental parsingとsyntax highlighting
-- LSPによる勘定科目補完、commodity検証、貸借診断
-- formatter、parser、LSPで共有するcompatibility corpus
-- import・export用のversioned API
-- formatやstorageに依存しないdata portability
-
-Tree-sitterは構文解析、LSPは意味検証を担当し、会計データmodelとeditor固有の表現は分離します。
 
 ## Product principles
 
