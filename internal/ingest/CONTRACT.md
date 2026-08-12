@@ -1,4 +1,4 @@
-# Normalized input v1
+# Normalized input v1 and v2
 
 `ingest.Decode` accepts one UTF-8 JSON object. Unknown fields, trailing JSON
 values, missing required fields, and unsupported schema versions are rejected.
@@ -6,7 +6,7 @@ The decoder uses only the Go standard library and the `ledger` domain package.
 
 ```json
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "records": [
     {
       "source": {
@@ -28,8 +28,12 @@ The decoder uses only the Go standard library and the `ledger` domain package.
       "postings": [
         {
           "account": "費用:食費",
-          "amount": "500.00",
-          "commodity": "JPY",
+          "amount": "2",
+          "commodity": "ITEM",
+          "total_price": {
+            "amount": "500.00",
+            "commodity": "JPY"
+          },
           "comment": "サンプル商品"
         },
         {
@@ -45,7 +49,8 @@ The decoder uses only the Go standard library and the `ledger` domain package.
 
 ## Fields
 
-- `schema_version` must be the integer `1`.
+- `schema_version` must be the integer `1` or `2`. Version 1 remains accepted
+  unchanged. Version 2 adds `postings[].total_price`.
 - `records` is required and may be empty.
 - `source.namespace` and `source.display` are required single-line strings.
   Display sources are relative paths or URIs without credentials or query
@@ -63,6 +68,11 @@ The decoder uses only the Go standard library and the `ledger` domain package.
 - `postings` contains at least two postings in accounting order.
 - `account` is required. `amount` and `commodity` must either both be present
   as strings or both be omitted from the final posting. `comment` is optional.
+- In version 2, `total_price` is an optional object containing the decimal
+  string `amount` and string `commodity`. It requires an explicit posting
+  amount. The posting quantity and total price are preserved separately, and
+  ledger balancing uses the total price when it is present. Version 1 rejects
+  this field.
 - Decimal amounts retain their input scale and never pass through a JSON
   number or floating-point value.
 
@@ -81,7 +91,9 @@ byte length followed by the UTF-8 field bytes.
 - Without an external ID, the projection is
   `bokiccio.record-identity.fingerprint`, `v1`, schema major version, source
   namespace, canonical entry time, trimmed description, and the ordered
-  accounting fields of every posting.
+  accounting fields of every posting. A version 2 fingerprint also includes
+  each posting's total price or an explicit no-total-price marker. Version 1
+  fingerprints remain byte-for-byte unchanged.
 - Fingerprint decimals discard insignificant trailing fractional zeroes and
   normalize negative zero to zero. Datetimes are canonicalized to UTC, while
   date-only values remain distinct from midnight datetimes.

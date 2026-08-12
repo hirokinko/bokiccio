@@ -61,10 +61,16 @@ type wireSource struct {
 }
 
 type wirePosting struct {
-	Account   wireString `json:"account"`
+	Account    wireString      `json:"account"`
+	Amount     wireString      `json:"amount"`
+	Commodity  wireString      `json:"commodity"`
+	TotalPrice json.RawMessage `json:"total_price"`
+	Comment    wireString      `json:"comment"`
+}
+
+type wireAmount struct {
 	Amount    wireString `json:"amount"`
 	Commodity wireString `json:"commodity"`
-	Comment   wireString `json:"comment"`
 }
 
 type wireString struct {
@@ -90,27 +96,27 @@ func Decode(reader io.Reader) (Batch, error) {
 	if input.SchemaVersion == nil {
 		return Batch{}, invalidInput("$.schema_version", errors.New("required field is missing"))
 	}
-	if *input.SchemaVersion != SchemaVersion {
+	if *input.SchemaVersion != SchemaVersionV1 && *input.SchemaVersion != SchemaVersion {
 		return Batch{}, invalidInput("$.schema_version", fmt.Errorf("%w: %d", ErrUnsupportedSchemaVersion, *input.SchemaVersion))
 	}
 	if input.Records == nil {
 		return Batch{}, invalidInput("$.records", errors.New("required field is missing"))
 	}
 
-	batch := Batch{SchemaVersion: SchemaVersion, Records: make([]Record, 0, len(*input.Records))}
+	batch := Batch{SchemaVersion: *input.SchemaVersion, Records: make([]Record, 0, len(*input.Records))}
 	for index, raw := range *input.Records {
 		path := fmt.Sprintf("$.records[%d]", index)
-		record, err := decodeRecord(raw, path)
+		record, err := decodeRecord(raw, path, batch.SchemaVersion)
 		if err != nil {
 			return Batch{}, err
 		}
-		record.Identity = resolveIdentity(SchemaVersion, record)
+		record.Identity = resolveIdentity(batch.SchemaVersion, record)
 		batch.Records = append(batch.Records, record)
 	}
 	return batch, nil
 }
 
-func decodeRecord(raw json.RawMessage, path string) (Record, error) {
+func decodeRecord(raw json.RawMessage, path string, schemaVersion int) (Record, error) {
 	var input wireRecord
 	if err := decodeStrict(bytes.NewReader(raw), &input); err != nil {
 		return Record{}, invalidInput(path, err)
@@ -149,7 +155,7 @@ func decodeRecord(raw json.RawMessage, path string) (Record, error) {
 
 	postings := make([]CandidatePosting, 0, len(*input.Postings))
 	for index, rawPosting := range *input.Postings {
-		posting, err := decodePosting(rawPosting, fmt.Sprintf("%s.postings[%d]", path, index), index == len(*input.Postings)-1)
+		posting, err := decodePosting(rawPosting, fmt.Sprintf("%s.postings[%d]", path, index), index == len(*input.Postings)-1, schemaVersion)
 		if err != nil {
 			return Record{}, err
 		}
@@ -230,7 +236,7 @@ func decodeSource(raw json.RawMessage, path string) (Source, error) {
 	return Source{Namespace: input.Namespace.Value, Display: input.Display.Value, ExternalID: input.ExternalID.Value}, nil
 }
 
-func decodePosting(raw json.RawMessage, path string, final bool) (CandidatePosting, error) {
+func decodePosting(raw json.RawMessage, path string, final bool, schemaVersion int) (CandidatePosting, error) {
 	var input wirePosting
 	if err := decodeStrict(bytes.NewReader(raw), &input); err != nil {
 		return CandidatePosting{}, invalidInput(path, err)
@@ -247,7 +253,13 @@ func decodePosting(raw json.RawMessage, path string, final bool) (CandidatePosti
 	if input.Amount.Set != input.Commodity.Set {
 		return CandidatePosting{}, invalidInput(path, errors.New("amount and commodity must either both be present or both be omitted"))
 	}
+	if len(input.TotalPrice) > 0 && schemaVersion == SchemaVersionV1 {
+		return CandidatePosting{}, invalidInput(path+".total_price", errors.New("requires schema_version 2"))
+	}
 	if !input.Amount.Set {
+		if len(input.TotalPrice) > 0 {
+			return CandidatePosting{}, invalidInput(path+".total_price", errors.New("requires an explicit posting amount"))
+		}
 		if !final {
 			return CandidatePosting{}, invalidInput(path+".amount", errors.New("only the final posting may omit its amount"))
 		}
@@ -260,11 +272,40 @@ func decodePosting(raw json.RawMessage, path string, final bool) (CandidatePosti
 	if strings.TrimSpace(input.Commodity.Value) == "" || containsLineBreak(input.Commodity.Value) {
 		return CandidatePosting{}, invalidInput(path+".commodity", errors.New("must be non-empty and single-line"))
 	}
-	return CandidatePosting{
+	posting := CandidatePosting{
 		Account: input.Account.Value,
 		Amount:  &ledger.Amount{Value: decimal, Commodity: ledger.Commodity(input.Commodity.Value)},
 		Comment: input.Comment.Value,
-	}, nil
+	}
+	if len(input.TotalPrice) > 0 {
+		totalPrice, err := decodeAmount(input.TotalPrice, path+".total_price")
+		if err != nil {
+			return CandidatePosting{}, err
+		}
+		posting.TotalPrice = totalPrice
+	}
+	return posting, nil
+}
+
+func decodeAmount(raw json.RawMessage, path string) (*ledger.Amount, error) {
+	if bytes.Equal(raw, []byte("null")) {
+		return nil, invalidInput(path, errors.New("must be an object, not null"))
+	}
+	var input wireAmount
+	if err := decodeStrict(bytes.NewReader(raw), &input); err != nil {
+		return nil, invalidInput(path, err)
+	}
+	if !input.Amount.Set || !input.Commodity.Set {
+		return nil, invalidInput(path, errors.New("amount and commodity are required"))
+	}
+	value, err := ledger.ParseDecimal(input.Amount.Value)
+	if err != nil {
+		return nil, invalidInput(path+".amount", err)
+	}
+	if strings.TrimSpace(input.Commodity.Value) == "" || containsLineBreak(input.Commodity.Value) {
+		return nil, invalidInput(path+".commodity", errors.New("must be non-empty and single-line"))
+	}
+	return &ledger.Amount{Value: value, Commodity: ledger.Commodity(input.Commodity.Value)}, nil
 }
 
 func decodeStrict(reader io.Reader, destination any) error {

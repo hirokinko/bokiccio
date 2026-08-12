@@ -127,6 +127,34 @@ func TestProcessCommittedIdentityAsDuplicate(t *testing.T) {
 	}
 }
 
+func TestProcessProjectsTotalPrice(t *testing.T) {
+	t.Parallel()
+	batch, err := Decode(strings.NewReader(`{
+  "schema_version": 2,
+  "records": [{
+    "source": {"namespace": "tackler", "display": "uploaded.txn"},
+    "occurred_at": "2026-08-12",
+    "description": "匿名投資取引",
+    "postings": [
+      {"account": "資産:投資信託", "amount": "350", "commodity": "口", "total_price": {"amount": "675", "commodity": "JPY"}},
+      {"account": "資産:購入予定"}
+    ]
+  }]
+}`))
+	if err != nil {
+		t.Fatalf("Decode() error = %v", err)
+	}
+
+	result := Process(batch, nil)
+	if len(result.Entries) != 1 || result.Entries[0].Postings[0].TotalPrice == nil {
+		t.Fatalf("Process() = %+v", result)
+	}
+	result.Entries[0].Postings[0].TotalPrice.Commodity = "USD"
+	if batch.Records[0].Postings[0].TotalPrice.Commodity != "JPY" || result.Outcomes[0].Entry.Postings[0].TotalPrice.Commodity != "JPY" {
+		t.Fatal("processed entries share mutable total prices")
+	}
+}
+
 func TestProcessReportsCommodityMismatchLocation(t *testing.T) {
 	t.Parallel()
 	record := replaceJSON(validRecordJSON(), `"commodity":"JPY"}`, `"commodity":"USD"}`)

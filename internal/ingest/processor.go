@@ -14,6 +14,7 @@ const (
 	DiagnosticInvalidPosting    = "ledger.invalid_posting"
 	DiagnosticInvalidAccount    = "ledger.invalid_account"
 	DiagnosticInvalidCommodity  = "ledger.invalid_commodity"
+	DiagnosticInvalidTotalPrice = "ledger.invalid_total_price"
 	DiagnosticInvalidOmission   = "ledger.invalid_omission"
 	DiagnosticDecimalOverflow   = "ledger.decimal_overflow"
 	DiagnosticCommodityMismatch = "ledger.commodity_mismatch"
@@ -82,9 +83,10 @@ func projectRecord(record Record) (ledger.JournalEntry, []Diagnostic) {
 	entry.Comments = append(entry.Comments, record.Comments...)
 	for index, posting := range record.Postings {
 		entry.Postings[index] = ledger.Posting{
-			Account: posting.Account,
-			Amount:  cloneAmount(posting.Amount),
-			Comment: posting.Comment,
+			Account:    posting.Account,
+			Amount:     cloneAmount(posting.Amount),
+			TotalPrice: cloneAmount(posting.TotalPrice),
+			Comment:    posting.Comment,
 		}
 	}
 
@@ -129,6 +131,7 @@ func cloneJournalEntry(entry ledger.JournalEntry) *ledger.JournalEntry {
 	for index, posting := range entry.Postings {
 		copy.Postings[index] = posting
 		copy.Postings[index].Amount = cloneAmount(posting.Amount)
+		copy.Postings[index].TotalPrice = cloneAmount(posting.TotalPrice)
 	}
 	return &copy
 }
@@ -161,6 +164,9 @@ func domainDiagnostic(identity RecordIdentity, err error) Diagnostic {
 	case errors.Is(err, ledger.ErrInvalidAccount):
 		diagnostic.Code = DiagnosticInvalidAccount
 		diagnostic.FieldPath = postingField(diagnostic.PostingIndex, "account")
+	case errors.Is(err, ledger.ErrInvalidTotalPrice):
+		diagnostic.Code = DiagnosticInvalidTotalPrice
+		diagnostic.FieldPath = postingField(diagnostic.PostingIndex, "total_price")
 	case errors.Is(err, ledger.ErrInvalidCommodity):
 		diagnostic.Code = DiagnosticInvalidCommodity
 		diagnostic.FieldPath = postingField(diagnostic.PostingIndex, "commodity")

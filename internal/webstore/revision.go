@@ -152,6 +152,13 @@ func revisionEntry(request webapp.RevisionRequest) (ledger.JournalEntry, error) 
 			}
 			posting.Amount = &ledger.Amount{Value: value, Commodity: ledger.Commodity(input.Commodity)}
 		}
+		if input.TotalPrice != nil {
+			value, err := ledger.ParseDecimal(input.TotalPrice.Amount)
+			if err != nil {
+				return ledger.JournalEntry{}, err
+			}
+			posting.TotalPrice = &ledger.Amount{Value: value, Commodity: ledger.Commodity(input.TotalPrice.Commodity)}
+		}
 		entry.Postings = append(entry.Postings, posting)
 	}
 	return entry, nil
@@ -188,10 +195,17 @@ func saveRevisionParts(ctx context.Context, transaction *sql.Tx, entryID string,
 			amountScale = posting.Amount.Value.Scale()
 			commodity = posting.Amount.Commodity
 		}
+		var totalPriceText, totalPriceScale, totalPriceCommodity any
+		if posting.TotalPrice != nil {
+			totalPriceText = posting.TotalPrice.Value.String()
+			totalPriceScale = posting.TotalPrice.Value.Scale()
+			totalPriceCommodity = posting.TotalPrice.Commodity
+		}
 		if _, err := transaction.ExecContext(ctx, `INSERT INTO revision_postings
-            (entry_id, revision, posting_index, account, amount_text, amount_scale, commodity, comment)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, entryID, revision, index, posting.Account,
-			amountText, amountScale, commodity, posting.Comment); err != nil {
+            (entry_id, revision, posting_index, account, amount_text, amount_scale, commodity,
+             total_price_amount_text, total_price_amount_scale, total_price_commodity, comment)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, entryID, revision, index, posting.Account,
+			amountText, amountScale, commodity, totalPriceText, totalPriceScale, totalPriceCommodity, posting.Comment); err != nil {
 			return fmt.Errorf("save revision posting %d: %w", index, err)
 		}
 	}
@@ -306,7 +320,8 @@ func loadRevisionComments(ctx context.Context, source queryer, entryID string, r
 }
 
 func loadRevisionPostings(ctx context.Context, source queryer, entryID string, revision int) ([]webapp.PostingDetail, error) {
-	rows, err := source.QueryContext(ctx, `SELECT account, amount_text, amount_scale, commodity, comment
+	rows, err := source.QueryContext(ctx, `SELECT account, amount_text, amount_scale, commodity,
+        total_price_amount_text, total_price_amount_scale, total_price_commodity, comment
         FROM revision_postings WHERE entry_id = ? AND revision = ? ORDER BY posting_index`, entryID, revision)
 	if err != nil {
 		return nil, fmt.Errorf("query revision postings: %w", err)
@@ -315,10 +330,17 @@ func loadRevisionPostings(ctx context.Context, source queryer, entryID string, r
 	postings := []webapp.PostingDetail{}
 	for rows.Next() {
 		var posting webapp.PostingDetail
-		var amountText, commodity sql.NullString
-		var amountScale sql.NullInt64
-		if err := rows.Scan(&posting.Account, &amountText, &amountScale, &commodity, &posting.Comment); err != nil {
+		var amountText, commodity, totalPriceText, totalPriceCommodity sql.NullString
+		var amountScale, totalPriceScale sql.NullInt64
+		if err := rows.Scan(&posting.Account, &amountText, &amountScale, &commodity,
+			&totalPriceText, &totalPriceScale, &totalPriceCommodity, &posting.Comment); err != nil {
 			return nil, fmt.Errorf("scan revision posting: %w", err)
+		}
+		if amountText.Valid != amountScale.Valid || amountText.Valid != commodity.Valid {
+			return nil, errors.New("stored revision posting amount is invalid")
+		}
+		if totalPriceText.Valid != totalPriceScale.Valid || totalPriceText.Valid != totalPriceCommodity.Valid {
+			return nil, errors.New("stored revision posting total price is invalid")
 		}
 		if amountText.Valid {
 			decimal, err := ledger.ParseDecimal(amountText.String)
@@ -327,6 +349,13 @@ func loadRevisionPostings(ctx context.Context, source queryer, entryID string, r
 			}
 			posting.Amount = &amountText.String
 			posting.Commodity = commodity.String
+		}
+		if totalPriceText.Valid {
+			decimal, err := ledger.ParseDecimal(totalPriceText.String)
+			if err != nil || int64(decimal.Scale()) != totalPriceScale.Int64 || !totalPriceCommodity.Valid {
+				return nil, errors.New("stored revision posting total price is invalid")
+			}
+			posting.TotalPrice = &webapp.AmountDetail{Amount: totalPriceText.String, Commodity: totalPriceCommodity.String}
 		}
 		postings = append(postings, posting)
 	}

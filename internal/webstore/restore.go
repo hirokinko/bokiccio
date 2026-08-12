@@ -118,7 +118,10 @@ func insertBackupPayload(ctx context.Context, transaction *sql.Tx, payload backu
 		}
 	}
 	for _, row := range payload.Postings {
-		if _, err := transaction.ExecContext(ctx, `INSERT INTO postings (entry_id, posting_index, account, amount_text, amount_scale, commodity, comment) VALUES (?, ?, ?, ?, ?, ?, ?)`, row.EntryID, row.PostingIndex, row.Account, row.AmountText, row.AmountScale, row.Commodity, row.Comment); err != nil {
+		if _, err := transaction.ExecContext(ctx, `INSERT INTO postings (entry_id, posting_index, account, amount_text, amount_scale, commodity,
+            total_price_amount_text, total_price_amount_scale, total_price_commodity, comment) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			row.EntryID, row.PostingIndex, row.Account, row.AmountText, row.AmountScale, row.Commodity,
+			row.TotalPriceAmountText, row.TotalPriceAmountScale, row.TotalPriceCommodity, row.Comment); err != nil {
 			return restoreInsertError("postings", err)
 		}
 	}
@@ -133,7 +136,10 @@ func insertBackupPayload(ctx context.Context, transaction *sql.Tx, payload backu
 		}
 	}
 	for _, row := range payload.RevisionPostings {
-		if _, err := transaction.ExecContext(ctx, `INSERT INTO revision_postings (entry_id, revision, posting_index, account, amount_text, amount_scale, commodity, comment) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, row.EntryID, row.Revision, row.PostingIndex, row.Account, row.AmountText, row.AmountScale, row.Commodity, row.Comment); err != nil {
+		if _, err := transaction.ExecContext(ctx, `INSERT INTO revision_postings (entry_id, revision, posting_index, account, amount_text, amount_scale, commodity,
+            total_price_amount_text, total_price_amount_scale, total_price_commodity, comment) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			row.EntryID, row.Revision, row.PostingIndex, row.Account, row.AmountText, row.AmountScale, row.Commodity,
+			row.TotalPriceAmountText, row.TotalPriceAmountScale, row.TotalPriceCommodity, row.Comment); err != nil {
 			return restoreInsertError("revision_postings", err)
 		}
 	}

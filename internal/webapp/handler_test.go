@@ -599,7 +599,7 @@ func TestMigrationRejectsFutureVersion(t *testing.T) {
 	}
 }
 
-func TestMigrationV2PreservesV1Entries(t *testing.T) {
+func TestMigrationPreservesV1Entries(t *testing.T) {
 	database := openDatabase(t)
 	store := webstore.New(database)
 	result, err := store.Import(context.Background(), readFixture(t, "../ingest/testdata/valid-v1.json"))
@@ -607,6 +607,9 @@ func TestMigrationV2PreservesV1Entries(t *testing.T) {
 		t.Fatalf("Import() error = %v", err)
 	}
 	for _, statement := range []string{
+		`ALTER TABLE postings DROP COLUMN total_price_commodity`,
+		`ALTER TABLE postings DROP COLUMN total_price_amount_scale`,
+		`ALTER TABLE postings DROP COLUMN total_price_amount_text`,
 		`DROP TABLE entry_approvals`,
 		`DROP TABLE revision_diagnostics`,
 		`DROP TABLE revision_postings`,
@@ -619,7 +622,7 @@ func TestMigrationV2PreservesV1Entries(t *testing.T) {
 		}
 	}
 	if err := webstore.Migrate(context.Background(), database); err != nil {
-		t.Fatalf("Migrate(v1 to v2) error = %v", err)
+		t.Fatalf("Migrate(v1 to current) error = %v", err)
 	}
 	run, err := store.GetRun(context.Background(), result.RunIdentity)
 	if err != nil || len(run.Outcomes) == 0 {
@@ -631,7 +634,7 @@ func TestMigrationV2PreservesV1Entries(t *testing.T) {
 	}
 }
 
-func TestMigrationV2FailurePreservesV1Data(t *testing.T) {
+func TestMigrationFailurePreservesV1Data(t *testing.T) {
 	database := openDatabase(t)
 	store := webstore.New(database)
 	result, err := store.Import(context.Background(), readFixture(t, "../ingest/testdata/valid-v1.json"))
@@ -639,6 +642,9 @@ func TestMigrationV2FailurePreservesV1Data(t *testing.T) {
 		t.Fatalf("Import() error = %v", err)
 	}
 	for _, statement := range []string{
+		`ALTER TABLE postings DROP COLUMN total_price_commodity`,
+		`ALTER TABLE postings DROP COLUMN total_price_amount_scale`,
+		`ALTER TABLE postings DROP COLUMN total_price_amount_text`,
 		`DROP TABLE entry_approvals`,
 		`DROP TABLE revision_diagnostics`,
 		`DROP TABLE revision_postings`,

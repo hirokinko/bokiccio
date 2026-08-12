@@ -22,7 +22,7 @@ func TestDecodeValidV1Fixture(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Decode() error = %v", err)
 	}
-	if batch.SchemaVersion != SchemaVersion || len(batch.Records) != 2 {
+	if batch.SchemaVersion != SchemaVersionV1 || len(batch.Records) != 2 {
 		t.Fatalf("Decode() = version %d with %d records", batch.SchemaVersion, len(batch.Records))
 	}
 
@@ -58,6 +58,26 @@ func TestDecodeValidV1Fixture(t *testing.T) {
 	}
 }
 
+func TestDecodeValidV2TotalPrice(t *testing.T) {
+	t.Parallel()
+	input := `{"schema_version":2,"records":[{"source":{"namespace":"tackler","display":"uploaded.txn"},"occurred_at":"2026-08-10","description":"匿名投資取引","postings":[{"account":"資産:投資信託","amount":"350","commodity":"口","total_price":{"amount":"675","commodity":"JPY"}},{"account":"資産:購入予定"}]}]}`
+
+	batch, err := Decode(strings.NewReader(input))
+	if err != nil {
+		t.Fatalf("Decode() error = %v", err)
+	}
+	if batch.SchemaVersion != SchemaVersion || len(batch.Records) != 1 {
+		t.Fatalf("Decode() = version %d with %d records", batch.SchemaVersion, len(batch.Records))
+	}
+	posting := batch.Records[0].Postings[0]
+	if posting.TotalPrice == nil || posting.TotalPrice.Value.String() != "675" || posting.TotalPrice.Commodity != "JPY" {
+		t.Fatalf("total price = %+v", posting.TotalPrice)
+	}
+	if batch.Records[0].Identity == (RecordIdentity{}) {
+		t.Fatal("identity is empty")
+	}
+}
+
 func TestDecodeRejectsInvalidInputWithPath(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
@@ -66,7 +86,7 @@ func TestDecodeRejectsInvalidInputWithPath(t *testing.T) {
 		wantPath string
 		wantErr  error
 	}{
-		{name: "unknown version", input: `{"schema_version":2,"records":[]}`, wantPath: "$.schema_version", wantErr: ErrUnsupportedSchemaVersion},
+		{name: "unknown version", input: `{"schema_version":3,"records":[]}`, wantPath: "$.schema_version", wantErr: ErrUnsupportedSchemaVersion},
 		{name: "missing records", input: `{"schema_version":1}`, wantPath: "$.records", wantErr: ErrInvalidInput},
 		{name: "unknown top-level field", input: `{"schema_version":1,"records":[],"extra":true}`, wantPath: "$", wantErr: ErrInvalidInput},
 		{name: "unknown record field", input: batchJSON(validRecordJSON(), `,"extra":true`), wantPath: "$.records[0]", wantErr: ErrInvalidInput},
@@ -75,6 +95,8 @@ func TestDecodeRejectsInvalidInputWithPath(t *testing.T) {
 		{name: "empty account", input: batchJSON(recordWithPostings(`{"account":"","amount":"100","commodity":"JPY"},{"account":"資産:現金","amount":"-100","commodity":"JPY"}`), ""), wantPath: "$.records[0].postings[0].account", wantErr: ErrInvalidInput},
 		{name: "empty commodity", input: batchJSON(recordWithPostings(`{"account":"費用:食費","amount":"100","commodity":""},{"account":"資産:現金","amount":"-100","commodity":"JPY"}`), ""), wantPath: "$.records[0].postings[0].commodity", wantErr: ErrInvalidInput},
 		{name: "unknown posting field", input: batchJSON(recordWithPostings(`{"account":"費用:食費","amount":"100","commodity":"JPY","extra":true},{"account":"資産:現金","amount":"-100","commodity":"JPY"}`), ""), wantPath: "$.records[0].postings[0]", wantErr: ErrInvalidInput},
+		{name: "v1 total price", input: batchJSON(recordWithPostings(`{"account":"資産:投資信託","amount":"350","commodity":"口","total_price":{"amount":"675","commodity":"JPY"}},{"account":"資産:購入予定"}`), ""), wantPath: "$.records[0].postings[0].total_price", wantErr: ErrInvalidInput},
+		{name: "v2 partial total price", input: strings.Replace(batchJSON(recordWithPostings(`{"account":"資産:投資信託","amount":"350","commodity":"口","total_price":{"amount":"675"}},{"account":"資産:購入予定"}`), ""), `"schema_version":1`, `"schema_version":2`, 1), wantPath: "$.records[0].postings[0].total_price", wantErr: ErrInvalidInput},
 		{name: "invalid warning code", input: batchJSON(addRecordField(validRecordJSON(), `"warnings":[{"code":"Receipt Warning","message":"確認してください"}]`), ""), wantPath: "$.records[0].warnings[0].code", wantErr: ErrInvalidInput},
 		{name: "invalid warning posting index", input: batchJSON(addRecordField(validRecordJSON(), `"warnings":[{"code":"receipt.warning","message":"確認してください","posting_index":2}]`), ""), wantPath: "$.records[0].warnings[0].posting_index", wantErr: ErrInvalidInput},
 		{name: "one posting", input: batchJSON(recordWithPostings(`{"account":"資産:現金"}`), ""), wantPath: "$.records[0].postings", wantErr: ErrInvalidInput},
@@ -104,6 +126,23 @@ func TestDecodeRejectsInvalidInputWithPath(t *testing.T) {
 				t.Fatalf("InputError.Path = %q, want %q (error: %v)", inputErr.Path, test.wantPath, err)
 			}
 		})
+	}
+}
+
+func TestDecodeV2IdentityIncludesTotalPrice(t *testing.T) {
+	t.Parallel()
+	base := `{"schema_version":2,"records":[{"source":{"namespace":"tackler","display":"uploaded.txn"},"occurred_at":"2026-08-10","description":"匿名投資取引","postings":[{"account":"資産:投資信託","amount":"350","commodity":"口","total_price":{"amount":"675","commodity":"JPY"}},{"account":"資産:購入予定"}]}]}`
+	changed := strings.Replace(base, `"amount":"675"`, `"amount":"676"`, 1)
+	left, err := Decode(strings.NewReader(base))
+	if err != nil {
+		t.Fatalf("Decode(base) error = %v", err)
+	}
+	right, err := Decode(strings.NewReader(changed))
+	if err != nil {
+		t.Fatalf("Decode(changed) error = %v", err)
+	}
+	if left.Records[0].Identity == right.Records[0].Identity {
+		t.Fatal("different total prices have the same identity")
 	}
 }
 

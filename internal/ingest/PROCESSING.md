@@ -28,6 +28,7 @@ Processor-generated codes currently include:
 - `ledger.invalid_posting`
 - `ledger.invalid_account`
 - `ledger.invalid_commodity`
+- `ledger.invalid_total_price`
 - `ledger.invalid_omission`
 - `ledger.decimal_overflow`
 - `ledger.commodity_mismatch`

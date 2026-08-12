@@ -7,7 +7,7 @@ import (
 	"fmt"
 )
 
-const SchemaVersion = 2
+const SchemaVersion = 3
 
 var ErrUnsupportedSchema = errors.New("unsupported web storage schema")
 
@@ -158,6 +158,15 @@ var migrationV2 = []string{
 	`CREATE INDEX entry_approvals_history ON entry_approvals(entry_id, approval_sequence)`,
 }
 
+var migrationV3 = []string{
+	`ALTER TABLE postings ADD COLUMN total_price_amount_text TEXT`,
+	`ALTER TABLE postings ADD COLUMN total_price_amount_scale INTEGER`,
+	`ALTER TABLE postings ADD COLUMN total_price_commodity TEXT`,
+	`ALTER TABLE revision_postings ADD COLUMN total_price_amount_text TEXT`,
+	`ALTER TABLE revision_postings ADD COLUMN total_price_amount_scale INTEGER`,
+	`ALTER TABLE revision_postings ADD COLUMN total_price_commodity TEXT`,
+}
+
 func Migrate(ctx context.Context, database *sql.DB) (resultErr error) {
 	transaction, err := database.BeginTx(ctx, nil)
 	if err != nil {
@@ -203,6 +212,17 @@ func Migrate(ctx context.Context, database *sql.DB) (resultErr error) {
 		}
 		if _, err := transaction.ExecContext(ctx, `UPDATE schema_metadata SET version = 2 WHERE singleton = 1 AND version = 1`); err != nil {
 			return fmt.Errorf("commit schema version 2: %w", err)
+		}
+		version = 2
+	}
+	if version == 2 {
+		for index, statement := range migrationV3 {
+			if _, err := transaction.ExecContext(ctx, statement); err != nil {
+				return fmt.Errorf("apply schema v3 statement %d: %w", index+1, err)
+			}
+		}
+		if _, err := transaction.ExecContext(ctx, `UPDATE schema_metadata SET version = 3 WHERE singleton = 1 AND version = 2`); err != nil {
+			return fmt.Errorf("commit schema version 3: %w", err)
 		}
 	}
 	if err := transaction.Commit(); err != nil {

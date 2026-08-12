@@ -129,10 +129,16 @@ type EntryDetail struct {
 }
 
 type PostingDetail struct {
-	Account   string  `json:"account"`
-	Amount    *string `json:"amount,omitempty"`
-	Commodity string  `json:"commodity,omitempty"`
-	Comment   string  `json:"comment,omitempty"`
+	Account    string        `json:"account"`
+	Amount     *string       `json:"amount,omitempty"`
+	Commodity  string        `json:"commodity,omitempty"`
+	TotalPrice *AmountDetail `json:"total_price,omitempty"`
+	Comment    string        `json:"comment,omitempty"`
+}
+
+type AmountDetail struct {
+	Amount    string `json:"amount"`
+	Commodity string `json:"commodity"`
 }
 
 type RevisionRequest struct {

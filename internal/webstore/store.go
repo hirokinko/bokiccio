@@ -182,10 +182,18 @@ func saveEntry(ctx context.Context, transaction *sql.Tx, runID string, recordInd
 			amountScale = posting.Amount.Value.Scale()
 			commodity = posting.Amount.Commodity
 		}
+		var totalPriceText, totalPriceScale, totalPriceCommodity any
+		if posting.TotalPrice != nil {
+			totalPriceText = posting.TotalPrice.Value.String()
+			totalPriceScale = posting.TotalPrice.Value.Scale()
+			totalPriceCommodity = posting.TotalPrice.Commodity
+		}
 		if _, err := transaction.ExecContext(ctx, `INSERT INTO postings
-            (entry_id, posting_index, account, amount_text, amount_scale, commodity, comment)
-            VALUES (?, ?, ?, ?, ?, ?, ?)`,
-			entryID, index, posting.Account, amountText, amountScale, commodity, posting.Comment); err != nil {
+            (entry_id, posting_index, account, amount_text, amount_scale, commodity,
+             total_price_amount_text, total_price_amount_scale, total_price_commodity, comment)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			entryID, index, posting.Account, amountText, amountScale, commodity,
+			totalPriceText, totalPriceScale, totalPriceCommodity, posting.Comment); err != nil {
 			return fmt.Errorf("save posting %d/%d: %w", recordIndex, index, err)
 		}
 	}
@@ -264,18 +272,28 @@ func (store *Store) GetEntry(ctx context.Context, entryID string) (webapp.EntryD
 	if err := comments.Close(); err != nil {
 		return webapp.EntryDetail{}, fmt.Errorf("close entry comments: %w", err)
 	}
-	postings, err := store.database.QueryContext(ctx, `SELECT account, amount_text, amount_scale, commodity, comment
+	postings, err := store.database.QueryContext(ctx, `SELECT account, amount_text, amount_scale, commodity,
+        total_price_amount_text, total_price_amount_scale, total_price_commodity, comment
         FROM postings WHERE entry_id = ? ORDER BY posting_index`, entryID)
 	if err != nil {
 		return webapp.EntryDetail{}, fmt.Errorf("query postings: %w", err)
 	}
 	for postings.Next() {
 		var posting webapp.PostingDetail
-		var amountText, commodity sql.NullString
-		var amountScale sql.NullInt64
-		if err := postings.Scan(&posting.Account, &amountText, &amountScale, &commodity, &posting.Comment); err != nil {
+		var amountText, commodity, totalPriceText, totalPriceCommodity sql.NullString
+		var amountScale, totalPriceScale sql.NullInt64
+		if err := postings.Scan(&posting.Account, &amountText, &amountScale, &commodity,
+			&totalPriceText, &totalPriceScale, &totalPriceCommodity, &posting.Comment); err != nil {
 			postings.Close()
 			return webapp.EntryDetail{}, fmt.Errorf("scan posting: %w", err)
+		}
+		if amountText.Valid != amountScale.Valid || amountText.Valid != commodity.Valid {
+			postings.Close()
+			return webapp.EntryDetail{}, errors.New("stored posting amount is invalid")
+		}
+		if totalPriceText.Valid != totalPriceScale.Valid || totalPriceText.Valid != totalPriceCommodity.Valid {
+			postings.Close()
+			return webapp.EntryDetail{}, errors.New("stored posting total price is invalid")
 		}
 		if amountText.Valid {
 			decimal, err := ledger.ParseDecimal(amountText.String)
@@ -285,6 +303,14 @@ func (store *Store) GetEntry(ctx context.Context, entryID string) (webapp.EntryD
 			}
 			posting.Amount = &amountText.String
 			posting.Commodity = commodity.String
+		}
+		if totalPriceText.Valid {
+			decimal, err := ledger.ParseDecimal(totalPriceText.String)
+			if err != nil || int64(decimal.Scale()) != totalPriceScale.Int64 || !totalPriceCommodity.Valid {
+				postings.Close()
+				return webapp.EntryDetail{}, errors.New("stored posting total price is invalid")
+			}
+			posting.TotalPrice = &webapp.AmountDetail{Amount: totalPriceText.String, Commodity: totalPriceCommodity.String}
 		}
 		detail.Postings = append(detail.Postings, posting)
 	}

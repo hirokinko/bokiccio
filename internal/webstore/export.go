@@ -148,7 +148,8 @@ func loadOriginalComments(ctx context.Context, source queryer, entryID string) (
 }
 
 func loadOriginalPostings(ctx context.Context, source queryer, entryID string) ([]ledger.Posting, error) {
-	rows, err := source.QueryContext(ctx, `SELECT account, amount_text, amount_scale, commodity, comment
+	rows, err := source.QueryContext(ctx, `SELECT account, amount_text, amount_scale, commodity,
+        total_price_amount_text, total_price_amount_scale, total_price_commodity, comment
         FROM postings WHERE entry_id = ? ORDER BY posting_index`, entryID)
 	if err != nil {
 		return nil, fmt.Errorf("query original postings: %w", err)
@@ -168,6 +169,13 @@ func postingDetailsToLedger(details []webapp.PostingDetail) ([]ledger.Posting, e
 			}
 			posting.Amount = &ledger.Amount{Value: value, Commodity: ledger.Commodity(detail.Commodity)}
 		}
+		if detail.TotalPrice != nil {
+			value, err := ledger.ParseDecimal(detail.TotalPrice.Amount)
+			if err != nil {
+				return nil, errors.New("stored revision posting total price is invalid")
+			}
+			posting.TotalPrice = &ledger.Amount{Value: value, Commodity: ledger.Commodity(detail.TotalPrice.Commodity)}
+		}
 		postings = append(postings, posting)
 	}
 	return postings, nil
@@ -177,10 +185,17 @@ func scanLedgerPostings(rows *sql.Rows, label string) ([]ledger.Posting, error) 
 	postings := []ledger.Posting{}
 	for rows.Next() {
 		var posting ledger.Posting
-		var amountText, commodity sql.NullString
-		var amountScale sql.NullInt64
-		if err := rows.Scan(&posting.Account, &amountText, &amountScale, &commodity, &posting.Comment); err != nil {
+		var amountText, commodity, totalPriceText, totalPriceCommodity sql.NullString
+		var amountScale, totalPriceScale sql.NullInt64
+		if err := rows.Scan(&posting.Account, &amountText, &amountScale, &commodity,
+			&totalPriceText, &totalPriceScale, &totalPriceCommodity, &posting.Comment); err != nil {
 			return nil, fmt.Errorf("scan %s posting: %w", label, err)
+		}
+		if amountText.Valid != amountScale.Valid || amountText.Valid != commodity.Valid {
+			return nil, fmt.Errorf("stored %s posting amount is invalid", label)
+		}
+		if totalPriceText.Valid != totalPriceScale.Valid || totalPriceText.Valid != totalPriceCommodity.Valid {
+			return nil, fmt.Errorf("stored %s posting total price is invalid", label)
 		}
 		if amountText.Valid {
 			value, err := ledger.ParseDecimal(amountText.String)
@@ -188,6 +203,13 @@ func scanLedgerPostings(rows *sql.Rows, label string) ([]ledger.Posting, error) 
 				return nil, fmt.Errorf("stored %s posting amount is invalid", label)
 			}
 			posting.Amount = &ledger.Amount{Value: value, Commodity: ledger.Commodity(commodity.String)}
+		}
+		if totalPriceText.Valid {
+			value, err := ledger.ParseDecimal(totalPriceText.String)
+			if err != nil || int64(value.Scale()) != totalPriceScale.Int64 || !totalPriceCommodity.Valid {
+				return nil, fmt.Errorf("stored %s posting total price is invalid", label)
+			}
+			posting.TotalPrice = &ledger.Amount{Value: value, Commodity: ledger.Commodity(totalPriceCommodity.String)}
 		}
 		postings = append(postings, posting)
 	}

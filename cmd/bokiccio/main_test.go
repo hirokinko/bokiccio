@@ -121,7 +121,7 @@ func TestRunImportRunLevelFailures(t *testing.T) {
 	t.Run("invalid input", func(t *testing.T) {
 		root := t.TempDir()
 		inputPath := filepath.Join(root, "invalid.json")
-		if err := os.WriteFile(inputPath, []byte(`{"schema_version":2,"records":[]}`), 0o644); err != nil {
+		if err := os.WriteFile(inputPath, []byte(`{"schema_version":3,"records":[]}`), 0o644); err != nil {
 			t.Fatalf("WriteFile() error = %v", err)
 		}
 		outputRoot := filepath.Join(root, "output")

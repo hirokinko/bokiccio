@@ -60,6 +60,17 @@ func resolveIdentity(schemaVersion int, record Record) RecordIdentity {
 			canonicalDecimal(posting.Amount.Value),
 			string(posting.Amount.Commodity),
 		)
+		if schemaVersion >= SchemaVersion {
+			if posting.TotalPrice == nil {
+				fields = append(fields, "no_total_price", "", "")
+			} else {
+				fields = append(fields,
+					"total_price",
+					canonicalDecimal(posting.TotalPrice.Value),
+					string(posting.TotalPrice.Commodity),
+				)
+			}
+		}
 	}
 	return hashIdentity(IdentityFingerprint, fields...)
 }

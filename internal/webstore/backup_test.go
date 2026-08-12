@@ -100,6 +100,75 @@ func TestBackupRestoreRoundTrip(t *testing.T) {
 	}
 }
 
+func TestBackupRestoreTotalPrice(t *testing.T) {
+	ctx := context.Background()
+	sourceDB := openBackupTestDatabase(t)
+	source := New(sourceDB)
+	input := []byte(`{"schema_version":2,"records":[{"source":{"namespace":"tackler","display":"uploaded.txn","external_id":"total-price-record"},"occurred_at":"2026-08-11","description":"匿名投資取引","postings":[{"account":"資産:投資信託","amount":"350","commodity":"口","total_price":{"amount":"675","commodity":"JPY"}},{"account":"資産:購入予定"}]}]}`)
+	result, err := source.Import(ctx, input)
+	if err != nil {
+		t.Fatalf("Import() error = %v", err)
+	}
+	run, err := source.GetRun(ctx, result.RunIdentity)
+	if err != nil || len(run.Outcomes) != 1 {
+		t.Fatalf("GetRun() error=%v run=%+v", err, run)
+	}
+	entryID := run.Outcomes[0].EntryID
+	zero := 0
+	if _, err := source.ApproveRevision(ctx, entryID, webapp.ApprovalRequest{Revision: &zero}); err != nil {
+		t.Fatalf("ApproveRevision() error = %v", err)
+	}
+
+	backup, err := source.Backup(ctx)
+	if err != nil {
+		t.Fatalf("Backup() error = %v", err)
+	}
+	payload, err := decodeBackup(backup)
+	if err != nil || len(payload.Postings) != 2 || payload.Postings[0].TotalPriceAmountText == nil || *payload.Postings[0].TotalPriceAmountText != "675" {
+		t.Fatalf("backup total price error=%v payload=%+v", err, payload.Postings)
+	}
+
+	target := New(openBackupTestDatabase(t))
+	if err := target.Restore(ctx, backup); err != nil {
+		t.Fatalf("Restore() error = %v", err)
+	}
+	detail, err := target.GetEntry(ctx, entryID)
+	if err != nil || len(detail.Postings) != 2 || detail.Postings[0].TotalPrice == nil || detail.Postings[0].TotalPrice.Amount != "675" {
+		t.Fatalf("restored detail error=%v detail=%+v", err, detail)
+	}
+	approved, err := target.ListApprovedEntries(ctx, webapp.EntryFilter{})
+	if err != nil || len(approved) != 1 || approved[0].Entry.Postings[0].TotalPrice == nil {
+		t.Fatalf("restored approved entries error=%v entries=%+v", err, approved)
+	}
+}
+
+func TestRestoreAcceptsSchemaV2Backup(t *testing.T) {
+	ctx := context.Background()
+	source := New(openBackupTestDatabase(t))
+	input := []byte(`{"schema_version":1,"records":[{"source":{"namespace":"backup-v2","display":"record.json","external_id":"record"},"occurred_at":"2026-08-11","description":"backup record","postings":[{"account":"資産:確認","amount":"1","commodity":"UNIT"},{"account":"負債:確認","amount":"-1","commodity":"UNIT"}]}]}`)
+	if _, err := source.Import(ctx, input); err != nil {
+		t.Fatalf("Import() error = %v", err)
+	}
+	backup, err := source.Backup(ctx)
+	if err != nil {
+		t.Fatalf("Backup() error = %v", err)
+	}
+	var envelope backupEnvelope
+	if err := json.Unmarshal(backup, &envelope); err != nil {
+		t.Fatalf("Unmarshal() error = %v", err)
+	}
+	envelope.SchemaVersion = 2
+	schemaV2Backup, err := json.Marshal(envelope)
+	if err != nil {
+		t.Fatalf("Marshal() error = %v", err)
+	}
+
+	target := New(openBackupTestDatabase(t))
+	if err := target.Restore(ctx, schemaV2Backup); err != nil {
+		t.Fatalf("Restore(schema v2) error = %v", err)
+	}
+}
+
 func TestRestoreRejectsInvalidAndNonEmptyWithoutChanges(t *testing.T) {
 	ctx := context.Background()
 	sourceDB := openBackupTestDatabase(t)

@@ -14,7 +14,7 @@ format version 1のtop-level fieldは次のとおりである。
 - `created_at`: RFC 3339 timestamp
 - `payload_sha256`: canonical payload JSONのlowercase SHA-256
 - `row_counts`: payload sectionごとの件数
-- `payload`: schema v2 application data
+- `payload`: schema v2またはv3 application data
 
 payloadは全tableを依存順、各table内をprimary key順で保持する。SQL BLOBはJSONのbase64 stringとして
 losslessにencodeする。`workflow_state`と`sqlite_sequence`の対象counterも保持する。
@@ -53,5 +53,6 @@ restoreはmerge、既存dataのreplace、schema migrationを行わない。全ro
 foreign key、report metadata、identity、entry/revision domain validation、approval relationshipを検証してから
 commitする。いずれかが失敗した場合、target dataを変更しない。
 
-初期実装はformat version `1`とDB schema version `2`の完全一致だけを受け付ける。異なるversionの変換は、
-将来のschema変更時に明示的な変換pathとして追加する。
+format version `1`はDB schema version `2`と`3`を受け付ける。schema v3はpostingとrevision postingへ
+optionalなtotal-price amount・scale・commodityを追加する。schema v2 backupにはこれらのfieldがなく、current
+schemaへrestoreするとNULLとして保持される。これ以外のschema versionは明示的な変換pathがないため拒否する。

@@ -110,13 +110,16 @@ type entryCommentRow struct {
 }
 
 type postingRow struct {
-	EntryID      string  `json:"entry_id"`
-	PostingIndex int     `json:"posting_index"`
-	Account      string  `json:"account"`
-	AmountText   *string `json:"amount_text,omitempty"`
-	AmountScale  *int64  `json:"amount_scale,omitempty"`
-	Commodity    *string `json:"commodity,omitempty"`
-	Comment      string  `json:"comment"`
+	EntryID               string  `json:"entry_id"`
+	PostingIndex          int     `json:"posting_index"`
+	Account               string  `json:"account"`
+	AmountText            *string `json:"amount_text,omitempty"`
+	AmountScale           *int64  `json:"amount_scale,omitempty"`
+	Commodity             *string `json:"commodity,omitempty"`
+	TotalPriceAmountText  *string `json:"total_price_amount_text,omitempty"`
+	TotalPriceAmountScale *int64  `json:"total_price_amount_scale,omitempty"`
+	TotalPriceCommodity   *string `json:"total_price_commodity,omitempty"`
+	Comment               string  `json:"comment"`
 }
 
 type entryRevisionRow struct {
@@ -138,14 +141,17 @@ type revisionCommentRow struct {
 }
 
 type revisionPostingRow struct {
-	EntryID      string  `json:"entry_id"`
-	Revision     int     `json:"revision"`
-	PostingIndex int     `json:"posting_index"`
-	Account      string  `json:"account"`
-	AmountText   *string `json:"amount_text,omitempty"`
-	AmountScale  *int64  `json:"amount_scale,omitempty"`
-	Commodity    *string `json:"commodity,omitempty"`
-	Comment      string  `json:"comment"`
+	EntryID               string  `json:"entry_id"`
+	Revision              int     `json:"revision"`
+	PostingIndex          int     `json:"posting_index"`
+	Account               string  `json:"account"`
+	AmountText            *string `json:"amount_text,omitempty"`
+	AmountScale           *int64  `json:"amount_scale,omitempty"`
+	Commodity             *string `json:"commodity,omitempty"`
+	TotalPriceAmountText  *string `json:"total_price_amount_text,omitempty"`
+	TotalPriceAmountScale *int64  `json:"total_price_amount_scale,omitempty"`
+	TotalPriceCommodity   *string `json:"total_price_commodity,omitempty"`
+	Comment               string  `json:"comment"`
 }
 
 type revisionDiagnosticRow struct {
@@ -230,7 +236,7 @@ func decodeBackup(input []byte) (backupPayload, error) {
 		return backupPayload{}, ErrInvalidBackup
 	}
 	if envelope.Format != BackupFormat || envelope.FormatVersion != BackupFormatVersion ||
-		envelope.SchemaVersion != SchemaVersion || !envelope.Payload.complete() {
+		(envelope.SchemaVersion != 2 && envelope.SchemaVersion != SchemaVersion) || !envelope.Payload.complete() {
 		return backupPayload{}, ErrInvalidBackup
 	}
 	if err := validateBackupPayloadShape(envelope.Payload); err != nil {
@@ -290,6 +296,18 @@ func validateBackupPayloadShape(payload backupPayload) error {
 		payload.WorkflowState[0].Generation < 0 {
 		return ErrInvalidBackup
 	}
+	for _, row := range payload.Postings {
+		if !validOptionalAmount(row.AmountText, row.AmountScale, row.Commodity) ||
+			!validOptionalAmount(row.TotalPriceAmountText, row.TotalPriceAmountScale, row.TotalPriceCommodity) {
+			return ErrInvalidBackup
+		}
+	}
+	for _, row := range payload.RevisionPostings {
+		if !validOptionalAmount(row.AmountText, row.AmountScale, row.Commodity) ||
+			!validOptionalAmount(row.TotalPriceAmountText, row.TotalPriceAmountScale, row.TotalPriceCommodity) {
+			return ErrInvalidBackup
+		}
+	}
 	maximum := map[string]int64{"import_runs": 0, "entry_approvals": 0}
 	for _, row := range payload.ImportRuns {
 		if row.Sequence > maximum["import_runs"] {
@@ -314,6 +332,20 @@ func validateBackupPayloadShape(payload backupPayload) error {
 		}
 	}
 	return nil
+}
+
+func validOptionalAmount(text *string, scale *int64, commodity *string) bool {
+	present := 0
+	if text != nil {
+		present++
+	}
+	if scale != nil {
+		present++
+	}
+	if commodity != nil {
+		present++
+	}
+	return present == 0 || present == 3
 }
 
 func readBackupPayload(ctx context.Context, source queryer) (backupPayload, error) {
@@ -366,9 +398,11 @@ func readBackupPayload(ctx context.Context, source queryer) (backupPayload, erro
 	if err != nil {
 		return backupPayload{}, backupReadError("entry_comments", err)
 	}
-	payload.Postings, err = readRows(ctx, source, `SELECT entry_id, posting_index, account, amount_text, amount_scale, commodity, comment FROM postings ORDER BY entry_id, posting_index`,
+	payload.Postings, err = readRows(ctx, source, `SELECT entry_id, posting_index, account, amount_text, amount_scale, commodity,
+        total_price_amount_text, total_price_amount_scale, total_price_commodity, comment FROM postings ORDER BY entry_id, posting_index`,
 		func(rows *sql.Rows, row *postingRow) error {
-			return rows.Scan(&row.EntryID, &row.PostingIndex, &row.Account, &row.AmountText, &row.AmountScale, &row.Commodity, &row.Comment)
+			return rows.Scan(&row.EntryID, &row.PostingIndex, &row.Account, &row.AmountText, &row.AmountScale, &row.Commodity,
+				&row.TotalPriceAmountText, &row.TotalPriceAmountScale, &row.TotalPriceCommodity, &row.Comment)
 		})
 	if err != nil {
 		return backupPayload{}, backupReadError("postings", err)
@@ -387,9 +421,11 @@ func readBackupPayload(ctx context.Context, source queryer) (backupPayload, erro
 	if err != nil {
 		return backupPayload{}, backupReadError("revision_comments", err)
 	}
-	payload.RevisionPostings, err = readRows(ctx, source, `SELECT entry_id, revision, posting_index, account, amount_text, amount_scale, commodity, comment FROM revision_postings ORDER BY entry_id, revision, posting_index`,
+	payload.RevisionPostings, err = readRows(ctx, source, `SELECT entry_id, revision, posting_index, account, amount_text, amount_scale, commodity,
+        total_price_amount_text, total_price_amount_scale, total_price_commodity, comment FROM revision_postings ORDER BY entry_id, revision, posting_index`,
 		func(rows *sql.Rows, row *revisionPostingRow) error {
-			return rows.Scan(&row.EntryID, &row.Revision, &row.PostingIndex, &row.Account, &row.AmountText, &row.AmountScale, &row.Commodity, &row.Comment)
+			return rows.Scan(&row.EntryID, &row.Revision, &row.PostingIndex, &row.Account, &row.AmountText, &row.AmountScale, &row.Commodity,
+				&row.TotalPriceAmountText, &row.TotalPriceAmountScale, &row.TotalPriceCommodity, &row.Comment)
 		})
 	if err != nil {
 		return backupPayload{}, backupReadError("revision_postings", err)

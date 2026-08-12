@@ -2,7 +2,10 @@ package ingest
 
 import "github.com/hirokinko/bokiccio/internal/ledger"
 
-const SchemaVersion = 1
+const (
+	SchemaVersionV1 = 1
+	SchemaVersion   = 2
+)
 
 type Batch struct {
 	SchemaVersion int
@@ -33,7 +36,8 @@ type Source struct {
 }
 
 type CandidatePosting struct {
-	Account string
-	Amount  *ledger.Amount
-	Comment string
+	Account    string
+	Amount     *ledger.Amount
+	TotalPrice *ledger.Amount
+	Comment    string
 }
