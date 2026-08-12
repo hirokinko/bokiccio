@@ -1,11 +1,11 @@
 # Tackler compatibility contract
 
-This package emits a subset of the Tackler journal format. It does not claim
-full format compatibility.
+This package imports and emits a subset of the Tackler journal format. It does
+not claim full format compatibility.
 
 The compatibility reference is:
 
-- Tackler CLI: `26.1.2`
+- Tackler CLI: `26.1.2` or later
 - Tackler grammar commit: `0641bb09b7cc52bd037c6f6ce4cc377fb72facec`
 - Grammar files: `docs/devel/antlr/TxnLexer.g4` and `TxnParser.g4`
 
@@ -21,17 +21,19 @@ The compatibility reference is:
 - two or more postings in input order
 - an amount omitted only from the final posting
 - exactly one blank line between exported transactions and a final newline
+- importing one or more transactions in the supported subset, with blank lines
+  ignored between entries
 
 Timestamps without a UTC offset, transaction codes, metadata, tags, prices,
-costs, commodity conversion, and parsing Tackler journals are outside this
-subset.
+costs, and commodity conversion are outside this subset.
 
 ## Fixtures
 
 `testdata/compatibility/manifest.json` records each syntax feature, whether
-Tackler must accept or reject it, and its single-transaction fixture. Fixtures
-use invented names and values and are intended to be reusable as a future
-Tree-sitter corpus. The integration check also loads
+Tackler must accept or reject it, and its single-transaction fixture. Its
+`tackler_version` is the minimum CLI version used as the compatibility floor.
+Fixtures use invented names and values and are intended to be reusable as a
+future Tree-sitter corpus. The integration check also loads
 `testdata/explicit_entries.golden`, which is byte-compared with exporter output
 by the normal test suite.
 

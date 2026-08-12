@@ -12,7 +12,7 @@ Bokiccioは、さまざまな取引記録を検証可能な仕訳へ変換し、
 - 貸借、勘定科目、コメント、金額省略のvalidation
 - 入力順とsource・WARNなどのmetadataを保つ決定的なexport
 - Tackler journal format互換subsetへの出力
-- Tackler 26.1.2に対する自動互換性test
+- Tackler 26.1.2以降に対する自動互換性test
 - version付きの正規化JSON import境界
 - source情報を維持した仕訳候補の生成
 - 重複取込の検出と安全な再実行
@@ -25,27 +25,19 @@ Bokiccioは、さまざまな取引記録を検証可能な仕訳へ変換し、
 
 単一利用者が、取込結果と仕訳候補をprivateなWeb/API境界で確認し、修正・承認・export・backupを行える基盤を提供しています。
 
-normalized import、Turso Cloud永続化、取込結果・仕訳候補のJSON API、Cloud Run direct IAPによるsingle-owner公開境界、日本語・英語でnormalized JSON upload、仕訳検索、取込履歴閲覧を行うserver-rendered画面、immutableな修正・承認履歴、最新revisionの検索、承認済み仕訳のexport、checksum付きlogical backupと空databaseへのtransactional restoreまでを実装・検証済みです。
+normalized import、Turso Cloud永続化、取込結果・仕訳候補のJSON API、Cloud Run direct IAPによるsingle-owner公開境界、日本語・英語でnormalized JSON uploadとTackler `.txn` upload、仕訳検索、取込履歴閲覧、修正・承認・exportを行うserver-rendered画面、immutableな修正・承認履歴、最新revisionの検索、承認済み仕訳のexport、checksum付きlogical backupと空databaseへのtransactional restoreまでを実装・検証済みです。
 
 - journalとpostingの永続化
 - 取込履歴、処理状態、sourceの表示
 - Web UIからのnormalized JSON upload
+- Web UIからのTackler互換subset `.txn` upload
 - 日本語・英語のserver-rendered閲覧画面
 - signed IAP JWTとowner identityを検証するproduction server
 - APIによる仕訳候補の修正・承認
+- Web UIによる仕訳候補の修正・承認
 - 最新revisionを対象にした検索、絞り込み、期間別の閲覧
-- 承認済み仕訳のTackler互換形式と機械可読形式でのexport
+- 承認済み仕訳のTackler互換形式と機械可読形式でのAPI/UI export
 - checksum付きlogical backupと空database限定のtransactional restore
-
-## In progress: Web operation workflow
-
-Single-user web applicationの基盤の上に、日常操作をWeb UIで完結させる画面を追加します。
-
-- 仕訳候補の修正・承認UI
-- Tackler互換subsetの`.txn` file import
-- 承認済み仕訳のexport導線
-- backup/restoreやdeployment確認の運用runbook
-- 勘定科目と分類ruleの管理
 
 ## Planned: Automated ingestion
 

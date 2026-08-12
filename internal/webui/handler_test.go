@@ -343,6 +343,40 @@ func TestUIImportUploadRedirectsToRunPage(t *testing.T) {
 	}
 }
 
+func TestUITacklerImportUploadRedirectsToRunPage(t *testing.T) {
+	database := openUIDatabase(t)
+	store := webstore.New(database)
+	handler := webui.NewHandler(store)
+	input := []byte("2026-08-12T07:30:00+09:00  'Txn uploaded candidate\n    ; source note\n    費用:取込 1200 JPY ; imported item\n    資産:現金\n")
+
+	index := serve(handler, http.MethodGet, "/")
+	assertHTMLResponse(t, index, http.StatusOK)
+	assertContainsAll(t, index.Body.String(), []string{`action="/ui/imports/tackler"`, `accept="text/plain,.txn"`, "Tackler import"})
+
+	response := serveUpload(handler, "/ui/imports/tackler", "private-upload.txn", input)
+	if response.Code != http.StatusSeeOther {
+		t.Fatalf("txn upload status=%d body=%s", response.Code, response.Body.String())
+	}
+	location := response.Header().Get("Location")
+	if !strings.HasPrefix(location, "/imports/") {
+		t.Fatalf("Location = %q", location)
+	}
+	assertNotContainsAny(t, response.Body.String(), []string{"private-upload.txn", string(input)})
+
+	runPage := serve(handler, http.MethodGet, location)
+	assertHTMLResponse(t, runPage, http.StatusOK)
+	assertContainsAll(t, runPage.Body.String(), []string{"取込結果", "tackler: uploaded.txn", "完了", "/entries/"})
+	assertNotContainsAny(t, runPage.Body.String(), []string{"private-upload.txn"})
+
+	duplicate := serveUpload(handler, "/en/ui/imports/tackler", "private-upload-again.txn", input)
+	if duplicate.Code != http.StatusSeeOther || !strings.HasPrefix(duplicate.Header().Get("Location"), "/en/imports/") {
+		t.Fatalf("duplicate status=%d Location=%q body=%s", duplicate.Code, duplicate.Header().Get("Location"), duplicate.Body.String())
+	}
+	duplicateRun := serve(handler, http.MethodGet, duplicate.Header().Get("Location"))
+	assertHTMLResponse(t, duplicateRun, http.StatusOK)
+	assertContainsAll(t, duplicateRun.Body.String(), []string{"duplicate", "tackler: uploaded.txn"})
+}
+
 func TestUIImportUploadCommitsRunWithRecordErrors(t *testing.T) {
 	store := webstore.New(openUIDatabase(t))
 	handler := webui.NewHandler(store)
@@ -391,6 +425,16 @@ func TestUIImportUploadRejectsInvalidInputPrivately(t *testing.T) {
 	if method.Header().Get("Allow") != "POST" {
 		t.Fatalf("Allow = %q", method.Header().Get("Allow"))
 	}
+
+	invalidTxn := serveUpload(handler, "/ui/imports/tackler", "secret-invalid.txn", []byte("private-content"))
+	assertHTMLResponse(t, invalidTxn, http.StatusBadRequest)
+	assertContainsAll(t, invalidTxn.Body.String(), []string{"Invalid Tackler upload", "line 1", "entry header is required"})
+	assertNotContainsAny(t, invalidTxn.Body.String(), []string{"secret-invalid.txn", "private-content", `{"schema_version"`})
+
+	invalidAmount := serveUpload(handler, "/ui/imports/tackler", "secret-amount.txn", []byte("2026-08-10  'private shop\n    費用:確認 private-amount JPY\n    資産:現金\n"))
+	assertHTMLResponse(t, invalidAmount, http.StatusBadRequest)
+	assertContainsAll(t, invalidAmount.Body.String(), []string{"Invalid Tackler upload", "line 2", "private-amount"})
+	assertNotContainsAny(t, invalidAmount.Body.String(), []string{"secret-amount.txn", `{"schema_version"`})
 }
 
 func TestUIImportUploadRepositoryFailureIsPrivateSafe(t *testing.T) {

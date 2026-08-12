@@ -46,6 +46,10 @@ func importHref(l locale) string {
 	return localizedPath(l, "/ui/imports")
 }
 
+func tacklerImportHref(l locale) string {
+	return localizedPath(l, "/ui/imports/tackler")
+}
+
 func searchHref(l locale) string {
 	return localizedPath(l, "/ui/entries/search")
 }

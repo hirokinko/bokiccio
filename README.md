@@ -31,7 +31,7 @@ Bokiccio（ボキッチョ）は、複数の明細・メール・レシートか
 - 現在承認済みの仕訳だけを対象にしたTackler/JSON export
 - checksum付きlogical backupと空database限定のtransactional restore
 - 匿名化fixtureによるgolden test
-- Tackler 26.1.2を使った任意実行の互換性test
+- Tackler 26.1.2以降を使った任意実行の互換性test
 
 ## 設計原則
 
@@ -87,7 +87,7 @@ internal/webui
 
 - Go 1.26以降
 - Node.js/npm（CSS/JavaScriptのlint・formatを実行する場合だけ）
-- Tackler 26.1.2（互換性testを実行する場合だけ）
+- Tackler 26.1.2以降（互換性testを実行する場合だけ）
 
 通常のtestは外部サービスやTackler CLIを必要としません。
 

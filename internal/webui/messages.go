@@ -17,6 +17,11 @@ type messages struct {
 	UploadFileLabel                string
 	UploadHelp                     string
 	UploadSubmit                   string
+	TacklerUploadFormLabel         string
+	TacklerUploadHeading           string
+	TacklerUploadFileLabel         string
+	TacklerUploadHelp              string
+	TacklerUploadSubmit            string
 	NoMatchingEntriesTitle         string
 	NoMatchingEntriesMessage       string
 	SearchFormLabel                string
@@ -45,6 +50,8 @@ type messages struct {
 	NextPage                       string
 	InvalidUploadTitle             string
 	InvalidUploadMessage           string
+	InvalidTacklerUploadTitle      string
+	InvalidTacklerUploadMessage    string
 	UploadTooLargeTitle            string
 	UploadTooLargeMessage          string
 	UnsupportedUploadTitle         string
@@ -148,6 +155,11 @@ func japaneseMessages() messages {
 		UploadFileLabel:                "normalized input JSON",
 		UploadHelp:                     "version 1のJSON fileを1つ選択してください。最大10 MiBです。",
 		UploadSubmit:                   "upload",
+		TacklerUploadFormLabel:         "Tackler txnをupload",
+		TacklerUploadHeading:           "Tackler import",
+		TacklerUploadFileLabel:         "Tackler .txn",
+		TacklerUploadHelp:              "対応subsetの.txn fileを1つ選択してください。最大10 MiBです。",
+		TacklerUploadSubmit:            "txnをupload",
 		NoMatchingEntriesTitle:         "条件に一致する仕訳候補はありません",
 		NoMatchingEntriesMessage:       "検索条件を変えて再実行してください。",
 		SearchFormLabel:                "仕訳候補を検索",
@@ -176,6 +188,8 @@ func japaneseMessages() messages {
 		NextPage:                       "次のページ",
 		InvalidUploadTitle:             "Invalid upload",
 		InvalidUploadMessage:           "upload内容を処理できませんでした。",
+		InvalidTacklerUploadTitle:      "Invalid Tackler upload",
+		InvalidTacklerUploadMessage:    "Tackler .txnを処理できませんでした。",
 		UploadTooLargeTitle:            "Upload too large",
 		UploadTooLargeMessage:          "uploadできるfileは10 MiBまでです。",
 		UnsupportedUploadTitle:         "Unsupported upload",
@@ -286,6 +300,11 @@ func englishMessages() messages {
 		UploadFileLabel:                "Normalized input JSON",
 		UploadHelp:                     "Choose one version 1 JSON file. The maximum size is 10 MiB.",
 		UploadSubmit:                   "Upload",
+		TacklerUploadFormLabel:         "Upload Tackler txn",
+		TacklerUploadHeading:           "Tackler import",
+		TacklerUploadFileLabel:         "Tackler .txn",
+		TacklerUploadHelp:              "Choose one .txn file in the supported subset. The maximum size is 10 MiB.",
+		TacklerUploadSubmit:            "Upload txn",
 		NoMatchingEntriesTitle:         "No matching journal candidates",
 		NoMatchingEntriesMessage:       "Change the search filters and try again.",
 		SearchFormLabel:                "Search journal candidates",
@@ -314,6 +333,8 @@ func englishMessages() messages {
 		NextPage:                       "Next page",
 		InvalidUploadTitle:             "Invalid upload",
 		InvalidUploadMessage:           "The upload could not be processed.",
+		InvalidTacklerUploadTitle:      "Invalid Tackler upload",
+		InvalidTacklerUploadMessage:    "The Tackler .txn upload could not be processed.",
 		UploadTooLargeTitle:            "Upload too large",
 		UploadTooLargeMessage:          "Uploaded files must be 10 MiB or smaller.",
 		UnsupportedUploadTitle:         "Unsupported upload",

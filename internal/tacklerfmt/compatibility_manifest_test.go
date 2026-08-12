@@ -6,14 +6,15 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 	"unicode/utf8"
 )
 
 const (
-	wantTacklerVersion = "26.1.2"
-	wantGrammarCommit  = "0641bb09b7cc52bd037c6f6ce4cc377fb72facec"
+	minTacklerVersion = "26.1.2"
+	wantGrammarCommit = "0641bb09b7cc52bd037c6f6ce4cc377fb72facec"
 )
 
 type compatibilityManifest struct {
@@ -38,8 +39,8 @@ func TestCompatibilityManifest(t *testing.T) {
 	root := compatibilityRoot()
 	manifest := readCompatibilityManifest(t, root)
 
-	if manifest.Reference.TacklerVersion != wantTacklerVersion {
-		t.Errorf("tackler_version = %q, want %q", manifest.Reference.TacklerVersion, wantTacklerVersion)
+	if manifest.Reference.TacklerVersion != minTacklerVersion {
+		t.Errorf("tackler_version = %q, want minimum %q", manifest.Reference.TacklerVersion, minTacklerVersion)
 	}
 	if manifest.Reference.GrammarCommit != wantGrammarCommit {
 		t.Errorf("grammar_commit = %q, want %q", manifest.Reference.GrammarCommit, wantGrammarCommit)
@@ -140,4 +141,40 @@ func validateCompatibilityFixture(t *testing.T, root string, testCase compatibil
 
 func (c compatibilityCase) String() string {
 	return fmt.Sprintf("%s (%s, %s)", c.ID, c.Feature, c.Expect)
+}
+
+func tacklerVersionAtLeast(got, minimum string) bool {
+	gotParts, ok := parseTacklerVersion(got)
+	if !ok {
+		return false
+	}
+	minimumParts, ok := parseTacklerVersion(minimum)
+	if !ok {
+		return false
+	}
+	for index := range gotParts {
+		if gotParts[index] > minimumParts[index] {
+			return true
+		}
+		if gotParts[index] < minimumParts[index] {
+			return false
+		}
+	}
+	return true
+}
+
+func parseTacklerVersion(value string) ([3]int, bool) {
+	var parts [3]int
+	items := strings.Split(value, ".")
+	if len(items) != len(parts) {
+		return parts, false
+	}
+	for index, item := range items {
+		number, err := strconv.Atoi(item)
+		if err != nil || number < 0 {
+			return parts, false
+		}
+		parts[index] = number
+	}
+	return parts, true
 }

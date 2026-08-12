@@ -6,6 +6,7 @@ BokiccioのWeb UIは、Cloud Run direct IAPで保護された単一利用者向�
 
 - `GET /`: 最新50件の仕訳候補
 - `POST /ui/imports`: normalized input v1 JSON fileのupload
+- `POST /ui/imports/tackler`: Tackler互換subset `.txn` fileのupload
 - `POST /ui/entries/search`: form bodyによる仕訳候補検索とpagination
 - `POST /ui/exports/tackler`: form body filterによる承認済み仕訳のTackler export
 - `POST /ui/exports/json`: form body filterによる承認済み仕訳のJSON export
@@ -15,6 +16,7 @@ BokiccioのWeb UIは、Cloud Run direct IAPで保護された単一利用者向�
 - `GET /imports/{run-identity}`: 取込結果とdiagnostic
 - `GET /en/`: 最新50件の仕訳候補（英語UI）
 - `POST /en/ui/imports`: normalized input v1 JSON fileのupload（英語UI）
+- `POST /en/ui/imports/tackler`: Tackler互換subset `.txn` fileのupload（英語UI）
 - `POST /en/ui/entries/search`: form bodyによる仕訳候補検索とpagination（英語UI）
 - `POST /en/ui/exports/tackler`: form body filterによる承認済み仕訳のTackler export（英語UI）
 - `POST /en/ui/exports/json`: form body filterによる承認済み仕訳のJSON export（英語UI）
@@ -42,6 +44,9 @@ first-party JavaScriptで4 spaces入力にする。postingの追加は行追加�
 
 normalized input uploadは`multipart/form-data`のPOST bodyで送信します。file fieldは`file`、file contentは最大10 MiB、request全体にも小さなoverhead上限を設けます。filenameとclient側Content-Typeはsource、identity、format判定には使わず、保存、log、HTML responseへの反映もしません。record単位のerrorを含んだ取込runも保存できた場合は成功uploadとして扱い、`303 See Other`で`/imports/{run-identity}`または`/en/imports/{run-identity}`へredirectします。
 
+Tackler `.txn` uploadはnormalized input uploadとは別form/routeで扱う。対応subsetは`internal/tacklerfmt/COMPATIBILITY.md`に従い、parse後のentryをnormalized input v1へ変換して既存import経路へ渡す。sourceはprivate filenameではなく`tackler: uploaded.txn`として記録する。
+parseやdomain validationに失敗した場合は、line numberまたはentry numberと原因をHTML errorとserver logへ出す。原因にはparser/domain validationが返すoffending valueを含む場合がある。filename、SQL error、request body全体は表示しない。
+
 すべてのHTMLとassetはproduction handlerのIAP検証を通り、`Cache-Control: no-store`と同一originを前提としたContent Security Policyを付与します。画面のHTMLはtemplから生成し、生成済みの`*_templ.go`もsource treeへcommitします。
 
 ## Development commands
@@ -60,4 +65,4 @@ npm run format
 npm run check
 ```
 
-この段階の画面はnormalized JSON upload、検索、閲覧、revision作成、approval、承認済み仕訳のexportに対応しています。Tackler journal formatのfile uploadは別sliceで扱います。
+この段階の画面はnormalized JSON upload、Tackler `.txn` upload、検索、閲覧、revision作成、approval、承認済み仕訳のexportに対応しています。

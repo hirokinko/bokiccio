@@ -5,6 +5,7 @@ import "github.com/hirokinko/bokiccio/internal/webapp"
 type indexPageModel struct {
 	Page          pageContext
 	Upload        uploadFormModel
+	TacklerUpload uploadFormModel
 	Search        searchFormModel
 	Export        exportFormModel
 	Entries       []entrySummaryModel

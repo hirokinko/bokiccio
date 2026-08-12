@@ -57,6 +57,14 @@ templ uploadForm(model indexPageModel) {
 		<label>{ model.Page.Messages.UploadFileLabel }<input type="file" name="file" accept="application/json,.json" required/></label>
 		<button type="submit">{ model.Page.Messages.UploadSubmit }</button>
 	</form>
+	<form class="upload-panel" method="post" action={ model.TacklerUpload.Action } enctype="multipart/form-data" aria-label={ model.Page.Messages.TacklerUploadFormLabel }>
+		<div>
+			<h2>{ model.Page.Messages.TacklerUploadHeading }</h2>
+			<p>{ model.Page.Messages.TacklerUploadHelp }</p>
+		</div>
+		<label>{ model.Page.Messages.TacklerUploadFileLabel }<input type="file" name="file" accept="text/plain,.txn" required/></label>
+		<button type="submit">{ model.Page.Messages.TacklerUploadSubmit }</button>
+	</form>
 }
 
 templ searchForm(model indexPageModel) {

@@ -15,8 +15,9 @@ func TestTacklerCompatibility(t *testing.T) {
 	if err != nil {
 		t.Fatalf("tackler --version failed: %v: %s", err, versionOutput)
 	}
-	if got := strings.TrimSpace(string(versionOutput)); got != "tackler "+wantTacklerVersion {
-		t.Fatalf("tackler --version = %q, want %q", got, "tackler "+wantTacklerVersion)
+	gotVersion, ok := strings.CutPrefix(strings.TrimSpace(string(versionOutput)), "tackler ")
+	if !ok || !tacklerVersionAtLeast(gotVersion, minTacklerVersion) {
+		t.Fatalf("tackler --version = %q, want tackler %s or later", strings.TrimSpace(string(versionOutput)), minTacklerVersion)
 	}
 
 	root := compatibilityRoot()

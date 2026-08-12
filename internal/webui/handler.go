@@ -2,10 +2,13 @@
 package webui
 
 import (
+	"crypto/sha256"
 	"embed"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
+	"log"
 	"mime"
 	"mime/multipart"
 	"net/http"
@@ -95,6 +98,12 @@ func (handler *Handler) ServeHTTP(response http.ResponseWriter, request *http.Re
 			return
 		}
 		handler.importRecords(response, request, requestLocale)
+	case localPath == "/ui/imports/tackler":
+		if request.Method != http.MethodPost {
+			handler.methodNotAllowed(response, request, requestLocale, localPath, "POST")
+			return
+		}
+		handler.importTackler(response, request, requestLocale)
 	case strings.HasPrefix(localPath, "/ui/exports/"):
 		if request.Method != http.MethodPost {
 			handler.methodNotAllowed(response, request, requestLocale, localPath, "POST")
@@ -167,6 +176,34 @@ func (handler *Handler) importRecords(response http.ResponseWriter, request *htt
 		return
 	}
 	result, err := handler.repository.Import(request.Context(), body)
+	if errors.Is(err, ingest.ErrInvalidInput) || errors.Is(err, webapp.ErrInvalidRequest) {
+		handler.invalidUpload(response, request, requestLocale, http.StatusBadRequest)
+		return
+	}
+	if err != nil {
+		handler.uploadFailed(response, request, requestLocale)
+		return
+	}
+	http.Redirect(response, request, runHref(requestLocale, result.RunIdentity), http.StatusSeeOther)
+}
+
+func (handler *Handler) importTackler(response http.ResponseWriter, request *http.Request, requestLocale locale) {
+	body, uploadStatus, ok := decodeImportUpload(response, request)
+	if !ok {
+		handler.invalidUpload(response, request, requestLocale, uploadStatus)
+		return
+	}
+	entries, err := tacklerfmt.Parse(body)
+	if err != nil {
+		handler.invalidTacklerUpload(response, request, requestLocale, err)
+		return
+	}
+	input, err := normalizedInputForTacklerEntries(entries)
+	if err != nil {
+		handler.invalidTacklerUpload(response, request, requestLocale, err)
+		return
+	}
+	result, err := handler.repository.Import(request.Context(), input)
 	if errors.Is(err, ingest.ErrInvalidInput) || errors.Is(err, webapp.ErrInvalidRequest) {
 		handler.invalidUpload(response, request, requestLocale, http.StatusBadRequest)
 		return
@@ -460,6 +497,16 @@ func (handler *Handler) invalidUpload(response http.ResponseWriter, request *htt
 	}))
 }
 
+func (handler *Handler) invalidTacklerUpload(response http.ResponseWriter, request *http.Request, requestLocale locale, err error) {
+	msg := messagesFor(requestLocale)
+	diagnostic := tacklerfmt.DetailedDiagnostic(err)
+	log.Printf("webui: tackler import rejected: %s", diagnostic)
+	render(response, request, http.StatusBadRequest, errorPage(errorPageModel{
+		Page: newPageContext(requestLocale, "/"), Status: http.StatusBadRequest,
+		Title: msg.InvalidTacklerUploadTitle, Message: msg.InvalidTacklerUploadMessage + " " + diagnostic,
+	}))
+}
+
 func (handler *Handler) uploadFailed(response http.ResponseWriter, request *http.Request, requestLocale locale) {
 	msg := messagesFor(requestLocale)
 	render(response, request, http.StatusInternalServerError, errorPage(errorPageModel{
@@ -472,6 +519,7 @@ func newIndexPageModel(requestLocale locale, filter webapp.EntryFilter, page web
 	model := indexPageModel{
 		Page:          newPageContext(requestLocale, "/"),
 		Upload:        uploadFormModel{Action: importHref(requestLocale)},
+		TacklerUpload: uploadFormModel{Action: tacklerImportHref(requestLocale)},
 		Search:        searchFormModel{Action: searchHref(requestLocale), ResetHref: localizedPath(requestLocale, "/"), Filter: filter},
 		Export:        exportFormModel{TacklerAction: exportHref(requestLocale, "tackler"), JSONAction: exportHref(requestLocale, "json"), Filter: filter},
 		Entries:       make([]entrySummaryModel, 0, len(page.Entries)),
@@ -731,71 +779,63 @@ func entryText(entry candidateModel) string {
 }
 
 func parseEntryText(text string) (webapp.RevisionRequest, bool) {
-	lines := nonEmptyLines(text)
-	if len(lines) < 3 {
+	entries, err := tacklerfmt.ParseUnvalidated([]byte(text))
+	if err != nil || len(entries) != 1 {
 		return webapp.RevisionRequest{}, false
 	}
-	occurredAt, description, ok := parseEntryHeader(lines[0])
-	if !ok {
-		return webapp.RevisionRequest{}, false
+	entry := entries[0]
+	input := webapp.RevisionRequest{
+		OccurredAt:  entry.Date.String(),
+		Description: entry.Description,
+		Comments:    append([]string(nil), entry.Comments...),
+		Postings:    make([]webapp.PostingDetail, 0, len(entry.Postings)),
 	}
-	input := webapp.RevisionRequest{OccurredAt: occurredAt, Description: description, Comments: []string{}, Postings: []webapp.PostingDetail{}}
-	for _, line := range lines[1:] {
-		if strings.HasPrefix(line, ";") {
-			comment := strings.TrimSpace(strings.TrimPrefix(line, ";"))
-			if comment != "" {
-				input.Comments = append(input.Comments, comment)
+	for _, posting := range entry.Postings {
+		detail := webapp.PostingDetail{Account: posting.Account, Comment: posting.Comment}
+		if posting.Amount != nil {
+			amount := posting.Amount.Value.String()
+			detail.Amount = &amount
+			detail.Commodity = string(posting.Amount.Commodity)
+		}
+		input.Postings = append(input.Postings, detail)
+	}
+	return input, true
+}
+
+func normalizedInputForTacklerEntries(entries []ledger.JournalEntry) ([]byte, error) {
+	batch := normalizedBatch{SchemaVersion: 1, Records: make([]normalizedRecord, 0, len(entries))}
+	for index, entry := range entries {
+		record := normalizedRecord{
+			Source: normalizedSource{
+				Namespace:  "tackler",
+				Display:    "uploaded.txn",
+				ExternalID: tacklerExternalID(entry, index),
+			},
+			OccurredAt:  entry.Date.String(),
+			Description: entry.Description,
+			Comments:    append([]string(nil), entry.Comments...),
+			Postings:    make([]normalizedPosting, 0, len(entry.Postings)),
+		}
+		for _, posting := range entry.Postings {
+			detail := normalizedPosting{Account: posting.Account, Comment: posting.Comment}
+			if posting.Amount != nil {
+				detail.Amount = posting.Amount.Value.String()
+				detail.Commodity = string(posting.Amount.Commodity)
 			}
-			continue
+			record.Postings = append(record.Postings, detail)
 		}
-		posting, ok := parsePostingLine(line)
-		if !ok {
-			return webapp.RevisionRequest{}, false
-		}
-		input.Postings = append(input.Postings, *posting)
+		batch.Records = append(batch.Records, record)
 	}
-	return input, len(input.Postings) > 0
+	return json.Marshal(batch)
 }
 
-func nonEmptyLines(text string) []string {
-	rawLines := strings.Split(strings.ReplaceAll(text, "\r\n", "\n"), "\n")
-	lines := []string{}
-	for _, line := range rawLines {
-		line = strings.TrimSpace(line)
-		if line != "" {
-			lines = append(lines, line)
-		}
+func tacklerExternalID(entry ledger.JournalEntry, index int) string {
+	output, err := tacklerfmt.Export([]ledger.JournalEntry{entry}, tacklerfmt.Options{OmittedAmounts: tacklerfmt.PreserveOmitted})
+	if err != nil {
+		output = []byte(entry.Date.String() + "\n" + entry.Description)
 	}
-	return lines
-}
-
-func parseEntryHeader(line string) (string, string, bool) {
-	occurredAt, description, ok := strings.Cut(line, "'")
-	occurredAt = strings.TrimSpace(occurredAt)
-	description = strings.TrimSpace(description)
-	return occurredAt, description, ok && occurredAt != "" && description != ""
-}
-
-func parsePostingLine(line string) (*webapp.PostingDetail, bool) {
-	line = strings.TrimSpace(line)
-	if line == "" {
-		return nil, true
-	}
-	entry, comment, _ := strings.Cut(line, ";")
-	fields := strings.Fields(entry)
-	if len(fields) != 1 && len(fields) < 3 {
-		return nil, false
-	}
-	posting := webapp.PostingDetail{Account: fields[0], Comment: strings.TrimSpace(comment)}
-	if len(fields) >= 3 {
-		amount := fields[1]
-		posting.Amount = &amount
-		posting.Commodity = fields[2]
-		if posting.Comment == "" && len(fields) > 3 {
-			posting.Comment = strings.Join(fields[3:], " ")
-		}
-	}
-	return &posting, true
+	sum := sha256.Sum256(append([]byte("bokiccio.tackler-import.v1\x00"), output...))
+	return fmt.Sprintf("entry-%06d-%x", index+1, sum[:])
 }
 
 const (
@@ -830,6 +870,32 @@ var searchFormFields = map[string]struct{}{
 	searchFieldSourceNamespace: {},
 	searchFieldSourceDisplay:   {},
 	searchFieldCursor:          {},
+}
+
+type normalizedBatch struct {
+	SchemaVersion int                `json:"schema_version"`
+	Records       []normalizedRecord `json:"records"`
+}
+
+type normalizedRecord struct {
+	Source      normalizedSource    `json:"source"`
+	OccurredAt  string              `json:"occurred_at"`
+	Description string              `json:"description"`
+	Comments    []string            `json:"comments,omitempty"`
+	Postings    []normalizedPosting `json:"postings"`
+}
+
+type normalizedSource struct {
+	Namespace  string `json:"namespace"`
+	Display    string `json:"display"`
+	ExternalID string `json:"external_id"`
+}
+
+type normalizedPosting struct {
+	Account   string `json:"account"`
+	Amount    string `json:"amount,omitempty"`
+	Commodity string `json:"commodity,omitempty"`
+	Comment   string `json:"comment,omitempty"`
 }
 
 func searchFormFieldAllowed(key string) bool {
