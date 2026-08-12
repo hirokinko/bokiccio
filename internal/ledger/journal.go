@@ -12,6 +12,7 @@ var (
 	ErrInvalidPosting    = errors.New("invalid posting")
 	ErrInvalidAccount    = errors.New("invalid account")
 	ErrInvalidCommodity  = errors.New("invalid commodity")
+	ErrInvalidTotalPrice = errors.New("invalid total price")
 	ErrCommodityMismatch = errors.New("posting commodities do not match")
 	ErrUnbalancedEntry   = errors.New("journal entry is not balanced")
 	ErrInvalidOmitted    = errors.New("only the final posting may omit its amount")
@@ -26,9 +27,10 @@ type Amount struct {
 }
 
 type Posting struct {
-	Account string
-	Amount  *Amount
-	Comment string
+	Account    string
+	Amount     *Amount
+	TotalPrice *Amount
+	Comment    string
 }
 
 type JournalEntry struct {
@@ -88,12 +90,13 @@ func Validate(entry JournalEntry) error {
 			omitted = i
 			continue
 		}
+		effective := effectiveAmount(posting)
 		if commodity == "" {
-			commodity = posting.Amount.Commodity
-		} else if commodity != posting.Amount.Commodity {
-			return &PostingValidationError{Index: i, Err: fmt.Errorf("%w: %q and %q", ErrCommodityMismatch, commodity, posting.Amount.Commodity)}
+			commodity = effective.Commodity
+		} else if commodity != effective.Commodity {
+			return &PostingValidationError{Index: i, Err: fmt.Errorf("%w: %q and %q", ErrCommodityMismatch, commodity, effective.Commodity)}
 		}
-		values = append(values, posting.Amount.Value)
+		values = append(values, effective.Value)
 	}
 
 	sum := exactSum(values)
@@ -120,9 +123,9 @@ func InferFinalAmount(entry JournalEntry) (Amount, error) {
 	}
 
 	values := make([]Decimal, 0, len(entry.Postings)-1)
-	commodity := entry.Postings[0].Amount.Commodity
+	commodity := effectiveAmount(entry.Postings[0]).Commodity
 	for _, posting := range entry.Postings[:len(entry.Postings)-1] {
-		values = append(values, posting.Amount.Value)
+		values = append(values, effectiveAmount(posting).Value)
 	}
 	sum := exactSum(values)
 	value, err := decimalFromCoefficient(new(big.Int).Neg(new(big.Int).Set(sum.coefficient)), sum.scale)
@@ -144,7 +147,28 @@ func validatePosting(posting Posting) error {
 			return fmt.Errorf("%w: %w", ErrInvalidPosting, err)
 		}
 	}
+	if posting.TotalPrice != nil {
+		if posting.Amount == nil {
+			return fmt.Errorf("%w: %w: amount is omitted", ErrInvalidPosting, ErrInvalidTotalPrice)
+		}
+		if err := validateCommodity(posting.TotalPrice.Commodity); err != nil {
+			return fmt.Errorf("%w: %w: %w", ErrInvalidPosting, ErrInvalidTotalPrice, err)
+		}
+		if posting.Amount.Commodity == posting.TotalPrice.Commodity {
+			return fmt.Errorf("%w: %w: posting and total price commodities must differ", ErrInvalidPosting, ErrInvalidTotalPrice)
+		}
+		if posting.Amount.Value.Sign() != posting.TotalPrice.Value.Sign() {
+			return fmt.Errorf("%w: %w: posting and total price must have the same sign", ErrInvalidPosting, ErrInvalidTotalPrice)
+		}
+	}
 	return nil
+}
+
+func effectiveAmount(posting Posting) *Amount {
+	if posting.TotalPrice != nil {
+		return posting.TotalPrice
+	}
+	return posting.Amount
 }
 
 type decimalSum struct {

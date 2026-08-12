@@ -44,6 +44,20 @@ func TestValidateRejectsInvalidEntries(t *testing.T) {
 		{name: "posting comment line break", change: func(e *JournalEntry) { e.Postings[0].Comment = "a\rb" }, err: ErrInvalidPosting},
 		{name: "empty commodity", change: func(e *JournalEntry) { e.Postings[0].Amount.Commodity = "" }, err: ErrInvalidCommodity},
 		{name: "invalid commodity", change: func(e *JournalEntry) { e.Postings[0].Amount.Commodity = "JP Y" }, err: ErrInvalidCommodity},
+		{name: "total price without amount", change: func(e *JournalEntry) {
+			e.Postings[1].Amount = nil
+			e.Postings[1].TotalPrice = &Amount{Value: mustDecimal(t, "-100"), Commodity: "JPY"}
+		}, err: ErrInvalidTotalPrice},
+		{name: "invalid total price commodity", change: func(e *JournalEntry) {
+			e.Postings[0].TotalPrice = &Amount{Value: mustDecimal(t, "100"), Commodity: "JP Y"}
+		}, err: ErrInvalidTotalPrice},
+		{name: "same total price commodity", change: func(e *JournalEntry) {
+			e.Postings[0].TotalPrice = &Amount{Value: mustDecimal(t, "100"), Commodity: "JPY"}
+		}, err: ErrInvalidTotalPrice},
+		{name: "total price sign mismatch", change: func(e *JournalEntry) {
+			e.Postings[0].Amount.Commodity = "USD"
+			e.Postings[0].TotalPrice = &Amount{Value: mustDecimal(t, "-100"), Commodity: "JPY"}
+		}, err: ErrInvalidTotalPrice},
 		{name: "commodity mismatch", change: func(e *JournalEntry) { e.Postings[1].Amount.Commodity = "USD" }, err: ErrCommodityMismatch},
 		{name: "unbalanced", change: func(e *JournalEntry) { e.Postings[1].Amount.Value = mustDecimal(t, "-99.99") }, err: ErrUnbalancedEntry},
 		{name: "non-final omission", change: func(e *JournalEntry) { e.Postings[0].Amount = nil }, err: ErrInvalidOmitted},
@@ -60,6 +74,18 @@ func TestValidateRejectsInvalidEntries(t *testing.T) {
 				t.Fatalf("Validate() error = %v, want %v", err, test.err)
 			}
 		})
+	}
+}
+
+func TestValidateBalancesTotalPrices(t *testing.T) {
+	t.Parallel()
+	entry := validEntry(t)
+	entry.Postings[0].Amount = &Amount{Value: mustDecimal(t, "4.4"), Commodity: "USD"}
+	entry.Postings[0].TotalPrice = &Amount{Value: mustDecimal(t, "740"), Commodity: "JPY"}
+	entry.Postings[1].Amount = &Amount{Value: mustDecimal(t, "-740"), Commodity: "JPY"}
+
+	if err := Validate(entry); err != nil {
+		t.Fatalf("Validate() error = %v", err)
 	}
 }
 
@@ -105,6 +131,27 @@ func TestInferFinalAmount(t *testing.T) {
 	}
 	if entry.Postings[2].Amount != nil {
 		t.Fatal("InferFinalAmount() mutated the omitted posting")
+	}
+}
+
+func TestInferFinalAmountUsesTotalPrices(t *testing.T) {
+	t.Parallel()
+	entry := validEntry(t)
+	entry.Postings = []Posting{
+		{
+			Account:    "資産:投資信託",
+			Amount:     &Amount{Value: mustDecimal(t, "350"), Commodity: "口"},
+			TotalPrice: &Amount{Value: mustDecimal(t, "675"), Commodity: "JPY"},
+		},
+		{Account: "資産:購入予定"},
+	}
+
+	got, err := InferFinalAmount(entry)
+	if err != nil {
+		t.Fatalf("InferFinalAmount() error = %v", err)
+	}
+	if got.Value.String() != "-675" || got.Commodity != "JPY" {
+		t.Fatalf("InferFinalAmount() = %s %s, want -675 JPY", got.Value.String(), got.Commodity)
 	}
 }
 
