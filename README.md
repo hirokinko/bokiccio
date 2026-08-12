@@ -175,6 +175,16 @@ go run ./cmd/bokiccio restore --input ./bokiccio-backup.json
 format、checksum、transactional validationの詳細は
 [logical backup format v1](internal/webstore/BACKUP.md)を参照してください。
 
+### Production operation checklist
+
+backup/restoreはWeb UIから実行せず、operator CLIで行います。restore前にtarget databaseへ`bokiccio migrate`を
+実行し、application dataが空であることを前提にしてください。restore後はproduction serverを起動し、
+owner accountでIAP越しに仕訳検索、entry詳細、承認済みexportを確認します。
+
+Cloud Runの複数URLやcustom domainを併用する場合、`BOKICCIO_EXTERNAL_ORIGIN`には利用するHTTPS originを
+comma-separatedで設定します。shellや`gcloud --update-env-vars`ではcommaを区切り文字として扱うため、
+必要に応じて`gcloud topic escaping`またはflags fileを使ってください。
+
 ## Tackler互換subset
 
 exporterは日付、timezone付きRFC 3339日時、摘要、取引・postingコメント、勘定科目、固定小数点金額、明示commodity、最終postingの金額省略を扱います。timezoneなしの日時、transaction code、metadata、価格・原価、commodity換算などは対象外です。
@@ -184,7 +194,7 @@ exporterは日付、timezone付きRFC 3339日時、摘要、取引・postingコ�
 ## 現在の非対応範囲
 
 - Tackler journal parser
-- Web UIからの修正・承認、テナント管理
+- Web UIからのTackler journal upload、テナント管理
 - production deployment manifestと自動migration
 - Gmail、Google Drive、Cloud Vision、Vertex AIとの連携
 - 定期batchとjob管理

@@ -3,6 +3,7 @@ package webui
 
 import (
 	"embed"
+	"encoding/json"
 	"errors"
 	"io"
 	"mime"
@@ -14,18 +15,21 @@ import (
 
 	"github.com/a-h/templ"
 	"github.com/hirokinko/bokiccio/internal/ingest"
+	"github.com/hirokinko/bokiccio/internal/ledger"
+	"github.com/hirokinko/bokiccio/internal/tacklerfmt"
 	"github.com/hirokinko/bokiccio/internal/webapp"
 )
 
 const (
 	defaultPageSize      = 50
 	maxSearchFormBody    = 16 << 10
+	maxRevisionFormBody  = 64 << 10
 	maxImportFileSize    = 10 << 20
 	maxImportRequestSize = maxImportFileSize + (64 << 10)
 	importFileField      = "file"
 )
 
-//go:embed assets/app.css assets/htmx-2.0.10.min.js
+//go:embed assets/app.css assets/app.js assets/htmx-2.0.10.min.js
 var assetFiles embed.FS
 
 type Handler struct {
@@ -66,6 +70,10 @@ func (handler *Handler) ServeHTTP(response http.ResponseWriter, request *http.Re
 		handler.asset(response, request, "assets/htmx-2.0.10.min.js", "text/javascript; charset=utf-8")
 		return
 	}
+	if request.URL.Path == "/assets/app.js" {
+		handler.asset(response, request, "assets/app.js", "text/javascript; charset=utf-8")
+		return
+	}
 
 	requestLocale, localPath := localeRoute(request.URL.Path)
 	switch {
@@ -87,6 +95,18 @@ func (handler *Handler) ServeHTTP(response http.ResponseWriter, request *http.Re
 			return
 		}
 		handler.importRecords(response, request, requestLocale)
+	case strings.HasPrefix(localPath, "/ui/exports/"):
+		if request.Method != http.MethodPost {
+			handler.methodNotAllowed(response, request, requestLocale, localPath, "POST")
+			return
+		}
+		handler.exportEntries(response, request, requestLocale, strings.TrimPrefix(localPath, "/ui/exports/"))
+	case strings.HasPrefix(localPath, "/ui/entries/"):
+		if request.Method != http.MethodPost {
+			handler.methodNotAllowed(response, request, requestLocale, localPath, "POST")
+			return
+		}
+		handler.entryMutation(response, request, requestLocale, strings.TrimPrefix(localPath, "/ui/entries/"))
 	case strings.HasPrefix(localPath, "/entries/"):
 		if request.Method != http.MethodGet && request.Method != http.MethodHead {
 			handler.methodNotAllowed(response, request, requestLocale, localPath, "GET, HEAD")
@@ -158,6 +178,73 @@ func (handler *Handler) importRecords(response http.ResponseWriter, request *htt
 	http.Redirect(response, request, runHref(requestLocale, result.RunIdentity), http.StatusSeeOther)
 }
 
+func (handler *Handler) exportEntries(response http.ResponseWriter, request *http.Request, requestLocale locale, format string) {
+	if format != "tackler" && format != "json" {
+		handler.notFound(response, request, requestLocale)
+		return
+	}
+	filter, ok := decodeExportForm(response, request)
+	if !ok {
+		handler.invalidSearch(response, request, requestLocale)
+		return
+	}
+	approved, err := handler.repository.ListApprovedEntries(request.Context(), filter)
+	if errors.Is(err, webapp.ErrInvalidRequest) {
+		handler.invalidSearch(response, request, requestLocale)
+		return
+	}
+	if err != nil {
+		handler.internalError(response, request, requestLocale)
+		return
+	}
+	if format == "tackler" {
+		handler.exportTackler(response, approved)
+		return
+	}
+	handler.exportJSON(response, approved)
+}
+
+func (handler *Handler) exportTackler(response http.ResponseWriter, approved []webapp.ApprovedEntry) {
+	entries := make([]ledger.JournalEntry, 0, len(approved))
+	for _, item := range approved {
+		entries = append(entries, item.Entry)
+	}
+	output, err := tacklerfmt.Export(entries, tacklerfmt.Options{OmittedAmounts: tacklerfmt.PreserveOmitted})
+	if err != nil {
+		response.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+	response.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	response.Header().Set("Content-Disposition", `attachment; filename="bokiccio-export.txn"`)
+	response.WriteHeader(http.StatusOK)
+	_, _ = response.Write(output)
+}
+
+func (handler *Handler) exportJSON(response http.ResponseWriter, approved []webapp.ApprovedEntry) {
+	exported := webapp.JSONExport{SchemaVersion: webapp.APISchemaVersion, Entries: []webapp.ExportEntry{}}
+	for _, item := range approved {
+		entry := webapp.ExportEntry{
+			ID: item.ID, Revision: item.Revision, ApprovedAt: item.ApprovedAt, Source: item.Source,
+			OccurredAt: item.Entry.Date.String(), Description: item.Entry.Description,
+			Comments: append([]string(nil), item.Entry.Comments...), Postings: []webapp.PostingDetail{},
+		}
+		for _, posting := range item.Entry.Postings {
+			detail := webapp.PostingDetail{Account: posting.Account, Comment: posting.Comment}
+			if posting.Amount != nil {
+				amount := posting.Amount.Value.String()
+				detail.Amount = &amount
+				detail.Commodity = string(posting.Amount.Commodity)
+			}
+			entry.Postings = append(entry.Postings, detail)
+		}
+		exported.Entries = append(exported.Entries, entry)
+	}
+	response.Header().Set("Content-Type", "application/json; charset=utf-8")
+	response.Header().Set("Content-Disposition", `attachment; filename="bokiccio-export.json"`)
+	response.WriteHeader(http.StatusOK)
+	_ = json.NewEncoder(response).Encode(exported)
+}
+
 func (handler *Handler) entry(response http.ResponseWriter, request *http.Request, requestLocale locale, escapedID string) {
 	id, ok := pathID(escapedID)
 	if !ok {
@@ -173,21 +260,105 @@ func (handler *Handler) entry(response http.ResponseWriter, request *http.Reques
 		handler.internalError(response, request, requestLocale)
 		return
 	}
-	current := candidateModel{
-		Revision: detail.CurrentRevision, OccurredAt: detail.OccurredAt, Description: detail.Description,
-		Comments: detail.Comments, Postings: detail.Postings,
+	render(response, request, http.StatusOK, entryPage(newEntryPageModel(requestLocale, id, detail, currentCandidate(detail), "")))
+}
+
+func (handler *Handler) entryMutation(response http.ResponseWriter, request *http.Request, requestLocale locale, path string) {
+	parts := strings.Split(path, "/")
+	if len(parts) != 2 {
+		handler.notFound(response, request, requestLocale)
+		return
 	}
-	if len(detail.Revisions) > 0 {
-		latest := detail.Revisions[len(detail.Revisions)-1]
-		current = candidateModel{
-			Revision: latest.Revision, OccurredAt: latest.OccurredAt, Description: latest.Description,
-			Comments: latest.Comments, Postings: latest.Postings,
+	id, ok := pathID(parts[0])
+	if !ok {
+		handler.notFound(response, request, requestLocale)
+		return
+	}
+	switch parts[1] {
+	case "revisions":
+		handler.createRevision(response, request, requestLocale, id)
+	case "approvals":
+		handler.approveRevision(response, request, requestLocale, id)
+	default:
+		handler.notFound(response, request, requestLocale)
+	}
+}
+
+func (handler *Handler) createRevision(response http.ResponseWriter, request *http.Request, requestLocale locale, id string) {
+	input, ok := decodeRevisionForm(response, request)
+	if !ok {
+		handler.renderEntryFormError(response, request, requestLocale, id, http.StatusBadRequest, messagesFor(requestLocale).InvalidRevisionFormMessage)
+		return
+	}
+	if _, err := handler.repository.CreateRevision(request.Context(), id, input); err != nil {
+		handler.renderEntryMutationError(response, request, requestLocale, id, err, mutationRevision)
+		return
+	}
+	http.Redirect(response, request, entryHref(requestLocale, id), http.StatusSeeOther)
+}
+
+func (handler *Handler) approveRevision(response http.ResponseWriter, request *http.Request, requestLocale locale, id string) {
+	input, ok := decodeApprovalForm(response, request)
+	if !ok {
+		handler.renderEntryFormError(response, request, requestLocale, id, http.StatusBadRequest, messagesFor(requestLocale).InvalidApprovalFormMessage)
+		return
+	}
+	if _, err := handler.repository.ApproveRevision(request.Context(), id, input); err != nil {
+		handler.renderEntryMutationError(response, request, requestLocale, id, err, mutationApproval)
+		return
+	}
+	http.Redirect(response, request, entryHref(requestLocale, id), http.StatusSeeOther)
+}
+
+type mutationKind int
+
+const (
+	mutationRevision mutationKind = iota
+	mutationApproval
+)
+
+func (handler *Handler) renderEntryMutationError(response http.ResponseWriter, request *http.Request, requestLocale locale, id string, err error, kind mutationKind) {
+	msg := messagesFor(requestLocale)
+	status := http.StatusInternalServerError
+	message := msg.RevisionFailedMessage
+	if kind == mutationApproval {
+		message = msg.ApprovalFailedMessage
+	}
+	switch {
+	case errors.Is(err, webapp.ErrNotFound):
+		handler.notFound(response, request, requestLocale)
+		return
+	case errors.Is(err, webapp.ErrConflict):
+		status = http.StatusConflict
+		message = msg.RevisionConflictMessage
+		if kind == mutationApproval {
+			message = msg.ApprovalConflictMessage
 		}
+	case errors.Is(err, webapp.ErrInvalidRequest):
+		status = http.StatusBadRequest
+		message = msg.InvalidRevisionFormMessage
+		if kind == mutationApproval {
+			message = msg.InvalidApprovalFormMessage
+		}
+	case errors.Is(err, webapp.ErrInvalidRevision):
+		status = http.StatusUnprocessableEntity
+		message = msg.ApprovalInvalidRevisionMessage
 	}
-	render(response, request, http.StatusOK, entryPage(entryPageModel{
-		Page: newPageContext(requestLocale, "/entries/"+url.PathEscape(id)), Detail: detail, Current: current,
-		RunHref: runHref(requestLocale, detail.RunIdentity),
-	}))
+	handler.renderEntryFormError(response, request, requestLocale, id, status, message)
+}
+
+func (handler *Handler) renderEntryFormError(response http.ResponseWriter, request *http.Request, requestLocale locale, id string, status int, message string) {
+	detail, err := handler.repository.GetEntry(request.Context(), id)
+	if errors.Is(err, webapp.ErrNotFound) {
+		handler.notFound(response, request, requestLocale)
+		return
+	}
+	if err != nil {
+		handler.internalError(response, request, requestLocale)
+		return
+	}
+	current := currentCandidate(detail)
+	render(response, request, status, entryPage(newEntryPageModel(requestLocale, id, detail, current, message)))
 }
 
 func (handler *Handler) run(response http.ResponseWriter, request *http.Request, requestLocale locale, escapedID string) {
@@ -302,6 +473,7 @@ func newIndexPageModel(requestLocale locale, filter webapp.EntryFilter, page web
 		Page:          newPageContext(requestLocale, "/"),
 		Upload:        uploadFormModel{Action: importHref(requestLocale)},
 		Search:        searchFormModel{Action: searchHref(requestLocale), ResetHref: localizedPath(requestLocale, "/"), Filter: filter},
+		Export:        exportFormModel{TacklerAction: exportHref(requestLocale, "tackler"), JSONAction: exportHref(requestLocale, "json"), Filter: filter},
 		Entries:       make([]entrySummaryModel, 0, len(page.Entries)),
 		NextCursor:    page.NextCursor,
 		SearchApplied: searchApplied,
@@ -314,6 +486,42 @@ func newIndexPageModel(requestLocale locale, filter webapp.EntryFilter, page web
 		})
 	}
 	return model
+}
+
+func newEntryPageModel(requestLocale locale, id string, detail webapp.EntryDetail, current candidateModel, formError string) entryPageModel {
+	current.Approved = detail.CurrentApproval != nil && detail.CurrentApproval.Revision == current.Revision
+	return entryPageModel{
+		Page:    newPageContext(requestLocale, "/entries/"+url.PathEscape(id)),
+		Detail:  detail,
+		Current: current,
+		RunHref: runHref(requestLocale, detail.RunIdentity),
+		RevisionForm: revisionFormModel{
+			Action:       entryRevisionHref(requestLocale, id),
+			BaseRevision: current.Revision,
+			EntryText:    entryText(current),
+		},
+		ApprovalForm: approvalFormModel{
+			Action:     entryApprovalHref(requestLocale, id),
+			Revision:   current.Revision,
+			CanApprove: current.Valid && !current.Approved,
+		},
+		FormError: formError,
+	}
+}
+
+func currentCandidate(detail webapp.EntryDetail) candidateModel {
+	current := candidateModel{
+		Revision: 0, OccurredAt: detail.OccurredAt, Description: detail.Description,
+		Comments: detail.Comments, Postings: detail.Postings, Valid: true,
+	}
+	if len(detail.Revisions) > 0 {
+		latest := detail.Revisions[len(detail.Revisions)-1]
+		current = candidateModel{
+			Revision: latest.Revision, OccurredAt: latest.OccurredAt, Description: latest.Description,
+			Comments: latest.Comments, Postings: latest.Postings, Valid: latest.Valid,
+		}
+	}
+	return current
 }
 
 func decodeImportUpload(response http.ResponseWriter, request *http.Request) ([]byte, int, bool) {
@@ -419,6 +627,185 @@ func decodeSearchForm(response http.ResponseWriter, request *http.Request) (weba
 		SourceNamespace: form.Get(searchFieldSourceNamespace),
 		SourceDisplay:   form.Get(searchFieldSourceDisplay),
 	}, form.Get(searchFieldCursor), true
+}
+
+func decodeExportForm(response http.ResponseWriter, request *http.Request) (webapp.EntryFilter, bool) {
+	filter, cursor, ok := decodeSearchForm(response, request)
+	return filter, ok && cursor == ""
+}
+
+func decodeRevisionForm(response http.ResponseWriter, request *http.Request) (webapp.RevisionRequest, bool) {
+	form, ok := decodeURLEncodedForm(response, request, maxRevisionFormBody)
+	if !ok {
+		return webapp.RevisionRequest{}, false
+	}
+	if !revisionFormFieldsAllowed(form) {
+		return webapp.RevisionRequest{}, false
+	}
+	baseRevision, err := strconv.Atoi(form.Get(revisionFieldBaseRevision))
+	if err != nil || baseRevision < 0 {
+		return webapp.RevisionRequest{}, false
+	}
+	input, ok := parseEntryText(form.Get(revisionFieldEntry))
+	if !ok {
+		return webapp.RevisionRequest{}, false
+	}
+	input.BaseRevision = &baseRevision
+	return input, true
+}
+
+func decodeApprovalForm(response http.ResponseWriter, request *http.Request) (webapp.ApprovalRequest, bool) {
+	form, ok := decodeURLEncodedForm(response, request, maxRevisionFormBody)
+	if !ok {
+		return webapp.ApprovalRequest{}, false
+	}
+	for key, values := range form {
+		if key != approvalFieldRevision || len(values) > 1 {
+			return webapp.ApprovalRequest{}, false
+		}
+	}
+	revision, err := strconv.Atoi(form.Get(approvalFieldRevision))
+	if err != nil || revision < 0 {
+		return webapp.ApprovalRequest{}, false
+	}
+	return webapp.ApprovalRequest{Revision: &revision}, true
+}
+
+func decodeURLEncodedForm(response http.ResponseWriter, request *http.Request, limit int64) (url.Values, bool) {
+	if request.URL.RawQuery != "" {
+		return nil, false
+	}
+	mediaType, _, err := mime.ParseMediaType(request.Header.Get("Content-Type"))
+	if err != nil || mediaType != "application/x-www-form-urlencoded" {
+		return nil, false
+	}
+	body, err := io.ReadAll(http.MaxBytesReader(response, request.Body, limit))
+	if err != nil {
+		return nil, false
+	}
+	form, err := url.ParseQuery(string(body))
+	if err != nil {
+		return nil, false
+	}
+	for _, values := range form {
+		if len(values) > 1 {
+			return nil, false
+		}
+	}
+	return form, true
+}
+
+func revisionFormFieldsAllowed(form url.Values) bool {
+	for key := range form {
+		switch key {
+		case revisionFieldBaseRevision, revisionFieldEntry:
+			continue
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+func entryText(entry candidateModel) string {
+	lines := []string{entry.OccurredAt + "  '" + entry.Description}
+	for _, comment := range entry.Comments {
+		lines = append(lines, "    ; "+comment)
+	}
+	for _, posting := range entry.Postings {
+		var builder strings.Builder
+		builder.WriteString(posting.Account)
+		if posting.Amount != nil {
+			builder.WriteByte(' ')
+			builder.WriteString(*posting.Amount)
+			builder.WriteByte(' ')
+			builder.WriteString(posting.Commodity)
+		}
+		if posting.Comment != "" {
+			builder.WriteString(" ; ")
+			builder.WriteString(posting.Comment)
+		}
+		lines = append(lines, "    "+builder.String())
+	}
+	return strings.Join(lines, "\n")
+}
+
+func parseEntryText(text string) (webapp.RevisionRequest, bool) {
+	lines := nonEmptyLines(text)
+	if len(lines) < 3 {
+		return webapp.RevisionRequest{}, false
+	}
+	occurredAt, description, ok := parseEntryHeader(lines[0])
+	if !ok {
+		return webapp.RevisionRequest{}, false
+	}
+	input := webapp.RevisionRequest{OccurredAt: occurredAt, Description: description, Comments: []string{}, Postings: []webapp.PostingDetail{}}
+	for _, line := range lines[1:] {
+		if strings.HasPrefix(line, ";") {
+			comment := strings.TrimSpace(strings.TrimPrefix(line, ";"))
+			if comment != "" {
+				input.Comments = append(input.Comments, comment)
+			}
+			continue
+		}
+		posting, ok := parsePostingLine(line)
+		if !ok {
+			return webapp.RevisionRequest{}, false
+		}
+		input.Postings = append(input.Postings, *posting)
+	}
+	return input, len(input.Postings) > 0
+}
+
+func nonEmptyLines(text string) []string {
+	rawLines := strings.Split(strings.ReplaceAll(text, "\r\n", "\n"), "\n")
+	lines := []string{}
+	for _, line := range rawLines {
+		line = strings.TrimSpace(line)
+		if line != "" {
+			lines = append(lines, line)
+		}
+	}
+	return lines
+}
+
+func parseEntryHeader(line string) (string, string, bool) {
+	occurredAt, description, ok := strings.Cut(line, "'")
+	occurredAt = strings.TrimSpace(occurredAt)
+	description = strings.TrimSpace(description)
+	return occurredAt, description, ok && occurredAt != "" && description != ""
+}
+
+func parsePostingLine(line string) (*webapp.PostingDetail, bool) {
+	line = strings.TrimSpace(line)
+	if line == "" {
+		return nil, true
+	}
+	entry, comment, _ := strings.Cut(line, ";")
+	fields := strings.Fields(entry)
+	if len(fields) != 1 && len(fields) < 3 {
+		return nil, false
+	}
+	posting := webapp.PostingDetail{Account: fields[0], Comment: strings.TrimSpace(comment)}
+	if len(fields) >= 3 {
+		amount := fields[1]
+		posting.Amount = &amount
+		posting.Commodity = fields[2]
+		if posting.Comment == "" && len(fields) > 3 {
+			posting.Comment = strings.Join(fields[3:], " ")
+		}
+	}
+	return &posting, true
+}
+
+const (
+	revisionFieldBaseRevision = "base_revision"
+	revisionFieldEntry        = "entry"
+	approvalFieldRevision     = "revision"
+)
+
+func formInt(value int) string {
+	return strconv.Itoa(value)
 }
 
 const (

@@ -6,6 +6,7 @@ type indexPageModel struct {
 	Page          pageContext
 	Upload        uploadFormModel
 	Search        searchFormModel
+	Export        exportFormModel
 	Entries       []entrySummaryModel
 	NextCursor    string
 	SearchApplied bool
@@ -21,6 +22,12 @@ type searchFormModel struct {
 	Filter    webapp.EntryFilter
 }
 
+type exportFormModel struct {
+	TacklerAction string
+	JSONAction    string
+	Filter        webapp.EntryFilter
+}
+
 type entrySummaryModel struct {
 	Href            string
 	OccurredAt      string
@@ -32,10 +39,13 @@ type entrySummaryModel struct {
 }
 
 type entryPageModel struct {
-	Page    pageContext
-	Detail  webapp.EntryDetail
-	Current candidateModel
-	RunHref string
+	Page         pageContext
+	Detail       webapp.EntryDetail
+	Current      candidateModel
+	RunHref      string
+	RevisionForm revisionFormModel
+	ApprovalForm approvalFormModel
+	FormError    string
 }
 
 type candidateModel struct {
@@ -44,6 +54,20 @@ type candidateModel struct {
 	Description string
 	Comments    []string
 	Postings    []webapp.PostingDetail
+	Valid       bool
+	Approved    bool
+}
+
+type revisionFormModel struct {
+	Action       string
+	BaseRevision int
+	EntryText    string
+}
+
+type approvalFormModel struct {
+	Action     string
+	Revision   int
+	CanApprove bool
 }
 
 type runPageModel struct {

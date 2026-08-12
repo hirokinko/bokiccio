@@ -34,12 +34,24 @@ func runHref(l locale, id string) string {
 	return localizedPath(l, "/imports/"+url.PathEscape(id))
 }
 
+func entryRevisionHref(l locale, id string) string {
+	return localizedPath(l, "/ui/entries/"+url.PathEscape(id)+"/revisions")
+}
+
+func entryApprovalHref(l locale, id string) string {
+	return localizedPath(l, "/ui/entries/"+url.PathEscape(id)+"/approvals")
+}
+
 func importHref(l locale) string {
 	return localizedPath(l, "/ui/imports")
 }
 
 func searchHref(l locale) string {
 	return localizedPath(l, "/ui/entries/search")
+}
+
+func exportHref(l locale, format string) string {
+	return localizedPath(l, "/ui/exports/"+url.PathEscape(format))
 }
 
 type pageContext struct {

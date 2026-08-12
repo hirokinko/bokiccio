@@ -142,6 +142,147 @@ func TestLocalizedReadOnlyRoutesPreserveAccountingValues(t *testing.T) {
 	})
 }
 
+func TestUIRevisionAndApprovalForms(t *testing.T) {
+	database := openUIDatabase(t)
+	store := webstore.New(database)
+	result, err := store.Import(context.Background(), []byte(`{"schema_version":1,"records":[{"source":{"namespace":"ui-workflow","display":"fixtures/workflow.json","external_id":"workflow-entry"},"occurred_at":"2026-08-11","description":"Workflow candidate","comments":["original comment"],"postings":[{"account":"費用:確認","amount":"120","commodity":"JPY","comment":"old item"},{"account":"資産:現金"}]}]}`))
+	if err != nil {
+		t.Fatalf("Import() error = %v", err)
+	}
+	run, err := store.GetRun(context.Background(), result.RunIdentity)
+	if err != nil || len(run.Outcomes) != 1 || run.Outcomes[0].EntryID == "" {
+		t.Fatalf("GetRun() error=%v run=%+v", err, run)
+	}
+	entryID := run.Outcomes[0].EntryID
+	handler := webui.NewHandler(store)
+
+	entry := serve(handler, http.MethodGet, "/entries/"+url.PathEscape(entryID))
+	assertHTMLResponse(t, entry, http.StatusOK)
+	assertContainsAll(t, entry.Body.String(), []string{
+		`action="/ui/entries/` + url.PathEscape(entryID) + `/revisions"`,
+		`action="/ui/entries/` + url.PathEscape(entryID) + `/approvals"`,
+		`name="entry"`, `data-tab-inserts-spaces="true"`, "2026-08-11  &#39;Workflow candidate", "    ; original comment",
+		"    費用:確認 120 JPY ; old item", "    資産:現金", "revisionを保存", "承認",
+	})
+
+	revisionForm := url.Values{
+		"base_revision": {"0"},
+		"entry":         {"2026-08-12  'Workflow revised\n; first comment\n; second comment\n費用:確認 150 JPY ; keyboard edited\n資産:現金"},
+	}
+	revision := serveForm(handler, "/ui/entries/"+url.PathEscape(entryID)+"/revisions", revisionForm, nil)
+	if revision.Code != http.StatusSeeOther || revision.Header().Get("Location") != "/entries/"+url.PathEscape(entryID) {
+		t.Fatalf("revision status=%d Location=%q body=%s", revision.Code, revision.Header().Get("Location"), revision.Body.String())
+	}
+	revised := serve(handler, http.MethodGet, revision.Header().Get("Location"))
+	assertHTMLResponse(t, revised, http.StatusOK)
+	assertContainsAll(t, revised.Body.String(), []string{
+		"Current candidate · revision 1", "Workflow revised", "first comment", "second comment",
+		"keyboard edited", "150 JPY", "Revision 1",
+	})
+
+	approval := serveForm(handler, "/ui/entries/"+url.PathEscape(entryID)+"/approvals", url.Values{"revision": {"1"}}, nil)
+	if approval.Code != http.StatusSeeOther || approval.Header().Get("Location") != "/entries/"+url.PathEscape(entryID) {
+		t.Fatalf("approval status=%d Location=%q body=%s", approval.Code, approval.Header().Get("Location"), approval.Body.String())
+	}
+	approved := serve(handler, http.MethodGet, approval.Header().Get("Location"))
+	assertHTMLResponse(t, approved, http.StatusOK)
+	assertContainsAll(t, approved.Body.String(), []string{"Current approval: revision 1", "現在のrevisionは承認済みです。"})
+
+	tacklerExport := serveForm(handler, "/ui/exports/tackler", url.Values{"description": {"Workflow revised"}}, nil)
+	if tacklerExport.Code != http.StatusOK || tacklerExport.Header().Get("Content-Type") != "text/plain; charset=utf-8" ||
+		tacklerExport.Header().Get("Content-Disposition") != `attachment; filename="bokiccio-export.txn"` {
+		t.Fatalf("Tackler export status=%d headers=%v body=%s", tacklerExport.Code, tacklerExport.Header(), tacklerExport.Body.String())
+	}
+	assertContainsAll(t, tacklerExport.Body.String(), []string{"Workflow revised", "150 JPY", "keyboard edited"})
+	assertNotContainsAny(t, tacklerExport.Body.String(), []string{"?description"})
+
+	jsonExport := serveForm(handler, "/en/ui/exports/json", url.Values{"description": {"Workflow revised"}}, nil)
+	if jsonExport.Code != http.StatusOK || jsonExport.Header().Get("Content-Type") != "application/json; charset=utf-8" ||
+		jsonExport.Header().Get("Content-Disposition") != `attachment; filename="bokiccio-export.json"` {
+		t.Fatalf("JSON export status=%d headers=%v body=%s", jsonExport.Code, jsonExport.Header(), jsonExport.Body.String())
+	}
+	assertContainsAll(t, jsonExport.Body.String(), []string{`"schema_version":1`, `"description":"Workflow revised"`, `"revision":1`})
+
+	stale := serveForm(handler, "/ui/entries/"+url.PathEscape(entryID)+"/revisions", url.Values{
+		"base_revision": {"0"}, "entry": {"2026-08-13  'private stale\n費用:確認 1 JPY\n資産:現金"},
+	}, nil)
+	assertHTMLResponse(t, stale, http.StatusConflict)
+	assertContainsAll(t, stale.Body.String(), []string{"操作を完了できませんでした", "仕訳候補が更新されています。"})
+	assertNotContainsAny(t, stale.Body.String(), []string{"private stale", `{"schema_version"`})
+
+	english := serveForm(handler, "/en/ui/entries/"+url.PathEscape(entryID)+"/approvals", url.Values{"revision": {"0"}}, nil)
+	assertHTMLResponse(t, english, http.StatusConflict)
+	assertContainsAll(t, english.Body.String(), []string{`<html lang="en">`, "The operation could not be completed"})
+}
+
+func TestUIApprovalRejectsInvalidRevisionAsHTML(t *testing.T) {
+	database := openUIDatabase(t)
+	store := webstore.New(database)
+	result, err := store.Import(context.Background(), []byte(`{"schema_version":1,"records":[{"source":{"namespace":"ui-invalid","display":"fixtures/invalid.json","external_id":"invalid-entry"},"occurred_at":"2026-08-11","description":"Invalid workflow candidate","postings":[{"account":"費用:確認","amount":"120","commodity":"JPY"},{"account":"資産:現金"}]}]}`))
+	if err != nil {
+		t.Fatalf("Import() error = %v", err)
+	}
+	run, err := store.GetRun(context.Background(), result.RunIdentity)
+	if err != nil || len(run.Outcomes) != 1 || run.Outcomes[0].EntryID == "" {
+		t.Fatalf("GetRun() error=%v run=%+v", err, run)
+	}
+	entryID := run.Outcomes[0].EntryID
+	handler := webui.NewHandler(store)
+
+	invalid := serveForm(handler, "/ui/entries/"+url.PathEscape(entryID)+"/revisions", url.Values{
+		"base_revision": {"0"}, "entry": {"2026-08-12  'Invalid revision\n費用:確認 10 JPY\n資産:現金 5 JPY"},
+	}, nil)
+	if invalid.Code != http.StatusSeeOther {
+		t.Fatalf("invalid revision save status=%d body=%s", invalid.Code, invalid.Body.String())
+	}
+	page := serve(handler, http.MethodGet, invalid.Header().Get("Location"))
+	assertHTMLResponse(t, page, http.StatusOK)
+	assertContainsAll(t, page.Body.String(), []string{"Revision 1", "valid: false", "現在のrevisionはvalidation errorがあるため承認できません。"})
+
+	approval := serveForm(handler, "/ui/entries/"+url.PathEscape(entryID)+"/approvals", url.Values{"revision": {"1"}}, nil)
+	assertHTMLResponse(t, approval, http.StatusUnprocessableEntity)
+	assertContainsAll(t, approval.Body.String(), []string{"validation errorがあるrevisionは承認できません。"})
+	assertNotContainsAny(t, approval.Body.String(), []string{`{"schema_version"`})
+}
+
+func TestUIRevisionFormsRejectInvalidInputPrivately(t *testing.T) {
+	database := openUIDatabase(t)
+	store := webstore.New(database)
+	result, err := store.Import(context.Background(), []byte(`{"schema_version":1,"records":[{"source":{"namespace":"ui-private","display":"fixtures/private.json","external_id":"private-entry"},"occurred_at":"2026-08-11","description":"Private candidate","postings":[{"account":"費用:確認","amount":"120","commodity":"JPY"},{"account":"資産:現金"}]}]}`))
+	if err != nil {
+		t.Fatalf("Import() error = %v", err)
+	}
+	run, err := store.GetRun(context.Background(), result.RunIdentity)
+	if err != nil || len(run.Outcomes) != 1 || run.Outcomes[0].EntryID == "" {
+		t.Fatalf("GetRun() error=%v run=%+v", err, run)
+	}
+	entryID := run.Outcomes[0].EntryID
+	handler := webui.NewHandler(store)
+
+	for _, test := range []struct {
+		name        string
+		path        string
+		contentType string
+		body        string
+	}{
+		{name: "wrong media", path: "/ui/entries/" + url.PathEscape(entryID) + "/revisions", contentType: "text/plain", body: "description=private-value"},
+		{name: "unknown field", path: "/ui/entries/" + url.PathEscape(entryID) + "/revisions", contentType: "application/x-www-form-urlencoded", body: "base_revision=0&entry=a&unknown=private-value"},
+		{name: "query string", path: "/ui/entries/" + url.PathEscape(entryID) + "/approvals?revision=private-value", contentType: "application/x-www-form-urlencoded", body: "revision=0"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			response := serveRawForm(handler, test.path, test.contentType, test.body, nil)
+			assertHTMLResponse(t, response, http.StatusBadRequest)
+			assertNotContainsAny(t, response.Body.String(), []string{"private-value", "unknown", `{"schema_version"`})
+		})
+	}
+
+	method := serve(webui.NewHandler(nil), http.MethodGet, "/ui/entries/"+url.PathEscape(entryID)+"/revisions")
+	assertHTMLResponse(t, method, http.StatusMethodNotAllowed)
+	if method.Header().Get("Allow") != "POST" {
+		t.Fatalf("Allow = %q", method.Header().Get("Allow"))
+	}
+}
+
 func TestLocalizedEmptyAndErrorRoutes(t *testing.T) {
 	handler := webui.NewHandler(webstore.New(openUIDatabase(t)))
 
@@ -364,6 +505,10 @@ func TestEmbeddedAssetsArePinnedAndPrivate(t *testing.T) {
 	css := serve(handler, http.MethodGet, "/assets/app.css")
 	if css.Code != http.StatusOK || css.Body.Len() == 0 || css.Header().Get("Content-Type") != "text/css; charset=utf-8" {
 		t.Fatalf("CSS status=%d bytes=%d content-type=%q", css.Code, css.Body.Len(), css.Header().Get("Content-Type"))
+	}
+	app := serve(handler, http.MethodGet, "/assets/app.js")
+	if app.Code != http.StatusOK || !strings.Contains(app.Body.String(), "tabInsertsSpaces") || app.Header().Get("Content-Type") != "text/javascript; charset=utf-8" {
+		t.Fatalf("app.js status=%d content-type=%q body=%s", app.Code, app.Header().Get("Content-Type"), app.Body.String())
 	}
 }
 

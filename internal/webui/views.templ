@@ -9,6 +9,7 @@ templ documentHead(title string) {
 		<title>{ title } · Bokiccio</title>
 		<link rel="stylesheet" href="/assets/app.css"/>
 		<script src="/assets/htmx-2.0.10.min.js" defer></script>
+		<script src="/assets/app.js" defer></script>
 	</head>
 }
 
@@ -117,6 +118,16 @@ templ entryResults(model indexPageModel) {
 			<h2>{ model.Page.Messages.SearchResultsLabel }</h2>
 			<p>{ model.Page.Messages.EntriesShown(len(model.Entries)) }</p>
 		</header>
+		<div class="export-actions" aria-label={ model.Page.Messages.ExportHeading }>
+			<form method="post" action={ model.Export.TacklerAction }>
+				@exportHiddenFields(model.Export)
+				<button type="submit">{ model.Page.Messages.ExportTackler }</button>
+			</form>
+			<form method="post" action={ model.Export.JSONAction }>
+				@exportHiddenFields(model.Export)
+				<button type="submit">{ model.Page.Messages.ExportJSON }</button>
+			</form>
+		</div>
 		if len(model.Entries) == 0 {
 			<section class="empty-state" aria-labelledby="empty-heading">
 				if model.SearchApplied {
@@ -166,6 +177,17 @@ templ searchHiddenFields(search searchFormModel) {
 	<input type="hidden" name="source_display" value={ search.Filter.SourceDisplay }/>
 }
 
+templ exportHiddenFields(export exportFormModel) {
+	<input type="hidden" name="date_from" value={ export.Filter.DateFrom }/>
+	<input type="hidden" name="date_to" value={ export.Filter.DateTo }/>
+	<input type="hidden" name="account" value={ export.Filter.Account }/>
+	<input type="hidden" name="description" value={ export.Filter.Description }/>
+	<input type="hidden" name="status" value={ export.Filter.Status }/>
+	<input type="hidden" name="workflow_status" value={ export.Filter.WorkflowStatus }/>
+	<input type="hidden" name="source_namespace" value={ export.Filter.SourceNamespace }/>
+	<input type="hidden" name="source_display" value={ export.Filter.SourceDisplay }/>
+}
+
 templ entryPage(model entryPageModel) {
 	<!DOCTYPE html>
 	<html lang={ model.Page.Locale.lang() }>
@@ -188,6 +210,31 @@ templ entryPage(model entryPageModel) {
 					<h2 id="candidate-heading">{ model.Page.Messages.CurrentCandidateHeading }</h2>
 					@postingTable(model.Page.Messages, model.Current.Postings)
 					@commentList(model.Current.Comments)
+				</section>
+				@entryFormError(model)
+				<section aria-labelledby="edit-heading">
+					<h2 id="edit-heading">{ model.Page.Messages.EditCandidateHeading }</h2>
+					<form class="revision-form" method="post" action={ model.RevisionForm.Action } aria-label={ model.Page.Messages.EditCandidateFormLabel }>
+						<input type="hidden" name="base_revision" value={ formInt(model.RevisionForm.BaseRevision) }/>
+						<label class="stacked-field">{ model.Page.Messages.EntryTextLabel }
+							<textarea class="entry-textarea" name="entry" rows="10" spellcheck="false" data-tab-inserts-spaces="true" required>{ model.RevisionForm.EntryText }</textarea>
+							<span class="field-help">{ model.Page.Messages.EntryTextHelp }</span>
+						</label>
+						<div class="form-actions"><button type="submit">{ model.Page.Messages.SaveRevision }</button></div>
+					</form>
+				</section>
+				<section aria-labelledby="approval-heading">
+					<h2 id="approval-heading">{ model.Page.Messages.ApproveCandidateHeading }</h2>
+					if model.ApprovalForm.CanApprove {
+						<form method="post" action={ model.ApprovalForm.Action } aria-label={ model.Page.Messages.ApproveCandidateFormLabel }>
+							<input type="hidden" name="revision" value={ formInt(model.ApprovalForm.Revision) }/>
+							<button type="submit">{ model.Page.Messages.ApproveRevision }</button>
+						</form>
+					} else if model.Current.Approved {
+						<p class="muted">{ model.Page.Messages.AlreadyApproved }</p>
+					} else {
+						<p class="muted">{ model.Page.Messages.CannotApproveInvalid }</p>
+					}
 				</section>
 				<section aria-labelledby="original-heading">
 					<h2 id="original-heading">{ model.Page.Messages.OriginalSnapshotHeading }</h2>
@@ -290,6 +337,15 @@ templ commentList(items []string) {
 				<li>{ comment }</li>
 			}
 		</ul>
+	}
+}
+
+templ entryFormError(model entryPageModel) {
+	if model.FormError != "" {
+		<section class="form-error" aria-labelledby="form-error-heading" role="alert">
+			<h2 id="form-error-heading">{ model.Page.Messages.FormErrorTitle }</h2>
+			<p>{ model.FormError }</p>
+		</section>
 	}
 }
 
