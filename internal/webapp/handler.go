@@ -213,6 +213,11 @@ func (handler *Handler) exportJSON(response http.ResponseWriter, request *http.R
 				detail.Amount = &amount
 				detail.Commodity = string(posting.Amount.Commodity)
 			}
+			if posting.TotalPrice != nil {
+				detail.TotalPrice = &AmountDetail{
+					Amount: posting.TotalPrice.Value.String(), Commodity: string(posting.TotalPrice.Commodity),
+				}
+			}
 			entry.Postings = append(entry.Postings, detail)
 		}
 		exported.Entries = append(exported.Entries, entry)

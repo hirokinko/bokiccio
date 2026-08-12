@@ -13,8 +13,9 @@ Bokiccio（ボキッチョ）は、複数の明細・メール・レシートか
 - `JournalEntry`、`Posting`、`Amount`、`Commodity`による仕訳モデル
 - 96-bit係数、scale 0〜28の10進固定小数点
 - 単一commodity仕訳の検証と正確な貸借集計
+- posting数量と総額を分けた複数commodity換算の検証と貸借集計
 - 最終postingの金額省略と残額推論
-- 決定的なTackler互換subset出力
+- 決定的なTackler互換subset入出力
 - source、WARN、割引などの単一行コメント
 - version付き正規化JSONからの仕訳候補decodeとstable identity生成
 - record単位のsuccess・warning・error・duplicate処理結果
@@ -50,12 +51,12 @@ internal/ledger
   └─ validation and balance inference
 
 internal/tacklerfmt
-  ├─ Tackler-compatible subset exporter
+  ├─ Tackler-compatible subset parser and exporter
   ├─ golden tests
   └─ compatibility fixtures and integration test
 
 internal/ingest
-  ├─ normalized input v1 decoder
+  ├─ normalized input v1/v2 decoder
   ├─ application candidate values
   ├─ source-based identity and accounting fingerprint
   ├─ record processor, outcome, and structured diagnostic
@@ -79,7 +80,7 @@ internal/webui
   └─ 同梱したCSS、htmx asset、development-only Biome設定
 ```
 
-正規化入力のfieldとidentity規約は[normalized input v1 contract](internal/ingest/CONTRACT.md)、outcomeとdiagnosticの規約は[record processing contract](internal/ingest/PROCESSING.md)、report・state・公開手順は[run artifact and publication contract](internal/ingest/RUNS.md)にまとめています。
+正規化入力のfieldとidentity規約は[normalized input v1/v2 contract](internal/ingest/CONTRACT.md)、outcomeとdiagnosticの規約は[record processing contract](internal/ingest/PROCESSING.md)、report・state・公開手順は[run artifact and publication contract](internal/ingest/RUNS.md)にまとめています。
 
 ## 開発と検証
 
@@ -113,7 +114,7 @@ go test -tags=tackler_integration ./internal/tacklerfmt
 
 ## ローカルimport
 
-version 1の正規化JSONを、明示したoutput rootへ安全に取り込みます。
+version 1または2の正規化JSONを、明示したoutput rootへ安全に取り込みます。
 
 ```sh
 go run ./cmd/bokiccio import \
@@ -125,7 +126,7 @@ go run ./cmd/bokiccio import \
 
 終了codeは、error outcomeなしが`0`、runが完了してreportを公開したもののrecord単位のerrorが残る場合が`1`、usage・schema・I/Oなどrun全体の失敗が`2`です。処理件数と相対bundle pathはstderrへ要約されます。
 
-入力formatは[normalized input v1 contract](internal/ingest/CONTRACT.md)、出力配置と再実行規約は[run artifact and publication contract](internal/ingest/RUNS.md)を参照してください。
+入力formatは[normalized input v1/v2 contract](internal/ingest/CONTRACT.md)、出力配置と再実行規約は[run artifact and publication contract](internal/ingest/RUNS.md)を参照してください。
 
 ## Turso migrationとproduction server
 
@@ -187,14 +188,13 @@ comma-separatedで設定します。shellや`gcloud --update-env-vars`ではcomm
 
 ## Tackler互換subset
 
-exporterは日付、timezone付きRFC 3339日時、摘要、取引・postingコメント、勘定科目、固定小数点金額、明示commodity、最終postingの金額省略を扱います。timezoneなしの日時、transaction code、metadata、価格・原価、commodity換算などは対象外です。
+parserとexporterは日付、timezone付きRFC 3339日時、摘要、取引・postingコメント、勘定科目、固定小数点金額、明示commodity、`=`によるtotal-price value position、最終postingの金額省略を扱います。timezoneなしの日時、transaction code、metadata、`@`によるunit price、opening position、原価、price database directiveなどは対象外です。
 
 対応構文、固定version、fixture構成の詳細は[互換性契約](internal/tacklerfmt/COMPATIBILITY.md)を参照してください。
 
 ## 現在の非対応範囲
 
-- Tackler journal parser
-- Web UIからのTackler journal upload、テナント管理
+- テナント管理
 - production deployment manifestと自動migration
 - Gmail、Google Drive、Cloud Vision、Vertex AIとの連携
 - 定期batchとjob管理

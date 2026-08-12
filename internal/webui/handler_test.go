@@ -347,7 +347,7 @@ func TestUITacklerImportUploadRedirectsToRunPage(t *testing.T) {
 	database := openUIDatabase(t)
 	store := webstore.New(database)
 	handler := webui.NewHandler(store)
-	input := []byte("2026-08-12T07:30:00+09:00  'Txn uploaded candidate\n    ; source note\n    費用:取込 1200 JPY ; imported item\n    資産:現金\n")
+	input := []byte("2026-08-12T07:30:00+09:00  'Txn uploaded candidate\n    ; source note\n    資産:投資信託 350 口 = 675 JPY ; imported item\n    資産:購入予定\n")
 
 	index := serve(handler, http.MethodGet, "/")
 	assertHTMLResponse(t, index, http.StatusOK)
@@ -367,6 +367,33 @@ func TestUITacklerImportUploadRedirectsToRunPage(t *testing.T) {
 	assertHTMLResponse(t, runPage, http.StatusOK)
 	assertContainsAll(t, runPage.Body.String(), []string{"取込結果", "tackler: uploaded.txn", "完了", "/entries/"})
 	assertNotContainsAny(t, runPage.Body.String(), []string{"private-upload.txn"})
+	run, err := store.GetRun(context.Background(), strings.TrimPrefix(location, "/imports/"))
+	if err != nil || len(run.Outcomes) != 1 || run.Outcomes[0].EntryID == "" {
+		t.Fatalf("GetRun() error=%v run=%+v", err, run)
+	}
+	entryHref := "/entries/" + url.PathEscape(run.Outcomes[0].EntryID)
+	entryPage := serve(handler, http.MethodGet, entryHref)
+	assertHTMLResponse(t, entryPage, http.StatusOK)
+	assertContainsAll(t, entryPage.Body.String(), []string{"350", "口", "675", "JPY", " = 675 JPY"})
+	revisionText := "2026-08-13  'Txn revised candidate\n    資産:投資信託 351 口 = 676 JPY ; revised item\n    資産:購入予定"
+	revision := serveForm(handler, "/ui/entries/"+url.PathEscape(run.Outcomes[0].EntryID)+"/revisions", url.Values{
+		"base_revision": {"0"}, "entry": {revisionText},
+	}, nil)
+	if revision.Code != http.StatusSeeOther {
+		t.Fatalf("revision status=%d body=%s", revision.Code, revision.Body.String())
+	}
+	revisedPage := serve(handler, http.MethodGet, revision.Header().Get("Location"))
+	assertHTMLResponse(t, revisedPage, http.StatusOK)
+	assertContainsAll(t, revisedPage.Body.String(), []string{"351", "口", "676", "JPY", " = 676 JPY", "revision 1"})
+	approval := serveForm(handler, "/ui/entries/"+url.PathEscape(run.Outcomes[0].EntryID)+"/approvals", url.Values{"revision": {"1"}}, nil)
+	if approval.Code != http.StatusSeeOther {
+		t.Fatalf("approval status=%d body=%s", approval.Code, approval.Body.String())
+	}
+	exported := serveForm(handler, "/ui/exports/tackler", url.Values{"description": {"Txn revised candidate"}}, nil)
+	if exported.Code != http.StatusOK {
+		t.Fatalf("export status=%d body=%s", exported.Code, exported.Body.String())
+	}
+	assertContainsAll(t, exported.Body.String(), []string{"351 口 = 676 JPY", "revised item"})
 
 	duplicate := serveUpload(handler, "/en/ui/imports/tackler", "private-upload-again.txn", input)
 	if duplicate.Code != http.StatusSeeOther || !strings.HasPrefix(duplicate.Header().Get("Location"), "/en/imports/") {

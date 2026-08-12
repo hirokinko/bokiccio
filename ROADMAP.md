@@ -10,6 +10,7 @@ Bokiccioは、さまざまな取引記録を検証可能な仕訳へ変換し、
 
 - 正確な固定小数点金額とcommodityを持つ仕訳model
 - 貸借、勘定科目、コメント、金額省略のvalidation
+- posting数量と`=`総額指定を分けて保持する複数commodity換算
 - 入力順とsource・WARNなどのmetadataを保つ決定的なexport
 - Tackler journal format互換subsetへの出力
 - Tackler 26.1.2以降に対する自動互換性test
@@ -31,6 +32,7 @@ normalized import、Turso Cloud永続化、取込結果・仕訳候補のJSON AP
 - 取込履歴、処理状態、sourceの表示
 - Web UIからのnormalized JSON upload
 - Web UIからのTackler互換subset `.txn` upload
+- Tackler `.txn`の`=` total-price value positionの取込・編集・再出力
 - 日本語・英語のserver-rendered閲覧画面
 - signed IAP JWTとowner identityを検証するproduction server
 - APIによる仕訳候補の修正・承認

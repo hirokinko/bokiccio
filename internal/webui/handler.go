@@ -272,6 +272,11 @@ func (handler *Handler) exportJSON(response http.ResponseWriter, approved []weba
 				detail.Amount = &amount
 				detail.Commodity = string(posting.Amount.Commodity)
 			}
+			if posting.TotalPrice != nil {
+				detail.TotalPrice = &webapp.AmountDetail{
+					Amount: posting.TotalPrice.Value.String(), Commodity: string(posting.TotalPrice.Commodity),
+				}
+			}
 			entry.Postings = append(entry.Postings, detail)
 		}
 		exported.Entries = append(exported.Entries, entry)
@@ -769,6 +774,12 @@ func entryText(entry candidateModel) string {
 			builder.WriteByte(' ')
 			builder.WriteString(posting.Commodity)
 		}
+		if posting.TotalPrice != nil {
+			builder.WriteString(" = ")
+			builder.WriteString(posting.TotalPrice.Amount)
+			builder.WriteByte(' ')
+			builder.WriteString(posting.TotalPrice.Commodity)
+		}
 		if posting.Comment != "" {
 			builder.WriteString(" ; ")
 			builder.WriteString(posting.Comment)
@@ -797,13 +808,18 @@ func parseEntryText(text string) (webapp.RevisionRequest, bool) {
 			detail.Amount = &amount
 			detail.Commodity = string(posting.Amount.Commodity)
 		}
+		if posting.TotalPrice != nil {
+			detail.TotalPrice = &webapp.AmountDetail{
+				Amount: posting.TotalPrice.Value.String(), Commodity: string(posting.TotalPrice.Commodity),
+			}
+		}
 		input.Postings = append(input.Postings, detail)
 	}
 	return input, true
 }
 
 func normalizedInputForTacklerEntries(entries []ledger.JournalEntry) ([]byte, error) {
-	batch := normalizedBatch{SchemaVersion: 1, Records: make([]normalizedRecord, 0, len(entries))}
+	batch := normalizedBatch{SchemaVersion: ingest.SchemaVersion, Records: make([]normalizedRecord, 0, len(entries))}
 	for index, entry := range entries {
 		record := normalizedRecord{
 			Source: normalizedSource{
@@ -821,6 +837,11 @@ func normalizedInputForTacklerEntries(entries []ledger.JournalEntry) ([]byte, er
 			if posting.Amount != nil {
 				detail.Amount = posting.Amount.Value.String()
 				detail.Commodity = string(posting.Amount.Commodity)
+			}
+			if posting.TotalPrice != nil {
+				detail.TotalPrice = &normalizedAmount{
+					Amount: posting.TotalPrice.Value.String(), Commodity: string(posting.TotalPrice.Commodity),
+				}
 			}
 			record.Postings = append(record.Postings, detail)
 		}
@@ -892,10 +913,16 @@ type normalizedSource struct {
 }
 
 type normalizedPosting struct {
-	Account   string `json:"account"`
-	Amount    string `json:"amount,omitempty"`
-	Commodity string `json:"commodity,omitempty"`
-	Comment   string `json:"comment,omitempty"`
+	Account    string            `json:"account"`
+	Amount     string            `json:"amount,omitempty"`
+	Commodity  string            `json:"commodity,omitempty"`
+	TotalPrice *normalizedAmount `json:"total_price,omitempty"`
+	Comment    string            `json:"comment,omitempty"`
+}
+
+type normalizedAmount struct {
+	Amount    string `json:"amount"`
+	Commodity string `json:"commodity"`
 }
 
 func searchFormFieldAllowed(key string) bool {

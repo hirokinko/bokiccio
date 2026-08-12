@@ -6,7 +6,8 @@ Cloud and an IAP-protected server command.
 
 ## Routes
 
-- `POST /api/v1/imports` accepts normalized input v1 as `application/json`.
+- `POST /api/v1/imports` accepts normalized input v1 or v2 as
+  `application/json`.
   The body limit is 10 MiB. A committed run returns `201 Created`, including
   runs with record-level errors.
 - `GET /api/v1/imports/{run-identity}` returns ordered outcomes, source
@@ -32,7 +33,8 @@ Cloud and an IAP-protected server command.
 
 Every JSON response carries `schema_version: 1`. Amounts are decimal strings
 rather than JSON numbers. An omitted posting amount omits both `amount` and
-`commodity`.
+`commodity`. A posting with a total price includes a nested `total_price`
+object with decimal-string `amount` and `commodity`.
 
 Entry filters are combined with AND. Date bounds are inclusive and compare the
 recorded local date. Account matching includes the exact account and its
@@ -55,7 +57,7 @@ values, SQL details, paths, and credentials are not reflected in error bodies.
 
 ## Storage
 
-`webstore` uses `database/sql` and schema version `2`. A single import commits
+`webstore` uses `database/sql` and schema version `3`. A single import commits
 the run, outcomes, diagnostics, entries, postings, accepted identities, and
 workflow generation in one transaction. Decimal text and scale, date versus
 timestamp precision, comment order, and posting omission are preserved.
@@ -64,7 +66,8 @@ Schema v2 adds immutable entry snapshots and append-only approval events while
 leaving the original v1 entry rows unchanged. Revision creation reruns ledger
 domain validation and records its diagnostics. Entry detail reports the latest
 revision and reports a current approval only when that latest revision has been
-approved.
+approved. Schema v3 adds optional total-price columns to original and revision
+postings while preserving posting quantities separately.
 
 The local test driver is the official CGO-free `tursogo` driver. Production
 uses `libsql-client-go` through `database/sql`; its connector receives the

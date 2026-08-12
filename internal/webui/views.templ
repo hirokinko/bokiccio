@@ -329,7 +329,11 @@ templ postingTable(msg messages, items []webapp.PostingDetail) {
 		for _, posting := range items {
 			<tr><td>{ posting.Account }</td><td>
 				if posting.Amount != nil {
-					<span>{ *posting.Amount } { posting.Commodity }</span>
+					<span>{ *posting.Amount } { posting.Commodity }
+						if posting.TotalPrice != nil {
+							= { posting.TotalPrice.Amount } { posting.TotalPrice.Commodity }
+						}
+					</span>
 				} else {
 					<span class="muted">{ msg.OmittedAmount }</span>
 				}
