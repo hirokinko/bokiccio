@@ -18,6 +18,7 @@ var (
 	ErrInvalidPeriod        = errors.New("invalid reporting period")
 	ErrInvalidEntry         = errors.New("invalid reporting entry")
 	ErrAmountOverflow       = errors.New("reporting amount exceeds decimal range")
+	ErrOpeningUnbalanced    = errors.New("reporting opening balance is unbalanced")
 )
 
 type ConfigurationErrorCode string
@@ -121,6 +122,7 @@ type Warning struct {
 	Commodity string `json:"commodity"`
 	Balance   string `json:"balance,omitempty"`
 	Side      string `json:"side,omitempty"`
+	PeriodEnd string `json:"period_end,omitempty"`
 }
 
 type Balance struct {
@@ -268,6 +270,14 @@ func BuildTrialBalance(configuration Configuration, entries []Entry, selected Pe
 		return TrialBalance{}, err
 	}
 	classifier := newClassifier(configuration.Classifications)
+	opening, err := buildFiscalOpening(years, targetIndex, validated, entries, classifier)
+	if err != nil {
+		return TrialBalance{}, err
+	}
+	return buildSelected(configuration.Revision, period, opening, entries, years[targetIndex].OpeningEntryIDs, classifier)
+}
+
+func buildFiscalOpening(years []FiscalYear, targetIndex int, validated map[string]Entry, entries []Entry, classifier classifier) (amountMap, error) {
 	opening := amountMap{}
 	for index := 0; index <= targetIndex; index++ {
 		year := years[index]
@@ -276,10 +286,10 @@ func BuildTrialBalance(configuration Configuration, entries []Entry, selected Pe
 			for _, id := range year.OpeningEntryIDs {
 				entry, found := validated[id]
 				if !found || entry.Entry.Date.String()[:10] != year.StartDate {
-					return TrialBalance{}, ErrInvalidConfiguration
+					return nil, ErrInvalidConfiguration
 				}
 				if err := opening.addEntry(entry.Entry, classifier, true); err != nil {
-					return TrialBalance{}, err
+					return nil, err
 				}
 			}
 		} else if index == 0 {
@@ -287,16 +297,13 @@ func BuildTrialBalance(configuration Configuration, entries []Entry, selected Pe
 		} else {
 			opening = opening.permanentOnly()
 		}
-
 		if index < targetIndex {
 			if err := addMovements(opening, entries, year.StartDate, year.EndDate, year.OpeningEntryIDs, classifier); err != nil {
-				return TrialBalance{}, err
+				return nil, err
 			}
-			continue
 		}
-		return buildSelected(configuration.Revision, period, opening, entries, year.OpeningEntryIDs, classifier)
 	}
-	return TrialBalance{}, ErrInvalidPeriod
+	return opening, nil
 }
 
 func validCategory(category Category) bool {
