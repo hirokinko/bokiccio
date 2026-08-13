@@ -133,8 +133,12 @@ type messages struct {
 	ReportingClassifications                   string
 	ReportingClassificationHelp                string
 	ReportingCategoryLabel                     string
+	ReportingAddClassification                 string
+	ReportingRemoveClassification              string
 	ReportingFiscalYears                       string
 	ReportingFiscalYearHelp                    string
+	ReportingAddFiscalYear                     string
+	ReportingRemoveFiscalYear                  string
 	ReportingStartDateLabel                    string
 	ReportingEndDateLabel                      string
 	ReportingOpeningModeLabel                  string
@@ -179,6 +183,7 @@ type messages struct {
 	TrialBalanceClosingDebit                   string
 	TrialBalanceClosingCredit                  string
 	TrialBalanceWarnings                       string
+	TrialBalanceTableHelp                      string
 	CategoryAsset                              string
 	CategoryLiability                          string
 	CategoryEquity                             string
@@ -349,6 +354,10 @@ func japaneseMessages() messages {
 		ReportingOpeningEntries:                    "期首仕訳",
 		ReportingOpeningEntryIDs:                   "期首仕訳ID",
 		ReportingOpeningEntryIDsHelp:               "1行に1つ指定します。自動繰越中も指定は保持され、年度内の発生額から除外されます。",
+		ReportingAddClassification:                 "勘定科目の分類を追加",
+		ReportingRemoveClassification:              "この分類を削除",
+		ReportingAddFiscalYear:                     "会計年度を追加",
+		ReportingRemoveFiscalYear:                  "この会計年度を削除",
 		ReportingSave:                              "設定revisionを保存",
 		ReportingUnclassifiedHeading:               "未分類の勘定科目",
 		ReportingUnclassifiedNone:                  "設定済み年度の承認済み仕訳に未分類科目はありません。",
@@ -386,6 +395,7 @@ func japaneseMessages() messages {
 		TrialBalanceClosingDebit:                   "期末借方",
 		TrialBalanceClosingCredit:                  "期末貸方",
 		TrialBalanceWarnings:                       "Warning",
+		TrialBalanceTableHelp:                      "各科目の金額は配下を含む小計です。直接計上額が小計と異なる場合だけ、次の補助行に表示します。",
 		CategoryAsset:                              "資産",
 		CategoryLiability:                          "負債",
 		CategoryEquity:                             "純資産",
@@ -558,8 +568,12 @@ func englishMessages() messages {
 		ReportingClassifications:                   "Account classifications",
 		ReportingClassificationHelp:                "A parent classification applies to descendants. Blank rows are not saved.",
 		ReportingCategoryLabel:                     "Category",
+		ReportingAddClassification:                 "Add account classification",
+		ReportingRemoveClassification:              "Remove this classification",
 		ReportingFiscalYears:                       "Fiscal years and opening balances",
 		ReportingFiscalYearHelp:                    "Enter each fiscal year as a continuous 12-month date range. Blank rows are not saved.",
+		ReportingAddFiscalYear:                     "Add fiscal year",
+		ReportingRemoveFiscalYear:                  "Remove this fiscal year",
 		ReportingStartDateLabel:                    "Start date",
 		ReportingEndDateLabel:                      "End date",
 		ReportingOpeningModeLabel:                  "Opening-balance mode",
@@ -604,6 +618,7 @@ func englishMessages() messages {
 		TrialBalanceClosingDebit:                   "Closing debit",
 		TrialBalanceClosingCredit:                  "Closing credit",
 		TrialBalanceWarnings:                       "Warning",
+		TrialBalanceTableHelp:                      "Account amounts are subtotals including descendants. A detail row appears only when the direct amount differs from the subtotal.",
 		CategoryAsset:                              "Asset",
 		CategoryLiability:                          "Liability",
 		CategoryEquity:                             "Equity",

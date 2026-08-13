@@ -798,12 +798,12 @@ func newReportingSettingsPageModel(requestLocale locale, detail *webapp.Reportin
 			})
 		}
 	}
-	for range 2 {
+	if detail == nil {
 		model.Form.Classifications = append(model.Form.Classifications,
 			webapp.ReportingClassification{Category: reporting.CategoryAsset})
+		model.Form.FiscalYears = append(model.Form.FiscalYears,
+			reportingFiscalYearFormModel{OpeningMode: reporting.OpeningAutomatic})
 	}
-	model.Form.FiscalYears = append(model.Form.FiscalYears,
-		reportingFiscalYearFormModel{OpeningMode: reporting.OpeningAutomatic})
 	return model
 }
 

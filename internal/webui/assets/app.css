@@ -364,7 +364,8 @@ td {
 	border-radius: 0.4rem;
 }
 .classification-row {
-	grid-template-columns: minmax(0, 2fr) minmax(10rem, 1fr);
+	grid-template-columns: minmax(0, 2fr) minmax(10rem, 1fr) auto;
+	align-items: end;
 }
 .fiscal-year-row {
 	grid-template-columns: repeat(3, minmax(9rem, 1fr));
@@ -394,6 +395,21 @@ td {
 .opening-entry-field {
 	grid-column: 1 / -1;
 }
+.add-row-button {
+	margin-top: 0.75rem;
+}
+.secondary-button,
+.remove-row-button {
+	border: 1px solid #215c42;
+	background: transparent;
+	color: #215c42;
+}
+.remove-row-button {
+	align-self: end;
+	justify-self: start;
+	border-color: #a45332;
+	color: #7a3b24;
+}
 .warning-note {
 	padding: 0.8rem 1rem;
 	border-left: 0.25rem solid #c66b2b;
@@ -412,17 +428,47 @@ td {
 	flex: 1;
 }
 .trial-balance-table {
-	min-width: 92rem;
+	min-width: 58rem;
 	font-variant-numeric: tabular-nums;
 }
-.trial-balance-table td:not(:last-child),
+.trial-balance-table td,
 .trial-balance-table thead th:not(:first-child) {
 	text-align: right;
+}
+.trial-balance-table th:first-child {
+	position: sticky;
+	left: 0;
+	z-index: 1;
+	min-width: 14rem;
+	background: #fff;
+}
+.trial-balance-table thead th:first-child {
+	z-index: 2;
 }
 .trial-balance-table .category-row,
 .trial-balance-table tfoot {
 	background: #f4f2ec;
 	font-weight: 700;
+}
+.trial-balance-table .category-row th:first-child,
+.trial-balance-table tfoot th:first-child {
+	background: #f4f2ec;
+}
+.direct-detail-row {
+	color: #667066;
+	font-size: 0.85rem;
+}
+.direct-detail-row th:first-child {
+	padding-left: 2rem;
+	background: #faf9f6;
+}
+.direct-detail-row td {
+	background: #faf9f6;
+}
+.table-help {
+	max-width: 50rem;
+	color: #667066;
+	font-size: 0.9rem;
 }
 .warning-code {
 	display: block;

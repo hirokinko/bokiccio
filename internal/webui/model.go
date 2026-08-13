@@ -169,3 +169,7 @@ func reportingCategoryOptions(msg messages) []reportingCategoryOption {
 func accountLabel(row reporting.AccountRow) string {
 	return strings.Repeat("— ", row.Depth) + row.Label
 }
+
+func hasDistinctDirectAmounts(row reporting.AccountRow) bool {
+	return row.Direct != row.Subtotal
+}

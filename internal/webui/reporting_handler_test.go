@@ -39,7 +39,36 @@ func TestReportingSettingsUIJapaneseAndEnglish(t *testing.T) {
 	}
 	page := serve(handler, http.MethodGet, created.Header().Get("Location"))
 	assertHTMLResponse(t, page, http.StatusOK)
-	assertContainsAll(t, page.Body.String(), []string{"Current revision: 1", `value="Assets"`, `value="2025-04-01"`})
+	body := page.Body.String()
+	assertContainsAll(t, body, []string{
+		"Current revision: 1", `value="Assets"`, `value="2025-04-01"`,
+		"勘定科目の分類を追加", "会計年度を追加", `data-remove-row`,
+	})
+	classificationHTML := strings.Split(body, `<template id="classification-row-template">`)[0]
+	fiscalYearHTML := strings.Split(body, `<template id="fiscal-year-row-template">`)[0]
+	if strings.Count(classificationHTML, `value="Assets"`) != 1 || strings.Count(fiscalYearHTML, `value="2025-04-01"`) != 1 {
+		t.Fatalf("saved reporting rows were duplicated: %s", body)
+	}
+	reopened := serve(handler, http.MethodGet, "/settings/reporting")
+	assertHTMLResponse(t, reopened, http.StatusOK)
+	if strings.Count(strings.Split(reopened.Body.String(), `<template id="classification-row-template">`)[0], `value="Assets"`) != 1 ||
+		strings.Count(strings.Split(reopened.Body.String(), `<template id="fiscal-year-row-template">`)[0], `value="2025-04-01"`) != 1 {
+		t.Fatalf("reopened reporting rows were duplicated: %s", reopened.Body.String())
+	}
+	removedAllYears := serveForm(handler, "/ui/settings/reporting", url.Values{
+		"base_revision":           {"1"},
+		"start_month":             {"4"},
+		"classification_account":  {""},
+		"classification_category": {"asset"},
+		"fiscal_start_date":       {""},
+		"fiscal_end_date":         {""},
+		"opening_mode":            {"automatic"},
+		"opening_entry_ids":       {""},
+	}, nil)
+	assertHTMLResponse(t, removedAllYears, http.StatusBadRequest)
+	if !strings.Contains(removedAllYears.Body.String(), "会計年度を1件以上指定してください") {
+		t.Fatalf("removing every fiscal year did not reach domain validation: %s", removedAllYears.Body.String())
+	}
 
 	stale := serveForm(handler, "/ui/settings/reporting", form, nil)
 	assertHTMLResponse(t, stale, http.StatusConflict)
@@ -109,8 +138,14 @@ func TestTrialBalanceUISelectionWarningsAndLocale(t *testing.T) {
 	reportEN := serve(handler, http.MethodGet, "/en/reports/trial-balance?start_date=2025-04-01&end_date=2025-04-30")
 	assertHTMLResponse(t, reportJA, http.StatusOK)
 	assertHTMLResponse(t, reportEN, http.StatusOK)
-	assertContainsAll(t, reportJA.Body.String(), []string{"試算表", "JPY", "125.00", "未分類", "unclassified_account", `href="/settings/reporting"`})
+	assertContainsAll(t, reportJA.Body.String(), []string{
+		"試算表", "JPY", "125.00", "未分類", "unclassified_account", `href="/settings/reporting"`,
+		"各科目の金額は配下を含む小計です", `class="direct-detail-row"`,
+	})
 	assertContainsAll(t, reportEN.Body.String(), []string{"Trial balance", "JPY", "125.00", "Unclassified", "unclassified_account", `href="/en/settings/reporting"`})
+	if strings.Contains(reportJA.Body.String(), `colspan="6"`) {
+		t.Fatalf("trial balance kept the wide direct/subtotal column groups: %s", reportJA.Body.String())
+	}
 
 	settings := serve(handler, http.MethodGet, "/settings/reporting")
 	assertHTMLResponse(t, settings, http.StatusOK)

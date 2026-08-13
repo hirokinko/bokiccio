@@ -104,44 +104,30 @@ templ reportingSettingsPage(model reportingSettingsPageModel) {
 					<section aria-labelledby="classification-heading">
 						<h2 id="classification-heading">{ model.Page.Messages.ReportingClassifications }</h2>
 						<p>{ model.Page.Messages.ReportingClassificationHelp }</p>
-						<div class="configuration-rows">
+						<input type="hidden" name="classification_account" value=""/>
+						<input type="hidden" name="classification_category" value="asset"/>
+						<div id="classification-rows" class="configuration-rows">
 							for _, classification := range model.Form.Classifications {
-								<div class="configuration-row classification-row">
-									<label>{ model.Page.Messages.AccountColumn }<input name="classification_account" value={ classification.Account }/></label>
-									<label>{ model.Page.Messages.ReportingCategoryLabel }<select name="classification_category">
-										for _, option := range reportingCategoryOptions(model.Page.Messages) {
-											if classification.Category == option.Value {
-												<option value={ string(option.Value) } selected>{ option.Label }</option>
-											} else {
-												<option value={ string(option.Value) }>{ option.Label }</option>
-											}
-										}
-									</select></label>
-								</div>
+								@reportingClassificationRow(model.Page.Messages, classification)
 							}
 						</div>
+						<button type="button" class="secondary-button add-row-button" data-add-row="classification-row-template" data-row-target="classification-rows">{ model.Page.Messages.ReportingAddClassification }</button>
+						<template id="classification-row-template">@reportingClassificationRow(model.Page.Messages, webapp.ReportingClassification{Category: reporting.CategoryAsset})</template>
 					</section>
 					<section aria-labelledby="fiscal-years-heading">
 						<h2 id="fiscal-years-heading">{ model.Page.Messages.ReportingFiscalYears }</h2>
 						<p>{ model.Page.Messages.ReportingFiscalYearHelp }</p>
-						<div class="configuration-rows">
+						<input type="hidden" name="fiscal_start_date" value=""/>
+						<input type="hidden" name="fiscal_end_date" value=""/>
+						<input type="hidden" name="opening_mode" value="automatic"/>
+						<input type="hidden" name="opening_entry_ids" value=""/>
+						<div id="fiscal-year-rows" class="configuration-rows">
 							for _, year := range model.Form.FiscalYears {
-								<fieldset class="configuration-row fiscal-year-row">
-									<label>{ model.Page.Messages.ReportingStartDateLabel }<input type="date" name="fiscal_start_date" value={ year.StartDate }/></label>
-									<label>{ model.Page.Messages.ReportingEndDateLabel }<input type="date" name="fiscal_end_date" value={ year.EndDate }/></label>
-									<label>{ model.Page.Messages.ReportingOpeningModeLabel }<select name="opening_mode">
-										if year.OpeningMode == reporting.OpeningEntries {
-											<option value="automatic">{ model.Page.Messages.ReportingOpeningAutomatic }</option>
-											<option value="opening_entries" selected>{ model.Page.Messages.ReportingOpeningEntries }</option>
-										} else {
-											<option value="automatic" selected>{ model.Page.Messages.ReportingOpeningAutomatic }</option>
-											<option value="opening_entries">{ model.Page.Messages.ReportingOpeningEntries }</option>
-										}
-									</select></label>
-									<label class="opening-entry-field">{ model.Page.Messages.ReportingOpeningEntryIDs }<textarea name="opening_entry_ids" rows="3">{ year.OpeningEntryIDs }</textarea><span class="field-help">{ model.Page.Messages.ReportingOpeningEntryIDsHelp }</span></label>
-								</fieldset>
+								@reportingFiscalYearRow(model.Page.Messages, year)
 							}
 						</div>
+						<button type="button" class="secondary-button add-row-button" data-add-row="fiscal-year-row-template" data-row-target="fiscal-year-rows">{ model.Page.Messages.ReportingAddFiscalYear }</button>
+						<template id="fiscal-year-row-template">@reportingFiscalYearRow(model.Page.Messages, reportingFiscalYearFormModel{OpeningMode: reporting.OpeningAutomatic})</template>
 					</section>
 					<div class="form-actions"><button type="submit">{ model.Page.Messages.ReportingSave }</button></div>
 				</form>
@@ -160,6 +146,40 @@ templ reportingSettingsPage(model reportingSettingsPageModel) {
 			</main>
 		</body>
 	</html>
+}
+
+templ reportingClassificationRow(msg messages, classification webapp.ReportingClassification) {
+	<div class="configuration-row classification-row" data-configuration-row>
+		<label>{ msg.AccountColumn }<input name="classification_account" value={ classification.Account }/></label>
+		<label>{ msg.ReportingCategoryLabel }<select name="classification_category">
+			for _, option := range reportingCategoryOptions(msg) {
+				if classification.Category == option.Value {
+					<option value={ string(option.Value) } selected>{ option.Label }</option>
+				} else {
+					<option value={ string(option.Value) }>{ option.Label }</option>
+				}
+			}
+		</select></label>
+		<button type="button" class="remove-row-button" data-remove-row>{ msg.ReportingRemoveClassification }</button>
+	</div>
+}
+
+templ reportingFiscalYearRow(msg messages, year reportingFiscalYearFormModel) {
+	<fieldset class="configuration-row fiscal-year-row" data-configuration-row>
+		<label>{ msg.ReportingStartDateLabel }<input type="date" name="fiscal_start_date" value={ year.StartDate }/></label>
+		<label>{ msg.ReportingEndDateLabel }<input type="date" name="fiscal_end_date" value={ year.EndDate }/></label>
+		<label>{ msg.ReportingOpeningModeLabel }<select name="opening_mode">
+			if year.OpeningMode == reporting.OpeningEntries {
+				<option value="automatic">{ msg.ReportingOpeningAutomatic }</option>
+				<option value="opening_entries" selected>{ msg.ReportingOpeningEntries }</option>
+			} else {
+				<option value="automatic" selected>{ msg.ReportingOpeningAutomatic }</option>
+				<option value="opening_entries">{ msg.ReportingOpeningEntries }</option>
+			}
+		</select></label>
+		<label class="opening-entry-field">{ msg.ReportingOpeningEntryIDs }<textarea name="opening_entry_ids" rows="3">{ year.OpeningEntryIDs }</textarea><span class="field-help">{ msg.ReportingOpeningEntryIDsHelp }</span></label>
+		<button type="button" class="remove-row-button" data-remove-row>{ msg.ReportingRemoveFiscalYear }</button>
+	</fieldset>
 }
 
 templ trialBalancePage(model trialBalancePageModel) {
@@ -210,22 +230,25 @@ templ trialBalancePage(model trialBalancePageModel) {
 templ trialBalanceCommodity(msg messages, commodity reporting.CommoditySection) {
 	<section class="commodity-section">
 		<h2>{ msg.TrialBalanceCommodity }: { commodity.Commodity }</h2>
+		<p class="table-help">{ msg.TrialBalanceTableHelp }</p>
 		<div class="table-wrap"><table class="trial-balance-table">
-			<thead><tr><th rowspan="2">{ msg.AccountColumn }</th><th colspan="6">{ msg.TrialBalanceDirect }</th><th colspan="6">{ msg.TrialBalanceSubtotal }</th><th rowspan="2">{ msg.TrialBalanceWarnings }</th></tr>
-			<tr>@trialBalanceColumnHeadings(msg)@trialBalanceColumnHeadings(msg)</tr></thead>
+			<thead><tr><th>{ msg.AccountColumn }</th>@trialBalanceColumnHeadings(msg)</tr></thead>
 			<tbody>
 				for _, group := range commodity.Groups {
-					<tr class="category-row"><th>{ reportingCategoryLabel(msg, group.Category) }</th>@emptyTrialBalanceCells()@trialBalanceAmountCells(group.Total)<td></td></tr>
+					<tr class="category-row"><th>{ reportingCategoryLabel(msg, group.Category) }</th>@trialBalanceAmountCells(group.Total)</tr>
 					for _, account := range group.Accounts {
-						<tr><th>{ accountLabel(account) }</th>@trialBalanceAmountCells(account.Direct)@trialBalanceAmountCells(account.Subtotal)<td>
+						<tr><th>{ accountLabel(account) }
 							for _, warning := range account.Warnings {
 								<span class="warning-code">{ warning.Code }</span>
 							}
-						</td></tr>
+						</th>@trialBalanceAmountCells(account.Subtotal)</tr>
+						if hasDistinctDirectAmounts(account) {
+							<tr class="direct-detail-row"><th><span>{ msg.TrialBalanceDirect }</span></th>@trialBalanceAmountCells(account.Direct)</tr>
+						}
 					}
 				}
 			</tbody>
-			<tfoot><tr><th>{ commodity.Commodity }</th>@emptyTrialBalanceCells()@trialBalanceAmountCells(commodity.Total)<td></td></tr></tfoot>
+			<tfoot><tr><th>{ commodity.Commodity }</th>@trialBalanceAmountCells(commodity.Total)</tr></tfoot>
 		</table></div>
 	</section>
 }
@@ -236,10 +259,6 @@ templ trialBalanceColumnHeadings(msg messages) {
 
 templ trialBalanceAmountCells(amounts reporting.Amounts) {
 	<td>{ amounts.Opening.Debit }</td><td>{ amounts.Opening.Credit }</td><td>{ amounts.DebitTurnover }</td><td>{ amounts.CreditTurnover }</td><td>{ amounts.Closing.Debit }</td><td>{ amounts.Closing.Credit }</td>
-}
-
-templ emptyTrialBalanceCells() {
-	<td></td><td></td><td></td><td></td><td></td><td></td>
 }
 
 templ searchForm(model indexPageModel) {

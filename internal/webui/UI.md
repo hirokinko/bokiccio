@@ -55,12 +55,14 @@ reporting設定formは`base_revision`を含む全設定を送信し、保存時�
 descendantへ継承し、会計年度は開始日・終了日、期首残高方式、改行区切りの期首仕訳IDを保持する。calendar変更時は
 過去reportも再集計される旨を画面に表示する。stale formは`409 Conflict`、不正な期間・分類・期首仕訳は`400 Bad Request`とし、
 既存revisionを変更しない。400 responseは開始月、年度境界、分類の重複、期首仕訳の承認・日付・分類など、利用者が
-修正できる原因をlocale別の安全なmessageで表示する。
+修正できる原因をlocale別の安全なmessageで表示する。初回表示だけ入力開始用の空行を1件表示し、設定済み画面では保存済みの
+分類・会計年度だけを表示する。行の追加・削除はfirst-party JavaScriptの明示buttonで行い、画面を開くだけでは行を増やさない。
 
 試算表画面はconfigured fiscal yearと各月次期間だけを選択肢にし、queryには選択済みの`start_date`と`end_date`だけを持つ。
 初期表示は設定内の最後の会計年度全体を決定的に選び、current dateへ依存しない。commodityを別sectionに分け、category、
-account階層、直接計上値、小計、期首・発生・期末の借方・貸方をcanonical decimal stringのまま表示する。未分類accountも
-金額へ含め、WARNINGと設定画面への導線を表示する。
+account階層、小計、期首・発生・期末の借方・貸方をcanonical decimal stringのまま表示する。通常の科目行は配下を含む小計を
+表示し、直接計上値が小計と異なる場合だけ補助行へ表示する。未分類accountも金額へ含め、科目欄にWARNINGと設定画面への導線を
+表示する。
 
 normalized input uploadは`multipart/form-data`のPOST bodyで送信します。file fieldは`file`、file contentは最大10 MiB、request全体にも小さなoverhead上限を設けます。filenameとclient側Content-Typeはsource、identity、format判定には使わず、保存、log、HTML responseへの反映もしません。record単位のerrorを含んだ取込runも保存できた場合は成功uploadとして扱い、`303 See Other`で`/imports/{run-identity}`または`/en/imports/{run-identity}`へredirectします。
 
