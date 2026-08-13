@@ -34,6 +34,27 @@ type backupEnvelope struct {
 }
 
 type backupPayload struct {
+	WorkflowState            []workflowStateRow           `json:"workflow_state"`
+	CommittedIdentities      []committedIdentityRow       `json:"committed_identities"`
+	ImportRuns               []importRunRow               `json:"import_runs"`
+	Outcomes                 []outcomeRow                 `json:"outcomes"`
+	Diagnostics              []diagnosticRow              `json:"diagnostics"`
+	Entries                  []entryRow                   `json:"entries"`
+	EntryComments            []entryCommentRow            `json:"entry_comments"`
+	Postings                 []postingRow                 `json:"postings"`
+	EntryRevisions           []entryRevisionRow           `json:"entry_revisions"`
+	RevisionComments         []revisionCommentRow         `json:"revision_comments"`
+	RevisionPostings         []revisionPostingRow         `json:"revision_postings"`
+	RevisionDiagnostics      []revisionDiagnosticRow      `json:"revision_diagnostics"`
+	EntryApprovals           []entryApprovalRow           `json:"entry_approvals"`
+	Sequences                []sequenceRow                `json:"sequences"`
+	ReportingConfigurations  []reportingConfigurationRow  `json:"reporting_configurations"`
+	ReportingClassifications []reportingClassificationRow `json:"reporting_classifications"`
+	ReportingFiscalYears     []reportingFiscalYearRow     `json:"reporting_fiscal_years"`
+	ReportingOpeningEntries  []reportingOpeningEntryRow   `json:"reporting_opening_entries"`
+}
+
+type legacyBackupPayload struct {
 	WorkflowState       []workflowStateRow      `json:"workflow_state"`
 	CommittedIdentities []committedIdentityRow  `json:"committed_identities"`
 	ImportRuns          []importRunRow          `json:"import_runs"`
@@ -177,6 +198,34 @@ type sequenceRow struct {
 	Seq  int64  `json:"seq"`
 }
 
+type reportingConfigurationRow struct {
+	Revision     int    `json:"revision"`
+	BaseRevision int    `json:"base_revision"`
+	CreatedAt    string `json:"created_at"`
+	StartMonth   int    `json:"start_month"`
+}
+
+type reportingClassificationRow struct {
+	Revision int    `json:"revision"`
+	Account  string `json:"account"`
+	Category string `json:"category"`
+}
+
+type reportingFiscalYearRow struct {
+	Revision    int    `json:"revision"`
+	StartDate   string `json:"start_date"`
+	EndDate     string `json:"end_date"`
+	OpeningMode string `json:"opening_mode"`
+}
+
+type reportingOpeningEntryRow struct {
+	Revision        int    `json:"revision"`
+	FiscalYearStart string `json:"fiscal_year_start"`
+	FiscalYearEnd   string `json:"fiscal_year_end"`
+	EntryIndex      int    `json:"entry_index"`
+	EntryID         string `json:"entry_id"`
+}
+
 func (store *Store) Backup(ctx context.Context) (_ []byte, resultErr error) {
 	transaction, err := store.database.BeginTx(ctx, nil)
 	if err != nil {
@@ -207,7 +256,7 @@ func (store *Store) Backup(ctx context.Context) (_ []byte, resultErr error) {
 }
 
 func encodeBackup(payload backupPayload, createdAt time.Time) ([]byte, error) {
-	payloadBytes, err := json.Marshal(payload)
+	payloadBytes, err := marshalBackupPayload(payload, SchemaVersion)
 	if err != nil {
 		return nil, fmt.Errorf("encode backup payload: %w", err)
 	}
@@ -236,7 +285,7 @@ func decodeBackup(input []byte) (backupPayload, error) {
 		return backupPayload{}, ErrInvalidBackup
 	}
 	if envelope.Format != BackupFormat || envelope.FormatVersion != BackupFormatVersion ||
-		(envelope.SchemaVersion != 2 && envelope.SchemaVersion != SchemaVersion) || !envelope.Payload.complete() {
+		!supportedBackupSchema(envelope.SchemaVersion) || !envelope.Payload.complete(envelope.SchemaVersion) {
 		return backupPayload{}, ErrInvalidBackup
 	}
 	if err := validateBackupPayloadShape(envelope.Payload); err != nil {
@@ -246,16 +295,35 @@ func decodeBackup(input []byte) (backupPayload, error) {
 	if err != nil || createdAt.Format(time.RFC3339Nano) != envelope.CreatedAt {
 		return backupPayload{}, ErrInvalidBackup
 	}
-	payloadBytes, err := json.Marshal(envelope.Payload)
+	payloadBytes, err := marshalBackupPayload(envelope.Payload, envelope.SchemaVersion)
 	if err != nil {
 		return backupPayload{}, ErrInvalidBackup
 	}
 	digest := sha256.Sum256(payloadBytes)
 	if envelope.PayloadSHA256 != hex.EncodeToString(digest[:]) ||
-		!equalRowCounts(envelope.RowCounts, envelope.Payload.rowCounts()) {
+		!equalRowCounts(envelope.RowCounts, envelope.Payload.rowCountsForSchema(envelope.SchemaVersion)) {
 		return backupPayload{}, ErrInvalidBackup
 	}
+	envelope.Payload.normalizeLegacyReporting(envelope.SchemaVersion)
 	return envelope.Payload, nil
+}
+
+func marshalBackupPayload(payload backupPayload, schemaVersion int) ([]byte, error) {
+	if schemaVersion != 2 && schemaVersion != 3 {
+		return json.Marshal(payload)
+	}
+	return json.Marshal(legacyBackupPayload{
+		WorkflowState: payload.WorkflowState, CommittedIdentities: payload.CommittedIdentities,
+		ImportRuns: payload.ImportRuns, Outcomes: payload.Outcomes, Diagnostics: payload.Diagnostics,
+		Entries: payload.Entries, EntryComments: payload.EntryComments, Postings: payload.Postings,
+		EntryRevisions: payload.EntryRevisions, RevisionComments: payload.RevisionComments,
+		RevisionPostings: payload.RevisionPostings, RevisionDiagnostics: payload.RevisionDiagnostics,
+		EntryApprovals: payload.EntryApprovals, Sequences: payload.Sequences,
+	})
+}
+
+func supportedBackupSchema(version int) bool {
+	return version == 2 || version == 3 || version == SchemaVersion
 }
 
 func (payload backupPayload) rowCounts() map[string]int {
@@ -267,7 +335,22 @@ func (payload backupPayload) rowCounts() map[string]int {
 		"entry_revisions": len(payload.EntryRevisions), "revision_comments": len(payload.RevisionComments),
 		"revision_postings": len(payload.RevisionPostings), "revision_diagnostics": len(payload.RevisionDiagnostics),
 		"entry_approvals": len(payload.EntryApprovals), "sequences": len(payload.Sequences),
+		"reporting_configurations":  len(payload.ReportingConfigurations),
+		"reporting_classifications": len(payload.ReportingClassifications),
+		"reporting_fiscal_years":    len(payload.ReportingFiscalYears),
+		"reporting_opening_entries": len(payload.ReportingOpeningEntries),
 	}
+}
+
+func (payload backupPayload) rowCountsForSchema(schemaVersion int) map[string]int {
+	counts := payload.rowCounts()
+	if schemaVersion == 2 || schemaVersion == 3 {
+		delete(counts, "reporting_configurations")
+		delete(counts, "reporting_classifications")
+		delete(counts, "reporting_fiscal_years")
+		delete(counts, "reporting_opening_entries")
+	}
+	return counts
 }
 
 func equalRowCounts(left, right map[string]int) bool {
@@ -283,12 +366,31 @@ func equalRowCounts(left, right map[string]int) bool {
 	return true
 }
 
-func (payload backupPayload) complete() bool {
-	return payload.WorkflowState != nil && payload.CommittedIdentities != nil && payload.ImportRuns != nil &&
+func (payload backupPayload) complete(schemaVersion int) bool {
+	legacyComplete := payload.WorkflowState != nil && payload.CommittedIdentities != nil && payload.ImportRuns != nil &&
 		payload.Outcomes != nil && payload.Diagnostics != nil && payload.Entries != nil &&
 		payload.EntryComments != nil && payload.Postings != nil && payload.EntryRevisions != nil &&
 		payload.RevisionComments != nil && payload.RevisionPostings != nil &&
 		payload.RevisionDiagnostics != nil && payload.EntryApprovals != nil && payload.Sequences != nil
+	if !legacyComplete {
+		return false
+	}
+	if schemaVersion == 2 || schemaVersion == 3 {
+		return payload.ReportingConfigurations == nil && payload.ReportingClassifications == nil &&
+			payload.ReportingFiscalYears == nil && payload.ReportingOpeningEntries == nil
+	}
+	return payload.ReportingConfigurations != nil && payload.ReportingClassifications != nil &&
+		payload.ReportingFiscalYears != nil && payload.ReportingOpeningEntries != nil
+}
+
+func (payload *backupPayload) normalizeLegacyReporting(schemaVersion int) {
+	if schemaVersion != 2 && schemaVersion != 3 {
+		return
+	}
+	payload.ReportingConfigurations = []reportingConfigurationRow{}
+	payload.ReportingClassifications = []reportingClassificationRow{}
+	payload.ReportingFiscalYears = []reportingFiscalYearRow{}
+	payload.ReportingOpeningEntries = []reportingOpeningEntryRow{}
 }
 
 func validateBackupPayloadShape(payload backupPayload) error {
@@ -443,6 +545,34 @@ func readBackupPayload(ctx context.Context, source queryer) (backupPayload, erro
 		})
 	if err != nil {
 		return backupPayload{}, backupReadError("entry_approvals", err)
+	}
+	payload.ReportingConfigurations, err = readRows(ctx, source, `SELECT revision, base_revision, created_at, start_month
+        FROM reporting_configurations ORDER BY revision`, func(rows *sql.Rows, row *reportingConfigurationRow) error {
+		return rows.Scan(&row.Revision, &row.BaseRevision, &row.CreatedAt, &row.StartMonth)
+	})
+	if err != nil {
+		return backupPayload{}, backupReadError("reporting_configurations", err)
+	}
+	payload.ReportingClassifications, err = readRows(ctx, source, `SELECT revision, account, category
+        FROM reporting_classifications ORDER BY revision, account`, func(rows *sql.Rows, row *reportingClassificationRow) error {
+		return rows.Scan(&row.Revision, &row.Account, &row.Category)
+	})
+	if err != nil {
+		return backupPayload{}, backupReadError("reporting_classifications", err)
+	}
+	payload.ReportingFiscalYears, err = readRows(ctx, source, `SELECT revision, start_date, end_date, opening_mode
+        FROM reporting_fiscal_years ORDER BY revision, start_date, end_date`, func(rows *sql.Rows, row *reportingFiscalYearRow) error {
+		return rows.Scan(&row.Revision, &row.StartDate, &row.EndDate, &row.OpeningMode)
+	})
+	if err != nil {
+		return backupPayload{}, backupReadError("reporting_fiscal_years", err)
+	}
+	payload.ReportingOpeningEntries, err = readRows(ctx, source, `SELECT revision, fiscal_year_start, fiscal_year_end, entry_index, entry_id
+        FROM reporting_opening_entries ORDER BY revision, fiscal_year_start, fiscal_year_end, entry_index`, func(rows *sql.Rows, row *reportingOpeningEntryRow) error {
+		return rows.Scan(&row.Revision, &row.FiscalYearStart, &row.FiscalYearEnd, &row.EntryIndex, &row.EntryID)
+	})
+	if err != nil {
+		return backupPayload{}, backupReadError("reporting_opening_entries", err)
 	}
 	payload.Sequences, err = readRows(ctx, source, `SELECT name, seq FROM sqlite_sequence WHERE name IN ('import_runs', 'entry_approvals') ORDER BY name`,
 		func(rows *sql.Rows, row *sequenceRow) error { return rows.Scan(&row.Name, &row.Seq) })

@@ -2,14 +2,17 @@ package webstore
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"reflect"
 	"testing"
 	"time"
 
+	"github.com/hirokinko/bokiccio/internal/reporting"
 	"github.com/hirokinko/bokiccio/internal/webapp"
 	_ "turso.tech/database/tursogo"
 )
@@ -142,7 +145,46 @@ func TestBackupRestoreTotalPrice(t *testing.T) {
 	}
 }
 
-func TestRestoreAcceptsSchemaV2Backup(t *testing.T) {
+func TestBackupRestoreReportingConfiguration(t *testing.T) {
+	ctx := context.Background()
+	source := New(openBackupTestDatabase(t))
+	entryID := importOpeningEntry(t, ctx, source)
+	zero := 0
+	want, err := source.CreateReportingConfiguration(ctx, webapp.ReportingConfigurationRequest{
+		BaseRevision: &zero,
+		StartMonth:   4,
+		Classifications: []webapp.ReportingClassification{
+			{Account: "Assets", Category: reporting.CategoryAsset},
+			{Account: "Liabilities", Category: reporting.CategoryLiability},
+		},
+		FiscalYears: []webapp.ReportingFiscalYear{{
+			StartDate: "2025-04-01", EndDate: "2026-03-31", OpeningMode: reporting.OpeningEntries,
+			OpeningEntryIDs: []string{entryID},
+		}},
+	})
+	if err != nil {
+		t.Fatalf("CreateReportingConfiguration() error = %v", err)
+	}
+	backup, err := source.Backup(ctx)
+	if err != nil {
+		t.Fatalf("Backup() error = %v", err)
+	}
+	payload, err := decodeBackup(backup)
+	if err != nil || len(payload.ReportingConfigurations) != 1 || len(payload.ReportingClassifications) != 2 ||
+		len(payload.ReportingFiscalYears) != 1 || len(payload.ReportingOpeningEntries) != 1 {
+		t.Fatalf("reporting backup error=%v counts=%+v", err, payload.rowCounts())
+	}
+	target := New(openBackupTestDatabase(t))
+	if err := target.Restore(ctx, backup); err != nil {
+		t.Fatalf("Restore() error = %v", err)
+	}
+	got, err := target.GetCurrentReportingConfiguration(ctx)
+	if err != nil || !reflect.DeepEqual(got, want) {
+		t.Fatalf("restored reporting configuration error=%v got=%+v want=%+v", err, got, want)
+	}
+}
+
+func TestRestoreAcceptsLegacyBackups(t *testing.T) {
 	ctx := context.Background()
 	source := New(openBackupTestDatabase(t))
 	input := []byte(`{"schema_version":1,"records":[{"source":{"namespace":"backup-v2","display":"record.json","external_id":"record"},"occurred_at":"2026-08-11","description":"backup record","postings":[{"account":"資産:確認","amount":"1","commodity":"UNIT"},{"account":"負債:確認","amount":"-1","commodity":"UNIT"}]}]}`)
@@ -153,20 +195,75 @@ func TestRestoreAcceptsSchemaV2Backup(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Backup() error = %v", err)
 	}
+	for _, schemaVersion := range []int{2, 3} {
+		t.Run(fmt.Sprintf("schema-v%d", schemaVersion), func(t *testing.T) {
+			target := New(openBackupTestDatabase(t))
+			if err := target.Restore(ctx, legacyBackup(t, backup, schemaVersion)); err != nil {
+				t.Fatalf("Restore(schema v%d) error = %v", schemaVersion, err)
+			}
+			if _, err := target.GetCurrentReportingConfiguration(ctx); !errors.Is(err, webapp.ErrReportingNotConfigured) {
+				t.Fatalf("GetCurrentReportingConfiguration() error = %v", err)
+			}
+		})
+	}
+}
+
+func TestRestoreRejectsIncompleteReportingPayload(t *testing.T) {
+	ctx := context.Background()
+	source := New(openBackupTestDatabase(t))
+	backup, err := source.Backup(ctx)
+	if err != nil {
+		t.Fatalf("Backup() error = %v", err)
+	}
 	var envelope backupEnvelope
 	if err := json.Unmarshal(backup, &envelope); err != nil {
 		t.Fatalf("Unmarshal() error = %v", err)
 	}
-	envelope.SchemaVersion = 2
-	schemaV2Backup, err := json.Marshal(envelope)
+	envelope.Payload.ReportingFiscalYears = nil
+	broken, err := json.Marshal(envelope)
 	if err != nil {
 		t.Fatalf("Marshal() error = %v", err)
 	}
-
-	target := New(openBackupTestDatabase(t))
-	if err := target.Restore(ctx, schemaV2Backup); err != nil {
-		t.Fatalf("Restore(schema v2) error = %v", err)
+	targetDB := openBackupTestDatabase(t)
+	if err := New(targetDB).Restore(ctx, broken); !errors.Is(err, ErrInvalidBackup) {
+		t.Fatalf("Restore(incomplete reporting payload) error = %v", err)
 	}
+	assertBackupTestEmpty(t, targetDB)
+}
+
+func TestRestoreRollsBackInvalidReportingHistory(t *testing.T) {
+	ctx := context.Background()
+	source := New(openBackupTestDatabase(t))
+	zero := 0
+	if _, err := source.CreateReportingConfiguration(ctx,
+		automaticReportingRequest(&zero, 4, "2025-04-01", "2026-03-31")); err != nil {
+		t.Fatalf("CreateReportingConfiguration() error = %v", err)
+	}
+	backup, err := source.Backup(ctx)
+	if err != nil {
+		t.Fatalf("Backup() error = %v", err)
+	}
+	payload, err := decodeBackup(backup)
+	if err != nil {
+		t.Fatalf("decodeBackup() error = %v", err)
+	}
+	payload.ReportingConfigurations[0].Revision = 2
+	payload.ReportingConfigurations[0].BaseRevision = 1
+	for index := range payload.ReportingClassifications {
+		payload.ReportingClassifications[index].Revision = 2
+	}
+	for index := range payload.ReportingFiscalYears {
+		payload.ReportingFiscalYears[index].Revision = 2
+	}
+	broken, err := encodeBackup(payload, time.Date(2026, 8, 13, 0, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatalf("encodeBackup() error = %v", err)
+	}
+	targetDB := openBackupTestDatabase(t)
+	if err := New(targetDB).Restore(ctx, broken); err == nil {
+		t.Fatal("Restore(invalid reporting history) error = nil")
+	}
+	assertBackupTestEmpty(t, targetDB)
 }
 
 func TestRestoreRejectsInvalidAndNonEmptyWithoutChanges(t *testing.T) {
@@ -258,14 +355,57 @@ func openBackupTestDatabase(t *testing.T) *sql.DB {
 
 func assertBackupTestEmpty(t *testing.T, database *sql.DB) {
 	t.Helper()
-	var generation, runs int
+	var generation, runs, reportingConfigurations int
 	if err := database.QueryRow(`SELECT generation FROM workflow_state WHERE singleton = 1`).Scan(&generation); err != nil {
 		t.Fatalf("read generation: %v", err)
 	}
 	if err := database.QueryRow(`SELECT count(*) FROM import_runs`).Scan(&runs); err != nil {
 		t.Fatalf("count runs: %v", err)
 	}
-	if generation != 0 || runs != 0 {
-		t.Fatalf("target changed: generation=%d runs=%d", generation, runs)
+	if err := database.QueryRow(`SELECT count(*) FROM reporting_configurations`).Scan(&reportingConfigurations); err != nil {
+		t.Fatalf("count reporting configurations: %v", err)
 	}
+	if generation != 0 || runs != 0 || reportingConfigurations != 0 {
+		t.Fatalf("target changed: generation=%d runs=%d reporting_configurations=%d", generation, runs, reportingConfigurations)
+	}
+}
+
+func legacyBackup(t *testing.T, current []byte, schemaVersion int) []byte {
+	t.Helper()
+	var envelope backupEnvelope
+	if err := json.Unmarshal(current, &envelope); err != nil {
+		t.Fatalf("Unmarshal() error = %v", err)
+	}
+	envelope.SchemaVersion = schemaVersion
+	envelope.Payload.ReportingConfigurations = nil
+	envelope.Payload.ReportingClassifications = nil
+	envelope.Payload.ReportingFiscalYears = nil
+	envelope.Payload.ReportingOpeningEntries = nil
+	delete(envelope.RowCounts, "reporting_configurations")
+	delete(envelope.RowCounts, "reporting_classifications")
+	delete(envelope.RowCounts, "reporting_fiscal_years")
+	delete(envelope.RowCounts, "reporting_opening_entries")
+	payloadBytes, err := marshalBackupPayload(envelope.Payload, schemaVersion)
+	if err != nil {
+		t.Fatalf("Marshal(payload) error = %v", err)
+	}
+	digest := sha256.Sum256(payloadBytes)
+	legacyEnvelope := struct {
+		Format        string          `json:"format"`
+		FormatVersion int             `json:"format_version"`
+		SchemaVersion int             `json:"schema_version"`
+		CreatedAt     string          `json:"created_at"`
+		PayloadSHA256 string          `json:"payload_sha256"`
+		RowCounts     map[string]int  `json:"row_counts"`
+		Payload       json.RawMessage `json:"payload"`
+	}{
+		Format: envelope.Format, FormatVersion: envelope.FormatVersion, SchemaVersion: schemaVersion,
+		CreatedAt: envelope.CreatedAt, PayloadSHA256: fmt.Sprintf("%x", digest),
+		RowCounts: envelope.RowCounts, Payload: payloadBytes,
+	}
+	encoded, err := json.Marshal(legacyEnvelope)
+	if err != nil {
+		t.Fatalf("Marshal(envelope) error = %v", err)
+	}
+	return encoded
 }

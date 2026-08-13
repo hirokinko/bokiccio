@@ -1,7 +1,7 @@
 # Logical backup format v1
 
 Bokiccioのproduction backupはTursoのdatabase fileやSQL dumpではなく、driver非依存のlogical JSONを使う。
-backupは仕訳、source、diagnostic、import report、revision、approvalを含むprivate dataであり、暗号化されていない。
+backupは仕訳、source、diagnostic、import report、revision、approval、reporting設定履歴を含むprivate dataであり、暗号化されていない。
 保存先のaccess controlや暗号化は運用環境で行う。
 
 ## Envelope
@@ -14,7 +14,7 @@ format version 1のtop-level fieldは次のとおりである。
 - `created_at`: RFC 3339 timestamp
 - `payload_sha256`: canonical payload JSONのlowercase SHA-256
 - `row_counts`: payload sectionごとの件数
-- `payload`: schema v2またはv3 application data
+- `payload`: schema v2、v3、v4 application data
 
 payloadは全tableを依存順、各table内をprimary key順で保持する。SQL BLOBはJSONのbase64 stringとして
 losslessにencodeする。`workflow_state`と`sqlite_sequence`の対象counterも保持する。
@@ -50,9 +50,13 @@ go run ./cmd/bokiccio restore --input ./bokiccio-backup.json
 ```
 
 restoreはmerge、既存dataのreplace、schema migrationを行わない。全rowを1 transactionでinsertし、row count、
-foreign key、report metadata、identity、entry/revision domain validation、approval relationshipを検証してから
+foreign key、report metadata、identity、entry/revision domain validation、approval relationship、reporting設定revisionと
+期首仕訳の整合性を検証してから
 commitする。いずれかが失敗した場合、target dataを変更しない。
 
-format version `1`はDB schema version `2`と`3`を受け付ける。schema v3はpostingとrevision postingへ
+format version `1`はDB schema version `2`、`3`、`4`を受け付ける。schema v4は
+`reporting_configurations`、`reporting_classifications`、`reporting_fiscal_years`、
+`reporting_opening_entries`をpayload、checksum、row countへ追加し、4 sectionを必須とする。schema v3はpostingとrevision postingへ
 optionalなtotal-price amount・scale・commodityを追加する。schema v2 backupにはこれらのfieldがなく、current
-schemaへrestoreするとNULLとして保持される。これ以外のschema versionは明示的な変換pathがないため拒否する。
+schemaへrestoreするとNULLとして保持される。schema v2/v3 backupはreporting未設定として復元する。これ以外のschema versionは
+明示的な変換pathがないため拒否する。

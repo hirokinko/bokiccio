@@ -30,7 +30,9 @@ Bokiccio（ボキッチョ）は、複数の明細・メール・レシートか
 - immutableな仕訳revision、domain再validation、append-onlyな承認履歴
 - 最新revisionを対象にした日付・勘定科目・摘要・状態・source検索
 - 現在承認済みの仕訳だけを対象にしたTackler/JSON export
-- checksum付きlogical backupと空database限定のtransactional restore
+- 明示的な5区分・会計年度・期首残高方式を履歴管理するreporting設定
+- 承認済み最新仕訳をcommodity別・勘定科目階層別に集計する月次・年度試算表
+- reporting設定を含むchecksum付きlogical backupと空database限定のtransactional restore
 - 匿名化fixtureによるgolden test
 - Tackler 26.1.2以降を使った任意実行の互換性test
 
@@ -49,6 +51,11 @@ internal/ledger
   ├─ Decimal
   ├─ JournalEntry / Posting / Amount / Commodity
   └─ validation and balance inference
+
+internal/reporting
+  ├─ classification and fiscal calendar
+  ├─ opening balance policy and exact aggregation
+  └─ commodity-separated hierarchical trial balance
 
 internal/tacklerfmt
   ├─ Tackler-compatible subset parser and exporter
@@ -72,6 +79,7 @@ internal/webapp / internal/webstore / internal/webprod
   ├─ HTTP handler and database/sql persistence
   ├─ single-owner IAP and origin boundary
   ├─ revision, approval, search, and approved export
+  ├─ reporting configuration、trial balance、logical backup/restore
   └─ Turso Cloud production composition
 
 internal/webui
@@ -156,7 +164,7 @@ route、JSON、認証境界、remote integration testは[Web API v1](internal/we
 
 ## Turso backupとrestore
 
-backupは仕訳、source、diagnostic、revision、approvalを含む暗号化されていないprivate dataである。
+backupは仕訳、source、diagnostic、revision、approval、reporting設定履歴を含む暗号化されていないprivate dataである。
 既存fileを上書きせず、permission `0600`のlogical JSONとして作成する。
 
 ```sh

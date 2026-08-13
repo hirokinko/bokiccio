@@ -11,6 +11,8 @@ import (
 
 	"github.com/hirokinko/bokiccio/internal/ingest"
 	"github.com/hirokinko/bokiccio/internal/ledger"
+	"github.com/hirokinko/bokiccio/internal/reporting"
+	"github.com/hirokinko/bokiccio/internal/webapp"
 )
 
 func (store *Store) Restore(ctx context.Context, input []byte) (resultErr error) {
@@ -65,7 +67,11 @@ func requireEmptyDatabase(ctx context.Context, transaction *sql.Tx) error {
         (SELECT count(*) FROM revision_comments) +
         (SELECT count(*) FROM revision_postings) +
         (SELECT count(*) FROM revision_diagnostics) +
-        (SELECT count(*) FROM entry_approvals)`).Scan(&rows); err != nil {
+        (SELECT count(*) FROM entry_approvals) +
+        (SELECT count(*) FROM reporting_configurations) +
+        (SELECT count(*) FROM reporting_classifications) +
+        (SELECT count(*) FROM reporting_fiscal_years) +
+        (SELECT count(*) FROM reporting_opening_entries)`).Scan(&rows); err != nil {
 		return fmt.Errorf("inspect restore target: %w", err)
 	}
 	if err := transaction.QueryRowContext(ctx,
@@ -153,6 +159,33 @@ func insertBackupPayload(ctx context.Context, transaction *sql.Tx, payload backu
 			return restoreInsertError("entry_approvals", err)
 		}
 	}
+	for _, row := range payload.ReportingConfigurations {
+		if _, err := transaction.ExecContext(ctx, `INSERT INTO reporting_configurations
+            (revision, base_revision, created_at, start_month) VALUES (?, ?, ?, ?)`,
+			row.Revision, row.BaseRevision, row.CreatedAt, row.StartMonth); err != nil {
+			return restoreInsertError("reporting_configurations", err)
+		}
+	}
+	for _, row := range payload.ReportingClassifications {
+		if _, err := transaction.ExecContext(ctx, `INSERT INTO reporting_classifications
+            (revision, account, category) VALUES (?, ?, ?)`, row.Revision, row.Account, row.Category); err != nil {
+			return restoreInsertError("reporting_classifications", err)
+		}
+	}
+	for _, row := range payload.ReportingFiscalYears {
+		if _, err := transaction.ExecContext(ctx, `INSERT INTO reporting_fiscal_years
+            (revision, start_date, end_date, opening_mode) VALUES (?, ?, ?, ?)`,
+			row.Revision, row.StartDate, row.EndDate, row.OpeningMode); err != nil {
+			return restoreInsertError("reporting_fiscal_years", err)
+		}
+	}
+	for _, row := range payload.ReportingOpeningEntries {
+		if _, err := transaction.ExecContext(ctx, `INSERT INTO reporting_opening_entries
+            (revision, fiscal_year_start, fiscal_year_end, entry_index, entry_id) VALUES (?, ?, ?, ?, ?)`,
+			row.Revision, row.FiscalYearStart, row.FiscalYearEnd, row.EntryIndex, row.EntryID); err != nil {
+			return restoreInsertError("reporting_opening_entries", err)
+		}
+	}
 	if err := restoreSequences(ctx, transaction, payload.Sequences); err != nil {
 		return err
 	}
@@ -190,7 +223,7 @@ func restoreSequences(ctx context.Context, transaction *sql.Tx, sequences []sequ
 }
 
 func verifyRestoredCounts(ctx context.Context, transaction *sql.Tx, want map[string]int) error {
-	for _, table := range []string{"workflow_state", "committed_identities", "import_runs", "outcomes", "diagnostics", "entries", "entry_comments", "postings", "entry_revisions", "revision_comments", "revision_postings", "revision_diagnostics", "entry_approvals"} {
+	for _, table := range []string{"workflow_state", "committed_identities", "import_runs", "outcomes", "diagnostics", "entries", "entry_comments", "postings", "entry_revisions", "revision_comments", "revision_postings", "revision_diagnostics", "entry_approvals", "reporting_configurations", "reporting_classifications", "reporting_fiscal_years", "reporting_opening_entries"} {
 		var count int
 		if err := transaction.QueryRowContext(ctx, `SELECT count(*) FROM `+table).Scan(&count); err != nil {
 			return fmt.Errorf("count restored table %s: %w", table, err)
@@ -349,8 +382,14 @@ func validateDatabaseContents(ctx context.Context, source rowQueryer) error {
 			return err
 		}
 	}
+	if transaction, ok := source.(*sql.Tx); ok {
+		if err := validateReportingDatabaseContents(ctx, transaction); err != nil {
+			return err
+		}
+	}
 	timestamps, err := source.QueryContext(ctx, `SELECT created_at FROM entry_revisions
-        UNION ALL SELECT approved_at FROM entry_approvals`)
+		UNION ALL SELECT approved_at FROM entry_approvals
+		UNION ALL SELECT created_at FROM reporting_configurations`)
 	if err != nil {
 		return fmt.Errorf("query stored timestamps: %w", err)
 	}
@@ -371,6 +410,58 @@ func validateDatabaseContents(ctx context.Context, source rowQueryer) error {
 	}
 	if err := timestamps.Close(); err != nil {
 		return err
+	}
+	return nil
+}
+
+func validateReportingDatabaseContents(ctx context.Context, transaction *sql.Tx) error {
+	rows, err := transaction.QueryContext(ctx, `SELECT revision, base_revision
+        FROM reporting_configurations ORDER BY revision`)
+	if err != nil {
+		return fmt.Errorf("query reporting configuration history: %w", err)
+	}
+	type revisionPair struct {
+		revision int
+		base     int
+	}
+	revisions := []revisionPair{}
+	for rows.Next() {
+		var pair revisionPair
+		if err := rows.Scan(&pair.revision, &pair.base); err != nil {
+			rows.Close()
+			return fmt.Errorf("scan reporting configuration history: %w", err)
+		}
+		revisions = append(revisions, pair)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return fmt.Errorf("iterate reporting configuration history: %w", err)
+	}
+	if err := rows.Close(); err != nil {
+		return fmt.Errorf("close reporting configuration history: %w", err)
+	}
+	for index, pair := range revisions {
+		expected := index + 1
+		if pair.revision != expected || pair.base != expected-1 {
+			return errors.New("stored reporting configuration history is not contiguous")
+		}
+		detail, err := loadReportingConfiguration(ctx, transaction, pair.revision)
+		if err != nil {
+			return err
+		}
+		request := webapp.ReportingConfigurationRequest{
+			BaseRevision:    &detail.BaseRevision,
+			StartMonth:      detail.StartMonth,
+			Classifications: detail.Classifications,
+			FiscalYears:     detail.FiscalYears,
+		}
+		configuration := reportingConfiguration(detail.Revision, request)
+		if err := reporting.ValidateConfiguration(configuration); err != nil {
+			return fmt.Errorf("stored reporting configuration is invalid: %w", err)
+		}
+		if err := validateOpeningEntries(ctx, transaction, configuration); err != nil {
+			return fmt.Errorf("stored reporting opening entries are invalid: %w", err)
+		}
 	}
 	return nil
 }
