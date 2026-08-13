@@ -115,16 +115,20 @@ func loadApprovedEntryComments(ctx context.Context, transaction *sql.Tx, builder
 	statement := currentEntriesQuery + `,
 approved_entries AS (
     SELECT entry_id, current_revision FROM current_entries WHERE workflow_status = 'approved'
+),
+approved_comments AS (
+    SELECT c.entry_id AS entry_id, oc.comment_index AS comment_index, oc.comment AS comment
+    FROM approved_entries c
+    JOIN entry_comments oc ON oc.entry_id = c.entry_id
+    WHERE c.current_revision = 0
+    UNION ALL
+    SELECT c.entry_id AS entry_id, rc.comment_index AS comment_index, rc.comment AS comment
+    FROM approved_entries c
+    JOIN revision_comments rc ON rc.entry_id = c.entry_id AND rc.revision = c.current_revision
+    WHERE c.current_revision > 0
 )
-SELECT c.entry_id, oc.comment_index, oc.comment
-FROM approved_entries c
-JOIN entry_comments oc ON oc.entry_id = c.entry_id
-WHERE c.current_revision = 0
-UNION ALL
-SELECT c.entry_id, rc.comment_index, rc.comment
-FROM approved_entries c
-JOIN revision_comments rc ON rc.entry_id = c.entry_id AND rc.revision = c.current_revision
-WHERE c.current_revision > 0
+SELECT entry_id, comment_index, comment
+FROM approved_comments
 ORDER BY entry_id, comment_index`
 	rows, err := transaction.QueryContext(ctx, statement)
 	if err != nil {
@@ -153,18 +157,29 @@ func loadApprovedEntryPostings(ctx context.Context, transaction *sql.Tx, builder
 	statement := currentEntriesQuery + `,
 approved_entries AS (
     SELECT entry_id, current_revision FROM current_entries WHERE workflow_status = 'approved'
+),
+approved_postings AS (
+    SELECT c.entry_id AS entry_id, op.posting_index AS posting_index, op.account AS account,
+           op.amount_text AS amount_text, op.amount_scale AS amount_scale, op.commodity AS commodity,
+           op.total_price_amount_text AS total_price_amount_text,
+           op.total_price_amount_scale AS total_price_amount_scale,
+           op.total_price_commodity AS total_price_commodity, op.comment AS comment
+    FROM approved_entries c
+    JOIN postings op ON op.entry_id = c.entry_id
+    WHERE c.current_revision = 0
+    UNION ALL
+    SELECT c.entry_id AS entry_id, rp.posting_index AS posting_index, rp.account AS account,
+           rp.amount_text AS amount_text, rp.amount_scale AS amount_scale, rp.commodity AS commodity,
+           rp.total_price_amount_text AS total_price_amount_text,
+           rp.total_price_amount_scale AS total_price_amount_scale,
+           rp.total_price_commodity AS total_price_commodity, rp.comment AS comment
+    FROM approved_entries c
+    JOIN revision_postings rp ON rp.entry_id = c.entry_id AND rp.revision = c.current_revision
+    WHERE c.current_revision > 0
 )
-SELECT c.entry_id, op.posting_index, op.account, op.amount_text, op.amount_scale, op.commodity,
-       op.total_price_amount_text, op.total_price_amount_scale, op.total_price_commodity, op.comment
-FROM approved_entries c
-JOIN postings op ON op.entry_id = c.entry_id
-WHERE c.current_revision = 0
-UNION ALL
-SELECT c.entry_id, rp.posting_index, rp.account, rp.amount_text, rp.amount_scale, rp.commodity,
-       rp.total_price_amount_text, rp.total_price_amount_scale, rp.total_price_commodity, rp.comment
-FROM approved_entries c
-JOIN revision_postings rp ON rp.entry_id = c.entry_id AND rp.revision = c.current_revision
-WHERE c.current_revision > 0
+SELECT entry_id, posting_index, account, amount_text, amount_scale, commodity,
+       total_price_amount_text, total_price_amount_scale, total_price_commodity, comment
+FROM approved_postings
 ORDER BY entry_id, posting_index`
 	rows, err := transaction.QueryContext(ctx, statement)
 	if err != nil {

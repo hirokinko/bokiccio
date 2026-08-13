@@ -36,6 +36,7 @@ func TestTrialBalanceUsesOnlyCurrentApprovedSnapshots(t *testing.T) {
 	twenty := "20"
 	latest, err := store.CreateRevision(ctx, ids[1], webapp.RevisionRequest{
 		BaseRevision: &zero, OccurredAt: "2025-04-10", Description: "approved current revision",
+		Comments: []string{"anonymous approved revision"},
 		Postings: []webapp.PostingDetail{
 			{Account: "Expenses:Supplies", Amount: &twenty, Commodity: "JPY"},
 			{Account: "Assets:Cash"},
