@@ -203,6 +203,12 @@ func validateAccount(account string) error {
 	return nil
 }
 
+// ValidateAccount verifies that account is valid for Bokiccio's ledger
+// domain without requiring a complete journal entry.
+func ValidateAccount(account string) error {
+	return validateAccount(account)
+}
+
 func validateCommodity(commodity Commodity) error {
 	if !validIdentifierPart(string(commodity), false) {
 		return fmt.Errorf("%w: %q", ErrInvalidCommodity, commodity)
