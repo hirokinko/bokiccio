@@ -607,6 +607,10 @@ func TestMigrationPreservesV1Entries(t *testing.T) {
 		t.Fatalf("Import() error = %v", err)
 	}
 	for _, statement := range []string{
+		`DROP TABLE reporting_opening_entries`,
+		`DROP TABLE reporting_fiscal_years`,
+		`DROP TABLE reporting_classifications`,
+		`DROP TABLE reporting_configurations`,
 		`ALTER TABLE postings DROP COLUMN total_price_commodity`,
 		`ALTER TABLE postings DROP COLUMN total_price_amount_scale`,
 		`ALTER TABLE postings DROP COLUMN total_price_amount_text`,

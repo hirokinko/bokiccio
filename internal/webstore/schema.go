@@ -7,7 +7,7 @@ import (
 	"fmt"
 )
 
-const SchemaVersion = 3
+const SchemaVersion = 4
 
 var ErrUnsupportedSchema = errors.New("unsupported web storage schema")
 
@@ -167,6 +167,43 @@ var migrationV3 = []string{
 	`ALTER TABLE revision_postings ADD COLUMN total_price_commodity TEXT`,
 }
 
+var migrationV4 = []string{
+	`CREATE TABLE reporting_configurations (
+    revision INTEGER PRIMARY KEY CHECK (revision >= 1),
+    base_revision INTEGER NOT NULL CHECK (base_revision >= 0),
+    created_at TEXT NOT NULL,
+    start_month INTEGER NOT NULL CHECK (start_month BETWEEN 1 AND 12),
+    CHECK (revision = base_revision + 1)
+)`,
+	`CREATE TABLE reporting_classifications (
+    revision INTEGER NOT NULL,
+    account TEXT NOT NULL,
+    category TEXT NOT NULL CHECK (category IN ('asset', 'liability', 'equity', 'revenue', 'expense')),
+    PRIMARY KEY (revision, account),
+    FOREIGN KEY (revision) REFERENCES reporting_configurations(revision)
+)`,
+	`CREATE TABLE reporting_fiscal_years (
+    revision INTEGER NOT NULL,
+    start_date TEXT NOT NULL,
+    end_date TEXT NOT NULL,
+    opening_mode TEXT NOT NULL CHECK (opening_mode IN ('automatic', 'opening_entries')),
+    PRIMARY KEY (revision, start_date, end_date),
+    FOREIGN KEY (revision) REFERENCES reporting_configurations(revision)
+)`,
+	`CREATE TABLE reporting_opening_entries (
+    revision INTEGER NOT NULL,
+    fiscal_year_start TEXT NOT NULL,
+    fiscal_year_end TEXT NOT NULL,
+    entry_index INTEGER NOT NULL CHECK (entry_index >= 0),
+    entry_id TEXT NOT NULL,
+    PRIMARY KEY (revision, fiscal_year_start, fiscal_year_end, entry_index),
+    UNIQUE (revision, fiscal_year_start, fiscal_year_end, entry_id),
+    FOREIGN KEY (revision, fiscal_year_start, fiscal_year_end)
+        REFERENCES reporting_fiscal_years(revision, start_date, end_date),
+    FOREIGN KEY (entry_id) REFERENCES entries(entry_id)
+)`,
+}
+
 func Migrate(ctx context.Context, database *sql.DB) (resultErr error) {
 	transaction, err := database.BeginTx(ctx, nil)
 	if err != nil {
@@ -223,6 +260,17 @@ func Migrate(ctx context.Context, database *sql.DB) (resultErr error) {
 		}
 		if _, err := transaction.ExecContext(ctx, `UPDATE schema_metadata SET version = 3 WHERE singleton = 1 AND version = 2`); err != nil {
 			return fmt.Errorf("commit schema version 3: %w", err)
+		}
+		version = 3
+	}
+	if version == 3 {
+		for index, statement := range migrationV4 {
+			if _, err := transaction.ExecContext(ctx, statement); err != nil {
+				return fmt.Errorf("apply schema v4 statement %d: %w", index+1, err)
+			}
+		}
+		if _, err := transaction.ExecContext(ctx, `UPDATE schema_metadata SET version = 4 WHERE singleton = 1 AND version = 3`); err != nil {
+			return fmt.Errorf("commit schema version 4: %w", err)
 		}
 	}
 	if err := transaction.Commit(); err != nil {

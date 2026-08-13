@@ -5,15 +5,17 @@ import (
 	"errors"
 
 	"github.com/hirokinko/bokiccio/internal/ledger"
+	"github.com/hirokinko/bokiccio/internal/reporting"
 )
 
 const APISchemaVersion = 1
 
 var (
-	ErrNotFound        = errors.New("web resource not found")
-	ErrConflict        = errors.New("web resource conflict")
-	ErrInvalidRequest  = errors.New("invalid web request")
-	ErrInvalidRevision = errors.New("invalid entry revision")
+	ErrNotFound               = errors.New("web resource not found")
+	ErrConflict               = errors.New("web resource conflict")
+	ErrInvalidRequest         = errors.New("invalid web request")
+	ErrInvalidRevision        = errors.New("invalid entry revision")
+	ErrReportingNotConfigured = errors.New("financial reporting is not configured")
 )
 
 type Repository interface {
@@ -24,6 +26,9 @@ type Repository interface {
 	CreateRevision(context.Context, string, RevisionRequest) (RevisionDetail, error)
 	ApproveRevision(context.Context, string, ApprovalRequest) (ApprovalDetail, error)
 	ListApprovedEntries(context.Context, EntryFilter) ([]ApprovedEntry, error)
+	GetCurrentReportingConfiguration(context.Context) (ReportingConfigurationDetail, error)
+	GetReportingConfiguration(context.Context, int) (ReportingConfigurationDetail, error)
+	CreateReportingConfiguration(context.Context, ReportingConfigurationRequest) (ReportingConfigurationDetail, error)
 }
 
 type ImportResult struct {
@@ -193,4 +198,33 @@ type ExportEntry struct {
 type JSONExport struct {
 	SchemaVersion int           `json:"schema_version"`
 	Entries       []ExportEntry `json:"entries"`
+}
+
+type ReportingClassification struct {
+	Account  string             `json:"account"`
+	Category reporting.Category `json:"category"`
+}
+
+type ReportingFiscalYear struct {
+	StartDate       string                `json:"start_date"`
+	EndDate         string                `json:"end_date"`
+	OpeningMode     reporting.OpeningMode `json:"opening_mode"`
+	OpeningEntryIDs []string              `json:"opening_entry_ids"`
+}
+
+type ReportingConfigurationRequest struct {
+	BaseRevision    *int                      `json:"base_revision"`
+	StartMonth      int                       `json:"start_month"`
+	Classifications []ReportingClassification `json:"classifications"`
+	FiscalYears     []ReportingFiscalYear     `json:"fiscal_years"`
+}
+
+type ReportingConfigurationDetail struct {
+	SchemaVersion   int                       `json:"schema_version"`
+	Revision        int                       `json:"revision"`
+	BaseRevision    int                       `json:"base_revision"`
+	CreatedAt       string                    `json:"created_at"`
+	StartMonth      int                       `json:"start_month"`
+	Classifications []ReportingClassification `json:"classifications"`
+	FiscalYears     []ReportingFiscalYear     `json:"fiscal_years"`
 }

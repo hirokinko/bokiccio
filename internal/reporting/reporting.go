@@ -175,6 +175,20 @@ func ValidateConfiguration(configuration Configuration) error {
 	return nil
 }
 
+// Classify returns the category assigned to account by configuration. Accounts
+// without a matching classification are returned as CategoryUnknown.
+func Classify(configuration Configuration, account string) (Category, error) {
+	if err := ledger.ValidateAccount(account); err != nil {
+		return CategoryUnknown, ErrInvalidConfiguration
+	}
+	for _, classification := range configuration.Classifications {
+		if account == classification.Account || strings.HasPrefix(account, classification.Account+":") {
+			return classification.Category, nil
+		}
+	}
+	return CategoryUnknown, nil
+}
+
 func FiscalPeriods(year FiscalYear, startMonth int) ([]FiscalPeriod, error) {
 	start, end, err := parseFiscalYear(year, startMonth)
 	if err != nil {
