@@ -470,6 +470,9 @@ td {
 	color: #667066;
 	font-size: 0.9rem;
 }
+.trial-balance-mobile {
+	display: none;
+}
 .warning-code {
 	display: block;
 	color: #924817;
@@ -515,6 +518,78 @@ td {
 	.period-form {
 		align-items: stretch;
 		flex-direction: column;
+	}
+	.trial-balance-desktop {
+		display: none;
+	}
+	.trial-balance-mobile {
+		display: grid;
+		gap: 1rem;
+	}
+	.trial-balance-mobile-group,
+	.trial-balance-mobile-grand-total {
+		display: grid;
+		gap: 0.75rem;
+		padding: 1rem;
+		border: 1px solid #d8d4ca;
+		border-radius: 0.5rem;
+		background: #f4f2ec;
+	}
+	.trial-balance-mobile-group h3,
+	.trial-balance-mobile-grand-total h3,
+	.trial-balance-account-card h4 {
+		margin: 0;
+	}
+	.trial-balance-account-card,
+	.trial-balance-mobile-total {
+		padding: 0.9rem;
+		border-radius: 0.4rem;
+		background: #fff;
+	}
+	.trial-balance-account-card {
+		display: grid;
+		gap: 0.75rem;
+	}
+	.mobile-amount-kind {
+		display: block;
+		margin-bottom: 0.6rem;
+		color: #667066;
+		font-size: 0.8rem;
+		font-weight: 700;
+	}
+	.mobile-amount-grid {
+		display: grid;
+		grid-template-columns: repeat(2, minmax(0, 1fr));
+		gap: 0.65rem;
+		margin: 0;
+		font-variant-numeric: tabular-nums;
+	}
+	.mobile-amount-grid div {
+		min-width: 0;
+		padding-top: 0.5rem;
+		border-top: 1px solid #e2dfd7;
+	}
+	.mobile-amount-grid dt {
+		color: #667066;
+		font-size: 0.75rem;
+		font-weight: 700;
+	}
+	.mobile-amount-grid dd {
+		margin: 0.2rem 0 0;
+		overflow-wrap: anywhere;
+		font-weight: 700;
+	}
+	.direct-amount-details {
+		padding-top: 0.6rem;
+		border-top: 1px solid #e2dfd7;
+	}
+	.direct-amount-details summary {
+		color: #215c42;
+		font-weight: 700;
+		cursor: pointer;
+	}
+	.direct-amount-details .mobile-amount-grid {
+		margin-top: 0.65rem;
 	}
 	.status-list {
 		min-width: 0;

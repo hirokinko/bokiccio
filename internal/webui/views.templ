@@ -231,7 +231,7 @@ templ trialBalanceCommodity(msg messages, commodity reporting.CommoditySection) 
 	<section class="commodity-section">
 		<h2>{ msg.TrialBalanceCommodity }: { commodity.Commodity }</h2>
 		<p class="table-help">{ msg.TrialBalanceTableHelp }</p>
-		<div class="table-wrap"><table class="trial-balance-table">
+		<div class="table-wrap trial-balance-desktop"><table class="trial-balance-table">
 			<thead><tr><th>{ msg.AccountColumn }</th>@trialBalanceColumnHeadings(msg)</tr></thead>
 			<tbody>
 				for _, group := range commodity.Groups {
@@ -250,6 +250,36 @@ templ trialBalanceCommodity(msg messages, commodity reporting.CommoditySection) 
 			</tbody>
 			<tfoot><tr><th>{ commodity.Commodity }</th>@trialBalanceAmountCells(commodity.Total)</tr></tfoot>
 		</table></div>
+		<div class="trial-balance-mobile">
+			for _, group := range commodity.Groups {
+				<section class="trial-balance-mobile-group">
+					<h3>{ reportingCategoryLabel(msg, group.Category) }</h3>
+					<div class="trial-balance-mobile-total">
+						<span class="mobile-amount-kind">{ msg.TrialBalanceSubtotal }</span>
+						@trialBalanceMobileAmounts(msg, group.Total)
+					</div>
+					for _, account := range group.Accounts {
+						<article class="trial-balance-account-card">
+							<h4>{ accountLabel(account) }</h4>
+							for _, warning := range account.Warnings {
+								<span class="warning-code">{ warning.Code }</span>
+							}
+							@trialBalanceMobileAmounts(msg, account.Subtotal)
+							if hasDistinctDirectAmounts(account) {
+								<details class="direct-amount-details">
+									<summary>{ msg.TrialBalanceDirect }</summary>
+									@trialBalanceMobileAmounts(msg, account.Direct)
+								</details>
+							}
+						</article>
+					}
+				</section>
+			}
+			<section class="trial-balance-mobile-grand-total">
+				<h3>{ commodity.Commodity }</h3>
+				@trialBalanceMobileAmounts(msg, commodity.Total)
+			</section>
+		</div>
 	</section>
 }
 
@@ -259,6 +289,17 @@ templ trialBalanceColumnHeadings(msg messages) {
 
 templ trialBalanceAmountCells(amounts reporting.Amounts) {
 	<td>{ amounts.Opening.Debit }</td><td>{ amounts.Opening.Credit }</td><td>{ amounts.DebitTurnover }</td><td>{ amounts.CreditTurnover }</td><td>{ amounts.Closing.Debit }</td><td>{ amounts.Closing.Credit }</td>
+}
+
+templ trialBalanceMobileAmounts(msg messages, amounts reporting.Amounts) {
+	<dl class="mobile-amount-grid">
+		<div><dt>{ msg.TrialBalanceOpeningDebit }</dt><dd>{ amounts.Opening.Debit }</dd></div>
+		<div><dt>{ msg.TrialBalanceOpeningCredit }</dt><dd>{ amounts.Opening.Credit }</dd></div>
+		<div><dt>{ msg.TrialBalanceDebitTurnover }</dt><dd>{ amounts.DebitTurnover }</dd></div>
+		<div><dt>{ msg.TrialBalanceCreditTurnover }</dt><dd>{ amounts.CreditTurnover }</dd></div>
+		<div><dt>{ msg.TrialBalanceClosingDebit }</dt><dd>{ amounts.Closing.Debit }</dd></div>
+		<div><dt>{ msg.TrialBalanceClosingCredit }</dt><dd>{ amounts.Closing.Credit }</dd></div>
+	</dl>
 }
 
 templ searchForm(model indexPageModel) {

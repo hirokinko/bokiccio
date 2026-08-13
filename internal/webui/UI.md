@@ -62,7 +62,8 @@ descendantへ継承し、会計年度は開始日・終了日、期首残高方�
 初期表示は設定内の最後の会計年度全体を決定的に選び、current dateへ依存しない。commodityを別sectionに分け、category、
 account階層、小計、期首・発生・期末の借方・貸方をcanonical decimal stringのまま表示する。通常の科目行は配下を含む小計を
 表示し、直接計上値が小計と異なる場合だけ補助行へ表示する。未分類accountも金額へ含め、科目欄にWARNINGと設定画面への導線を
-表示する。
+表示する。狭い画面では横長tableを科目別cardへ切り替え、6つの金額を2列で表示する。小計と異なる直接計上値は折りたたみ内へ
+配置し、横スクロールなしでreport全体を確認できるようにする。
 
 normalized input uploadは`multipart/form-data`のPOST bodyで送信します。file fieldは`file`、file contentは最大10 MiB、request全体にも小さなoverhead上限を設けます。filenameとclient側Content-Typeはsource、identity、format判定には使わず、保存、log、HTML responseへの反映もしません。record単位のerrorを含んだ取込runも保存できた場合は成功uploadとして扱い、`303 See Other`で`/imports/{run-identity}`または`/en/imports/{run-identity}`へredirectします。
 

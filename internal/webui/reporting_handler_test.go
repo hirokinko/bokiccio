@@ -141,6 +141,7 @@ func TestTrialBalanceUISelectionWarningsAndLocale(t *testing.T) {
 	assertContainsAll(t, reportJA.Body.String(), []string{
 		"試算表", "JPY", "125.00", "未分類", "unclassified_account", `href="/settings/reporting"`,
 		"各科目の金額は配下を含む小計です", `class="direct-detail-row"`,
+		`class="trial-balance-mobile"`, `class="mobile-amount-grid"`, `class="direct-amount-details"`,
 	})
 	assertContainsAll(t, reportEN.Body.String(), []string{"Trial balance", "JPY", "125.00", "Unclassified", "unclassified_account", `href="/en/settings/reporting"`})
 	if strings.Contains(reportJA.Body.String(), `colspan="6"`) {
