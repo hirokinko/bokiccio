@@ -1,6 +1,9 @@
 package webui
 
-import "github.com/hirokinko/bokiccio/internal/webapp"
+import (
+	"github.com/hirokinko/bokiccio/internal/reporting"
+	"github.com/hirokinko/bokiccio/internal/webapp"
+)
 
 templ documentHead(title string) {
 	<head>
@@ -19,11 +22,18 @@ templ siteHeader(page pageContext) {
 			<a class="brand" href={ page.HomeHref }>Bokiccio</a>
 			<span>{ page.Messages.SiteTagline }</span>
 		</div>
-		<nav class="language-switcher" aria-label={ page.Messages.LanguageLabel }>
-			<span>{ page.CurrentLocale }</span>
-			<a href={ page.JapaneseHref }>{ page.Messages.JapaneseLanguage }</a>
-			<a href={ page.EnglishHref }>{ page.Messages.EnglishLanguage }</a>
-		</nav>
+		<div class="site-navigation">
+			<nav class="primary-navigation">
+				<a href={ page.HomeHref }>{ page.Messages.NavigationEntries }</a>
+				<a href={ page.SettingsHref }>{ page.Messages.NavigationSettings }</a>
+				<a href={ page.ReportsHref }>{ page.Messages.NavigationReports }</a>
+			</nav>
+			<nav class="language-switcher" aria-label={ page.Messages.LanguageLabel }>
+				<span>{ page.CurrentLocale }</span>
+				<a href={ page.JapaneseHref }>{ page.Messages.JapaneseLanguage }</a>
+				<a href={ page.EnglishHref }>{ page.Messages.EnglishLanguage }</a>
+			</nav>
+		</div>
 	</header>
 }
 
@@ -65,6 +75,171 @@ templ uploadForm(model indexPageModel) {
 		<label>{ model.Page.Messages.TacklerUploadFileLabel }<input type="file" name="file" accept="text/plain,.txn" required/></label>
 		<button type="submit">{ model.Page.Messages.TacklerUploadSubmit }</button>
 	</form>
+}
+
+templ reportingSettingsPage(model reportingSettingsPageModel) {
+	<!DOCTYPE html>
+	<html lang={ model.Page.Locale.lang() }>
+		@documentHead(model.Page.Messages.ReportingSettingsTitle)
+		<body>
+			@siteHeader(model.Page)
+			<main id="main-content" class="page detail-page reporting-settings-page">
+				<header class="page-heading"><div><p class="eyebrow">{ model.Page.Messages.ReportingSettingsEyebrow }</p><h1>{ model.Page.Messages.ReportingSettingsTitle }</h1></div></header>
+				<p>{ model.Page.Messages.ReportingSettingsIntro }</p>
+				if !model.Configured {
+					<section class="empty-state"><p>{ model.Page.Messages.ReportingNotConfigured }</p></section>
+				} else {
+					<p>{ model.Page.Messages.ReportingRevisionLabel }: { model.Form.BaseRevision }</p>
+				}
+				if model.FormError != "" {
+					<section class="form-error" role="alert"><h2>{ model.Page.Messages.FormErrorTitle }</h2><p>{ model.FormError }</p></section>
+				}
+				<form class="reporting-form" method="post" action={ model.Form.Action }>
+					<input type="hidden" name="base_revision" value={ formInt(model.Form.BaseRevision) }/>
+					<section aria-labelledby="calendar-heading">
+						<h2 id="calendar-heading">{ model.Page.Messages.ReportingCalendarHeading }</h2>
+						<label class="stacked-field">{ model.Page.Messages.ReportingStartMonthLabel }<input type="number" name="start_month" min="1" max="12" value={ formInt(model.Form.StartMonth) } required/></label>
+						<p class="warning-note">{ model.Page.Messages.ReportingCalendarWarning }</p>
+					</section>
+					<section aria-labelledby="classification-heading">
+						<h2 id="classification-heading">{ model.Page.Messages.ReportingClassifications }</h2>
+						<p>{ model.Page.Messages.ReportingClassificationHelp }</p>
+						<div class="configuration-rows">
+							for _, classification := range model.Form.Classifications {
+								<div class="configuration-row classification-row">
+									<label>{ model.Page.Messages.AccountColumn }<input name="classification_account" value={ classification.Account }/></label>
+									<label>{ model.Page.Messages.ReportingCategoryLabel }<select name="classification_category">
+										for _, option := range reportingCategoryOptions(model.Page.Messages) {
+											if classification.Category == option.Value {
+												<option value={ string(option.Value) } selected>{ option.Label }</option>
+											} else {
+												<option value={ string(option.Value) }>{ option.Label }</option>
+											}
+										}
+									</select></label>
+								</div>
+							}
+						</div>
+					</section>
+					<section aria-labelledby="fiscal-years-heading">
+						<h2 id="fiscal-years-heading">{ model.Page.Messages.ReportingFiscalYears }</h2>
+						<p>{ model.Page.Messages.ReportingFiscalYearHelp }</p>
+						<div class="configuration-rows">
+							for _, year := range model.Form.FiscalYears {
+								<fieldset class="configuration-row fiscal-year-row">
+									<label>{ model.Page.Messages.ReportingStartDateLabel }<input type="date" name="fiscal_start_date" value={ year.StartDate }/></label>
+									<label>{ model.Page.Messages.ReportingEndDateLabel }<input type="date" name="fiscal_end_date" value={ year.EndDate }/></label>
+									<label>{ model.Page.Messages.ReportingOpeningModeLabel }<select name="opening_mode">
+										if year.OpeningMode == reporting.OpeningEntries {
+											<option value="automatic">{ model.Page.Messages.ReportingOpeningAutomatic }</option>
+											<option value="opening_entries" selected>{ model.Page.Messages.ReportingOpeningEntries }</option>
+										} else {
+											<option value="automatic" selected>{ model.Page.Messages.ReportingOpeningAutomatic }</option>
+											<option value="opening_entries">{ model.Page.Messages.ReportingOpeningEntries }</option>
+										}
+									</select></label>
+									<label class="opening-entry-field">{ model.Page.Messages.ReportingOpeningEntryIDs }<textarea name="opening_entry_ids" rows="3">{ year.OpeningEntryIDs }</textarea><span class="field-help">{ model.Page.Messages.ReportingOpeningEntryIDsHelp }</span></label>
+								</fieldset>
+							}
+						</div>
+					</section>
+					<div class="form-actions"><button type="submit">{ model.Page.Messages.ReportingSave }</button></div>
+				</form>
+				<section aria-labelledby="unclassified-heading">
+					<h2 id="unclassified-heading">{ model.Page.Messages.ReportingUnclassifiedHeading }</h2>
+					if len(model.UnclassifiedAccounts) == 0 {
+						<p>{ model.Page.Messages.ReportingUnclassifiedNone }</p>
+					} else {
+						<ul>
+							for _, account := range model.UnclassifiedAccounts {
+								<li>{ account }</li>
+							}
+						</ul>
+					}
+				</section>
+			</main>
+		</body>
+	</html>
+}
+
+templ trialBalancePage(model trialBalancePageModel) {
+	<!DOCTYPE html>
+	<html lang={ model.Page.Locale.lang() }>
+		@documentHead(model.Page.Messages.TrialBalanceTitle)
+		<body>
+			@siteHeader(model.Page)
+			<main id="main-content" class="page detail-page trial-balance-page">
+				<header class="page-heading"><div><p class="eyebrow">{ model.Page.Messages.TrialBalanceEyebrow }</p><h1>{ model.Page.Messages.TrialBalanceTitle }</h1></div></header>
+				if !model.Configured {
+					<section class="empty-state"><p>{ model.Page.Messages.TrialBalanceNotConfigured }</p><a href={ model.SetupHref }>{ model.Page.Messages.TrialBalanceSetupLink }</a></section>
+				} else {
+					if model.FormError != "" {
+						<section class="form-error" role="alert"><h2>{ model.Page.Messages.FormErrorTitle }</h2><p>{ model.FormError }</p></section>
+					}
+					<form class="period-form" method="post" action={ model.FormAction }>
+						<label>{ model.Page.Messages.TrialBalancePeriodLabel }<select name="period">
+							for _, option := range model.Periods {
+								if option.Period == model.Selected {
+									<option value={ option.Period.StartDate + "/" + option.Period.EndDate } selected>{ option.Label }</option>
+								} else {
+									<option value={ option.Period.StartDate + "/" + option.Period.EndDate }>{ option.Label }</option>
+								}
+							}
+						</select></label>
+						<button type="submit">{ model.Page.Messages.TrialBalanceShow }</button>
+					</form>
+					if model.Report != nil {
+						<p>{ model.Page.Messages.TrialBalanceConfigurationRevision }: { model.Report.ConfigurationRevision } · { model.Report.Period.StartDate } – { model.Report.Period.EndDate }</p>
+						if !model.Report.ClassificationComplete {
+							<section class="form-error" role="alert"><p>{ model.Page.Messages.TrialBalanceClassificationWarning } <a href={ model.SetupHref }>{ model.Page.Messages.TrialBalanceSetupLink }</a></p></section>
+						}
+						if len(model.Report.Commodities) == 0 {
+							<section class="empty-state"><p>{ model.Page.Messages.TrialBalanceEmpty }</p></section>
+						} else {
+							for _, commodity := range model.Report.Commodities {
+								@trialBalanceCommodity(model.Page.Messages, commodity)
+							}
+						}
+					}
+				}
+			</main>
+		</body>
+	</html>
+}
+
+templ trialBalanceCommodity(msg messages, commodity reporting.CommoditySection) {
+	<section class="commodity-section">
+		<h2>{ msg.TrialBalanceCommodity }: { commodity.Commodity }</h2>
+		<div class="table-wrap"><table class="trial-balance-table">
+			<thead><tr><th rowspan="2">{ msg.AccountColumn }</th><th colspan="6">{ msg.TrialBalanceDirect }</th><th colspan="6">{ msg.TrialBalanceSubtotal }</th><th rowspan="2">{ msg.TrialBalanceWarnings }</th></tr>
+			<tr>@trialBalanceColumnHeadings(msg)@trialBalanceColumnHeadings(msg)</tr></thead>
+			<tbody>
+				for _, group := range commodity.Groups {
+					<tr class="category-row"><th>{ reportingCategoryLabel(msg, group.Category) }</th>@emptyTrialBalanceCells()@trialBalanceAmountCells(group.Total)<td></td></tr>
+					for _, account := range group.Accounts {
+						<tr><th>{ accountLabel(account) }</th>@trialBalanceAmountCells(account.Direct)@trialBalanceAmountCells(account.Subtotal)<td>
+							for _, warning := range account.Warnings {
+								<span class="warning-code">{ warning.Code }</span>
+							}
+						</td></tr>
+					}
+				}
+			</tbody>
+			<tfoot><tr><th>{ commodity.Commodity }</th>@emptyTrialBalanceCells()@trialBalanceAmountCells(commodity.Total)<td></td></tr></tfoot>
+		</table></div>
+	</section>
+}
+
+templ trialBalanceColumnHeadings(msg messages) {
+	<th>{ msg.TrialBalanceOpeningDebit }</th><th>{ msg.TrialBalanceOpeningCredit }</th><th>{ msg.TrialBalanceDebitTurnover }</th><th>{ msg.TrialBalanceCreditTurnover }</th><th>{ msg.TrialBalanceClosingDebit }</th><th>{ msg.TrialBalanceClosingCredit }</th>
+}
+
+templ trialBalanceAmountCells(amounts reporting.Amounts) {
+	<td>{ amounts.Opening.Debit }</td><td>{ amounts.Opening.Credit }</td><td>{ amounts.DebitTurnover }</td><td>{ amounts.CreditTurnover }</td><td>{ amounts.Closing.Debit }</td><td>{ amounts.Closing.Credit }</td>
+}
+
+templ emptyTrialBalanceCells() {
+	<td></td><td></td><td></td><td></td><td></td><td></td>
 }
 
 templ searchForm(model indexPageModel) {
@@ -375,6 +550,11 @@ templ errorPage(model errorPageModel) {
 	<!DOCTYPE html>
 	<html lang={ model.Page.Locale.lang() }>
 		@documentHead(model.Title)
-		<body>@siteHeader(model.Page)<main id="main-content" class="page error-page"><p class="eyebrow">{ model.Page.Messages.ErrorLabel } { model.Status }</p><h1>{ model.Title }</h1><p>{ model.Message }</p><a href={ model.Page.HomeHref }>{ model.Page.Messages.BackToEntries }</a></main></body>
+		<body>@siteHeader(model.Page)<main id="main-content" class="page error-page"><p class="eyebrow">{ model.Page.Messages.ErrorLabel } { model.Status }</p><h1>{ model.Title }</h1><p>{ model.Message }</p>
+			if model.Detail != "" {
+				<section class="development-error" aria-labelledby="development-error-heading"><h2 id="development-error-heading">{ model.Page.Messages.DevelopmentErrorDetail }</h2><pre>{ model.Detail }</pre></section>
+			}
+			<a href={ model.Page.HomeHref }>{ model.Page.Messages.BackToEntries }</a>
+		</main></body>
 	</html>
 }

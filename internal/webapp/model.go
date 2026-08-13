@@ -18,6 +18,26 @@ var (
 	ErrReportingNotConfigured = errors.New("financial reporting is not configured")
 )
 
+type ReportingConfigurationErrorCode string
+
+const (
+	ReportingOpeningEntryNotApproved      ReportingConfigurationErrorCode = "opening_entry_not_approved"
+	ReportingOpeningEntryDateMismatch     ReportingConfigurationErrorCode = "opening_entry_date_mismatch"
+	ReportingOpeningEntryTemporaryAccount ReportingConfigurationErrorCode = "opening_entry_temporary_account"
+)
+
+type ReportingConfigurationError struct {
+	Code ReportingConfigurationErrorCode
+}
+
+func (err *ReportingConfigurationError) Error() string {
+	return "invalid reporting configuration: " + string(err.Code)
+}
+
+func (err *ReportingConfigurationError) Unwrap() error {
+	return ErrInvalidRequest
+}
+
 type Repository interface {
 	Import(context.Context, []byte) (ImportResult, error)
 	GetRun(context.Context, string) (RunDetail, error)

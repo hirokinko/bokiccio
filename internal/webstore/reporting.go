@@ -58,7 +58,7 @@ func (store *Store) CreateReportingConfiguration(ctx context.Context, request we
 	revision := *request.BaseRevision + 1
 	configuration := reportingConfiguration(revision, request)
 	if err := reporting.ValidateConfiguration(configuration); err != nil {
-		return webapp.ReportingConfigurationDetail{}, webapp.ErrInvalidRequest
+		return webapp.ReportingConfigurationDetail{}, fmt.Errorf("%w: %w", webapp.ErrInvalidRequest, err)
 	}
 
 	transaction, err := store.database.BeginTx(ctx, nil)
@@ -137,17 +137,17 @@ func validateOpeningEntries(ctx context.Context, transaction *sql.Tx, configurat
 			entry, err := loadCurrentApprovedEntry(ctx, transaction, entryID)
 			if err != nil {
 				if errors.Is(err, webapp.ErrNotFound) || errors.Is(err, webapp.ErrInvalidRevision) {
-					return webapp.ErrInvalidRequest
+					return &webapp.ReportingConfigurationError{Code: webapp.ReportingOpeningEntryNotApproved}
 				}
 				return err
 			}
 			if entry.Entry.Date.String()[:10] != year.StartDate {
-				return webapp.ErrInvalidRequest
+				return &webapp.ReportingConfigurationError{Code: webapp.ReportingOpeningEntryDateMismatch}
 			}
 			for _, posting := range entry.Entry.Postings {
 				category, err := reporting.Classify(configuration, posting.Account)
 				if err != nil || (category != reporting.CategoryAsset && category != reporting.CategoryLiability && category != reporting.CategoryEquity) {
-					return webapp.ErrInvalidRequest
+					return &webapp.ReportingConfigurationError{Code: webapp.ReportingOpeningEntryTemporaryAccount}
 				}
 			}
 		}

@@ -30,6 +30,27 @@ func TestLoadServerConfig(t *testing.T) {
 	}
 }
 
+func TestLoadServerConfigDevelopmentErrorsAreExplicit(t *testing.T) {
+	values := map[string]string{
+		DatabaseURLEnv: "libsql://bokiccio-example.turso.io", DatabaseTokenEnv: "private-token",
+		IAPAudienceEnv: "/projects/123/locations/asia-northeast1/services/bokiccio",
+		OwnerEmailEnv:  "owner@example.com", ExternalOriginEnv: "https://bokiccio.example.com", PortEnv: "8080",
+	}
+	production, err := LoadServerConfig(mapLookup(values))
+	if err != nil || production.Development {
+		t.Fatalf("default config=%+v error=%v", production, err)
+	}
+	values[EnvironmentEnv] = "development"
+	development, err := LoadServerConfig(mapLookup(values))
+	if err != nil || !development.Development {
+		t.Fatalf("development config=%+v error=%v", development, err)
+	}
+	values[EnvironmentEnv] = "private-invalid-value"
+	if _, err := LoadServerConfig(mapLookup(values)); err == nil || !strings.Contains(err.Error(), EnvironmentEnv) || strings.Contains(err.Error(), "private-invalid-value") {
+		t.Fatalf("invalid environment error=%v", err)
+	}
+}
+
 func TestConfigurationFailuresDoNotExposeToken(t *testing.T) {
 	secret := "do-not-print-this-token"
 	tests := []map[string]string{

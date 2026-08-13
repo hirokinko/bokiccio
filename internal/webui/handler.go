@@ -13,12 +13,14 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/url"
+	"sort"
 	"strconv"
 	"strings"
 
 	"github.com/a-h/templ"
 	"github.com/hirokinko/bokiccio/internal/ingest"
 	"github.com/hirokinko/bokiccio/internal/ledger"
+	"github.com/hirokinko/bokiccio/internal/reporting"
 	"github.com/hirokinko/bokiccio/internal/tacklerfmt"
 	"github.com/hirokinko/bokiccio/internal/webapp"
 )
@@ -27,6 +29,7 @@ const (
 	defaultPageSize      = 50
 	maxSearchFormBody    = 16 << 10
 	maxRevisionFormBody  = 64 << 10
+	maxReportingFormBody = 256 << 10
 	maxImportFileSize    = 10 << 20
 	maxImportRequestSize = maxImportFileSize + (64 << 10)
 	importFileField      = "file"
@@ -36,11 +39,20 @@ const (
 var assetFiles embed.FS
 
 type Handler struct {
-	repository webapp.Repository
+	repository  webapp.Repository
+	development bool
 }
 
-func NewHandler(repository webapp.Repository) *Handler {
-	return &Handler{repository: repository}
+type HandlerOptions struct {
+	Development bool
+}
+
+func NewHandler(repository webapp.Repository, options ...HandlerOptions) *Handler {
+	handler := &Handler{repository: repository}
+	if len(options) > 0 {
+		handler.development = options[0].Development
+	}
+	return handler
 }
 
 func RenderSecurityError(response http.ResponseWriter, request *http.Request, securityError webapp.SecurityError) {
@@ -104,6 +116,30 @@ func (handler *Handler) ServeHTTP(response http.ResponseWriter, request *http.Re
 			return
 		}
 		handler.importTackler(response, request, requestLocale)
+	case localPath == "/settings/reporting":
+		if request.Method != http.MethodGet && request.Method != http.MethodHead {
+			handler.methodNotAllowed(response, request, requestLocale, localPath, "GET, HEAD")
+			return
+		}
+		handler.reportingSettings(response, request, requestLocale)
+	case localPath == "/ui/settings/reporting":
+		if request.Method != http.MethodPost {
+			handler.methodNotAllowed(response, request, requestLocale, localPath, "POST")
+			return
+		}
+		handler.updateReportingSettings(response, request, requestLocale)
+	case localPath == "/reports/trial-balance":
+		if request.Method != http.MethodGet && request.Method != http.MethodHead {
+			handler.methodNotAllowed(response, request, requestLocale, localPath, "GET, HEAD")
+			return
+		}
+		handler.trialBalance(response, request, requestLocale)
+	case localPath == "/ui/reports/trial-balance":
+		if request.Method != http.MethodPost {
+			handler.methodNotAllowed(response, request, requestLocale, localPath, "POST")
+			return
+		}
+		handler.selectTrialBalance(response, request, requestLocale)
 	case strings.HasPrefix(localPath, "/ui/exports/"):
 		if request.Method != http.MethodPost {
 			handler.methodNotAllowed(response, request, requestLocale, localPath, "POST")
@@ -136,11 +172,184 @@ func (handler *Handler) ServeHTTP(response http.ResponseWriter, request *http.Re
 func (handler *Handler) index(response http.ResponseWriter, request *http.Request, requestLocale locale) {
 	page, err := handler.repository.ListEntries(request.Context(), webapp.EntryQuery{Limit: defaultPageSize})
 	if err != nil {
-		handler.internalError(response, request, requestLocale)
+		handler.internalError(response, request, requestLocale, err)
 		return
 	}
 	model := newIndexPageModel(requestLocale, webapp.EntryFilter{}, page, false)
 	render(response, request, http.StatusOK, indexPage(model))
+}
+
+func (handler *Handler) reportingSettings(response http.ResponseWriter, request *http.Request, requestLocale locale) {
+	detail, err := handler.repository.GetCurrentReportingConfiguration(request.Context())
+	if errors.Is(err, webapp.ErrReportingNotConfigured) {
+		model := newReportingSettingsPageModel(requestLocale, nil, "")
+		render(response, request, http.StatusOK, reportingSettingsPage(model))
+		return
+	}
+	if err != nil {
+		handler.internalError(response, request, requestLocale, err)
+		return
+	}
+	unclassified, err := handler.unclassifiedAccounts(request, detail)
+	if err != nil {
+		handler.internalError(response, request, requestLocale, err)
+		return
+	}
+	model := newReportingSettingsPageModel(requestLocale, &detail, "")
+	model.UnclassifiedAccounts = unclassified
+	render(response, request, http.StatusOK, reportingSettingsPage(model))
+}
+
+func (handler *Handler) updateReportingSettings(response http.ResponseWriter, request *http.Request, requestLocale locale) {
+	input, ok := decodeReportingConfigurationForm(response, request)
+	if !ok {
+		handler.renderReportingSettingsError(response, request, requestLocale,
+			webapp.ReportingConfigurationRequest{}, http.StatusBadRequest, messagesFor(requestLocale).ReportingInvalidFormMessage)
+		return
+	}
+	if _, err := handler.repository.CreateReportingConfiguration(request.Context(), input); err != nil {
+		status := http.StatusInternalServerError
+		message := messagesFor(requestLocale).ReportingSaveFailedMessage
+		switch {
+		case errors.Is(err, webapp.ErrInvalidRequest):
+			status = http.StatusBadRequest
+			message = reportingConfigurationErrorMessage(messagesFor(requestLocale), err)
+		case errors.Is(err, webapp.ErrConflict):
+			status = http.StatusConflict
+			message = messagesFor(requestLocale).ReportingConflictMessage
+		}
+		if status == http.StatusInternalServerError {
+			handler.internalError(response, request, requestLocale, err)
+			return
+		}
+		handler.renderReportingSettingsError(response, request, requestLocale, input, status, message)
+		return
+	}
+	http.Redirect(response, request, reportingSettingsHref(requestLocale), http.StatusSeeOther)
+}
+
+func (handler *Handler) renderReportingSettingsError(response http.ResponseWriter, request *http.Request, requestLocale locale,
+	input webapp.ReportingConfigurationRequest, status int, message string,
+) {
+	detail := reportingConfigurationDetailFromRequest(input)
+	model := newReportingSettingsPageModel(requestLocale, &detail, message)
+	model.Configured = input.BaseRevision != nil && *input.BaseRevision > 0
+	render(response, request, status, reportingSettingsPage(model))
+}
+
+func reportingConfigurationErrorMessage(msg messages, err error) string {
+	var configurationErr *reporting.ConfigurationError
+	if errors.As(err, &configurationErr) {
+		switch configurationErr.Code {
+		case reporting.ConfigurationInvalidStartMonth:
+			return msg.ReportingInvalidStartMonthMessage
+		case reporting.ConfigurationMissingFiscalYears:
+			return msg.ReportingMissingFiscalYearsMessage
+		case reporting.ConfigurationInvalidAccount, reporting.ConfigurationInvalidCategory:
+			return msg.ReportingInvalidClassificationMessage
+		case reporting.ConfigurationOverlappingAccounts:
+			return msg.ReportingOverlappingClassificationsMessage
+		case reporting.ConfigurationInvalidFiscalYear:
+			return msg.ReportingInvalidFiscalYearMessage
+		case reporting.ConfigurationNoncontiguousYears:
+			return msg.ReportingNoncontiguousYearsMessage
+		case reporting.ConfigurationInvalidOpeningMode, reporting.ConfigurationMissingOpeningEntries,
+			reporting.ConfigurationInvalidOpeningEntries:
+			return msg.ReportingInvalidOpeningSettingsMessage
+		}
+	}
+	var openingErr *webapp.ReportingConfigurationError
+	if errors.As(err, &openingErr) {
+		switch openingErr.Code {
+		case webapp.ReportingOpeningEntryNotApproved:
+			return msg.ReportingOpeningNotApprovedMessage
+		case webapp.ReportingOpeningEntryDateMismatch:
+			return msg.ReportingOpeningDateMismatchMessage
+		case webapp.ReportingOpeningEntryTemporaryAccount:
+			return msg.ReportingOpeningTemporaryAccountMessage
+		}
+	}
+	return msg.ReportingInvalidFormMessage
+}
+
+func (handler *Handler) unclassifiedAccounts(request *http.Request, detail webapp.ReportingConfigurationDetail) ([]string, error) {
+	accounts := map[string]struct{}{}
+	for _, year := range detail.FiscalYears {
+		report, err := handler.repository.GetTrialBalance(request.Context(), reporting.Period{
+			StartDate: year.StartDate, EndDate: year.EndDate,
+		})
+		if err != nil {
+			return nil, err
+		}
+		for _, warning := range report.Warnings {
+			if warning.Code == "unclassified_account" {
+				accounts[warning.Account] = struct{}{}
+			}
+		}
+	}
+	result := make([]string, 0, len(accounts))
+	for account := range accounts {
+		result = append(result, account)
+	}
+	sort.Strings(result)
+	return result, nil
+}
+
+func (handler *Handler) trialBalance(response http.ResponseWriter, request *http.Request, requestLocale locale) {
+	detail, err := handler.repository.GetCurrentReportingConfiguration(request.Context())
+	if errors.Is(err, webapp.ErrReportingNotConfigured) {
+		render(response, request, http.StatusOK, trialBalancePage(trialBalancePageModel{
+			Page: newPageContext(requestLocale, "/reports/trial-balance"), SetupHref: reportingSettingsHref(requestLocale),
+		}))
+		return
+	}
+	if err != nil {
+		handler.internalError(response, request, requestLocale, err)
+		return
+	}
+	model, err := newTrialBalancePageModel(requestLocale, detail)
+	if err != nil {
+		handler.internalError(response, request, requestLocale, err)
+		return
+	}
+	period, explicit, ok := trialBalancePeriodQuery(request.URL.Query(), model.Selected)
+	if !ok {
+		model.FormError = messagesFor(requestLocale).TrialBalanceInvalidPeriodMessage
+		render(response, request, http.StatusBadRequest, trialBalancePage(model))
+		return
+	}
+	if explicit {
+		model.Selected = period
+	}
+	report, err := handler.repository.GetTrialBalance(request.Context(), model.Selected)
+	if errors.Is(err, reporting.ErrInvalidPeriod) {
+		model.FormError = messagesFor(requestLocale).TrialBalanceInvalidPeriodMessage
+		render(response, request, http.StatusBadRequest, trialBalancePage(model))
+		return
+	}
+	if err != nil {
+		handler.internalError(response, request, requestLocale, err)
+		return
+	}
+	model.Report = &report
+	render(response, request, http.StatusOK, trialBalancePage(model))
+}
+
+func (handler *Handler) selectTrialBalance(response http.ResponseWriter, request *http.Request, requestLocale locale) {
+	form, ok := decodeStrictForm(response, request, maxSearchFormBody, map[string]bool{
+		"period": false,
+	})
+	parts := strings.Split(form.Get("period"), "/")
+	if !ok || len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+		model := trialBalancePageModel{
+			Page: newPageContext(requestLocale, "/reports/trial-balance"), SetupHref: reportingSettingsHref(requestLocale),
+			FormError: messagesFor(requestLocale).TrialBalanceInvalidPeriodMessage,
+		}
+		render(response, request, http.StatusBadRequest, trialBalancePage(model))
+		return
+	}
+	query := url.Values{"start_date": {parts[0]}, "end_date": {parts[1]}}
+	http.Redirect(response, request, trialBalanceHref(requestLocale)+"?"+query.Encode(), http.StatusSeeOther)
 }
 
 func (handler *Handler) searchEntries(response http.ResponseWriter, request *http.Request, requestLocale locale) {
@@ -468,11 +677,15 @@ func (handler *Handler) notFound(response http.ResponseWriter, request *http.Req
 	}))
 }
 
-func (handler *Handler) internalError(response http.ResponseWriter, request *http.Request, requestLocale locale) {
+func (handler *Handler) internalError(response http.ResponseWriter, request *http.Request, requestLocale locale, causes ...error) {
 	msg := messagesFor(requestLocale)
+	detail := ""
+	if handler.development && len(causes) > 0 && causes[0] != nil {
+		detail = causes[0].Error()
+	}
 	render(response, request, http.StatusInternalServerError, errorPage(errorPageModel{
 		Page: newPageContext(requestLocale, "/"), Status: http.StatusInternalServerError,
-		Title: msg.InternalErrorTitle, Message: msg.InternalErrorMessage,
+		Title: msg.InternalErrorTitle, Message: msg.InternalErrorMessage, Detail: detail,
 	}))
 }
 
@@ -560,6 +773,90 @@ func newEntryPageModel(requestLocale locale, id string, detail webapp.EntryDetai
 		},
 		FormError: formError,
 	}
+}
+
+func newReportingSettingsPageModel(requestLocale locale, detail *webapp.ReportingConfigurationDetail, formError string) reportingSettingsPageModel {
+	model := reportingSettingsPageModel{
+		Page: newPageContext(requestLocale, "/settings/reporting"),
+		Form: reportingConfigurationFormModel{
+			Action: reportingSettingsMutationHref(requestLocale), StartMonth: 1,
+			Classifications: []webapp.ReportingClassification{}, FiscalYears: []reportingFiscalYearFormModel{},
+		},
+		UnclassifiedAccounts: []string{}, FormError: formError,
+	}
+	if detail != nil {
+		model.Configured = detail.Revision > 0
+		model.Form.BaseRevision = detail.Revision
+		if detail.StartMonth > 0 {
+			model.Form.StartMonth = detail.StartMonth
+		}
+		model.Form.Classifications = append(model.Form.Classifications, detail.Classifications...)
+		for _, year := range detail.FiscalYears {
+			model.Form.FiscalYears = append(model.Form.FiscalYears, reportingFiscalYearFormModel{
+				StartDate: year.StartDate, EndDate: year.EndDate, OpeningMode: year.OpeningMode,
+				OpeningEntryIDs: strings.Join(year.OpeningEntryIDs, "\n"),
+			})
+		}
+	}
+	for range 2 {
+		model.Form.Classifications = append(model.Form.Classifications,
+			webapp.ReportingClassification{Category: reporting.CategoryAsset})
+	}
+	model.Form.FiscalYears = append(model.Form.FiscalYears,
+		reportingFiscalYearFormModel{OpeningMode: reporting.OpeningAutomatic})
+	return model
+}
+
+func reportingConfigurationDetailFromRequest(input webapp.ReportingConfigurationRequest) webapp.ReportingConfigurationDetail {
+	detail := webapp.ReportingConfigurationDetail{
+		StartMonth: input.StartMonth, Classifications: input.Classifications, FiscalYears: input.FiscalYears,
+	}
+	if input.BaseRevision != nil {
+		detail.Revision = *input.BaseRevision
+	}
+	return detail
+}
+
+func newTrialBalancePageModel(requestLocale locale, detail webapp.ReportingConfigurationDetail) (trialBalancePageModel, error) {
+	model := trialBalancePageModel{
+		Page: newPageContext(requestLocale, "/reports/trial-balance"), Configured: true,
+		SetupHref: reportingSettingsHref(requestLocale), FormAction: trialBalanceMutationHref(requestLocale),
+		Periods: []trialBalancePeriodOption{},
+	}
+	for _, year := range detail.FiscalYears {
+		periods, err := reporting.FiscalPeriods(reporting.FiscalYear{
+			StartDate: year.StartDate, EndDate: year.EndDate, OpeningMode: year.OpeningMode,
+			OpeningEntryIDs: year.OpeningEntryIDs,
+		}, detail.StartMonth)
+		if err != nil {
+			return trialBalancePageModel{}, err
+		}
+		for _, period := range periods {
+			label := messagesFor(requestLocale).FiscalYearPeriodLabel(period.StartDate, period.EndDate)
+			if period.Month > 0 {
+				label = messagesFor(requestLocale).MonthlyPeriodLabel(period.Month, period.StartDate, period.EndDate)
+			}
+			model.Periods = append(model.Periods, trialBalancePeriodOption{Period: period.Period, Label: label})
+		}
+		model.Selected = periods[0].Period
+	}
+	return model, nil
+}
+
+func trialBalancePeriodQuery(query url.Values, fallback reporting.Period) (reporting.Period, bool, bool) {
+	if len(query) == 0 {
+		return fallback, false, true
+	}
+	for key, values := range query {
+		if (key != "start_date" && key != "end_date") || len(values) != 1 {
+			return reporting.Period{}, false, false
+		}
+	}
+	period := reporting.Period{StartDate: query.Get("start_date"), EndDate: query.Get("end_date")}
+	if period.StartDate == "" || period.EndDate == "" {
+		return reporting.Period{}, false, false
+	}
+	return period, true, true
 }
 
 func currentCandidate(detail webapp.EntryDetail) candidateModel {
@@ -722,6 +1019,93 @@ func decodeApprovalForm(response http.ResponseWriter, request *http.Request) (we
 		return webapp.ApprovalRequest{}, false
 	}
 	return webapp.ApprovalRequest{Revision: &revision}, true
+}
+
+func decodeReportingConfigurationForm(response http.ResponseWriter, request *http.Request) (webapp.ReportingConfigurationRequest, bool) {
+	form, ok := decodeStrictForm(response, request, maxReportingFormBody, map[string]bool{
+		"base_revision": false, "start_month": false,
+		"classification_account": true, "classification_category": true,
+		"fiscal_start_date": true, "fiscal_end_date": true, "opening_mode": true, "opening_entry_ids": true,
+	})
+	if !ok {
+		return webapp.ReportingConfigurationRequest{}, false
+	}
+	baseRevision, err := strconv.Atoi(form.Get("base_revision"))
+	if err != nil || baseRevision < 0 || strconv.Itoa(baseRevision) != form.Get("base_revision") {
+		return webapp.ReportingConfigurationRequest{}, false
+	}
+	startMonth, err := strconv.Atoi(form.Get("start_month"))
+	if err != nil || startMonth < 1 || startMonth > 12 || strconv.Itoa(startMonth) != form.Get("start_month") {
+		return webapp.ReportingConfigurationRequest{}, false
+	}
+	input := webapp.ReportingConfigurationRequest{
+		BaseRevision: &baseRevision, StartMonth: startMonth,
+		Classifications: []webapp.ReportingClassification{}, FiscalYears: []webapp.ReportingFiscalYear{},
+	}
+	accounts, categories := form["classification_account"], form["classification_category"]
+	if len(accounts) != len(categories) {
+		return webapp.ReportingConfigurationRequest{}, false
+	}
+	for index, account := range accounts {
+		account = strings.TrimSpace(account)
+		if account == "" {
+			continue
+		}
+		input.Classifications = append(input.Classifications, webapp.ReportingClassification{
+			Account: account, Category: reporting.Category(categories[index]),
+		})
+	}
+	starts, ends := form["fiscal_start_date"], form["fiscal_end_date"]
+	modes, openingIDs := form["opening_mode"], form["opening_entry_ids"]
+	if len(starts) != len(ends) || len(starts) != len(modes) || len(starts) != len(openingIDs) {
+		return webapp.ReportingConfigurationRequest{}, false
+	}
+	for index := range starts {
+		start, end, idsText := strings.TrimSpace(starts[index]), strings.TrimSpace(ends[index]), strings.TrimSpace(openingIDs[index])
+		if start == "" && end == "" && idsText == "" {
+			continue
+		}
+		year := webapp.ReportingFiscalYear{
+			StartDate: start, EndDate: end, OpeningMode: reporting.OpeningMode(modes[index]), OpeningEntryIDs: []string{},
+		}
+		for _, line := range strings.Split(idsText, "\n") {
+			if id := strings.TrimSpace(line); id != "" {
+				year.OpeningEntryIDs = append(year.OpeningEntryIDs, id)
+			}
+		}
+		input.FiscalYears = append(input.FiscalYears, year)
+	}
+	return input, true
+}
+
+func decodeStrictForm(response http.ResponseWriter, request *http.Request, limit int64, allowed map[string]bool) (url.Values, bool) {
+	if request.URL.RawQuery != "" {
+		return nil, false
+	}
+	mediaType, _, err := mime.ParseMediaType(request.Header.Get("Content-Type"))
+	if err != nil || mediaType != "application/x-www-form-urlencoded" {
+		return nil, false
+	}
+	body, err := io.ReadAll(http.MaxBytesReader(response, request.Body, limit))
+	if err != nil {
+		return nil, false
+	}
+	form, err := url.ParseQuery(string(body))
+	if err != nil {
+		return nil, false
+	}
+	for key, values := range form {
+		repeated, found := allowed[key]
+		if !found || len(values) == 0 || (!repeated && len(values) != 1) {
+			return nil, false
+		}
+	}
+	for key := range allowed {
+		if _, found := form[key]; !found {
+			return nil, false
+		}
+	}
+	return form, true
 }
 
 func decodeURLEncodedForm(response http.ResponseWriter, request *http.Request, limit int64) (url.Values, bool) {

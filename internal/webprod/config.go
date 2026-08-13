@@ -19,6 +19,7 @@ const (
 	OwnerEmailEnv     = "BOKICCIO_OWNER_EMAIL"
 	ExternalOriginEnv = "BOKICCIO_EXTERNAL_ORIGIN"
 	PortEnv           = "PORT"
+	EnvironmentEnv    = "BOKICCIO_ENVIRONMENT"
 )
 
 type LookupEnv func(string) (string, bool)
@@ -29,9 +30,10 @@ type DatabaseConfig struct {
 }
 
 type ServerConfig struct {
-	Database DatabaseConfig
-	Security webapp.IAPSecurity
-	Port     int
+	Database    DatabaseConfig
+	Security    webapp.IAPSecurity
+	Port        int
+	Development bool
 }
 
 func LoadDatabaseConfig(lookup LookupEnv) (DatabaseConfig, error) {
@@ -84,7 +86,17 @@ func LoadServerConfig(lookup LookupEnv) (ServerConfig, error) {
 	if err := security.Validate(); err != nil {
 		return ServerConfig{}, fmt.Errorf("security configuration is invalid: %w", err)
 	}
-	return ServerConfig{Database: database, Security: security, Port: port}, nil
+	development := false
+	if environment, ok := lookup(EnvironmentEnv); ok && environment != "" {
+		switch environment {
+		case "production":
+		case "development":
+			development = true
+		default:
+			return ServerConfig{}, fmt.Errorf("%s must be production or development", EnvironmentEnv)
+		}
+	}
+	return ServerConfig{Database: database, Security: security, Port: port, Development: development}, nil
 }
 
 var cloudRunIAPAudience = regexp.MustCompile(`^/projects/[1-9][0-9]*/locations/[a-z][a-z0-9-]*/services/[a-z][a-z0-9-]*$`)

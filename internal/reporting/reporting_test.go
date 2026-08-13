@@ -25,8 +25,13 @@ func TestValidateConfigurationRejectsClassificationOverlap(t *testing.T) {
 	configuration := testConfiguration()
 	configuration.Classifications = append(configuration.Classifications,
 		Classification{Account: "資産:現金", Category: CategoryAsset})
-	if err := ValidateConfiguration(configuration); !errors.Is(err, ErrInvalidConfiguration) {
+	err := ValidateConfiguration(configuration)
+	if !errors.Is(err, ErrInvalidConfiguration) {
 		t.Fatalf("ValidateConfiguration() error = %v", err)
+	}
+	var configurationErr *ConfigurationError
+	if !errors.As(err, &configurationErr) || configurationErr.Code != ConfigurationOverlappingAccounts {
+		t.Fatalf("configuration error = %#v", err)
 	}
 }
 

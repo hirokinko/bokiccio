@@ -58,6 +58,22 @@ func exportHref(l locale, format string) string {
 	return localizedPath(l, "/ui/exports/"+url.PathEscape(format))
 }
 
+func reportingSettingsHref(l locale) string {
+	return localizedPath(l, "/settings/reporting")
+}
+
+func reportingSettingsMutationHref(l locale) string {
+	return localizedPath(l, "/ui/settings/reporting")
+}
+
+func trialBalanceHref(l locale) string {
+	return localizedPath(l, "/reports/trial-balance")
+}
+
+func trialBalanceMutationHref(l locale) string {
+	return localizedPath(l, "/ui/reports/trial-balance")
+}
+
 type pageContext struct {
 	Locale        locale
 	Messages      messages
@@ -65,6 +81,8 @@ type pageContext struct {
 	JapaneseHref  string
 	EnglishHref   string
 	CurrentLocale string
+	SettingsHref  string
+	ReportsHref   string
 }
 
 func newPageContext(l locale, localPath string) pageContext {
@@ -76,5 +94,7 @@ func newPageContext(l locale, localPath string) pageContext {
 		JapaneseHref:  localizedPath(localeJA, localPath),
 		EnglishHref:   localizedPath(localeEN, localPath),
 		CurrentLocale: msg.LocaleName,
+		SettingsHref:  reportingSettingsHref(l),
+		ReportsHref:   trialBalanceHref(l),
 	}
 }

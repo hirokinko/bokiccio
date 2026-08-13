@@ -96,7 +96,8 @@ func runServe(args []string, stderr io.Writer) int {
 		return exitRunLevelFailure
 	}
 	store := webstore.New(database)
-	application, err := webprod.NewApplicationHandler(webapp.NewHandler(store), webui.NewHandler(store))
+	application, err := webprod.NewApplicationHandler(webapp.NewHandler(store),
+		webui.NewHandler(store, webui.HandlerOptions{Development: config.Development}))
 	if err != nil {
 		fmt.Fprintln(stderr, "error: HTTP application initialization failed")
 		return exitRunLevelFailure

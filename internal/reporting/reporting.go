@@ -20,6 +20,38 @@ var (
 	ErrAmountOverflow       = errors.New("reporting amount exceeds decimal range")
 )
 
+type ConfigurationErrorCode string
+
+const (
+	ConfigurationInvalidRevision       ConfigurationErrorCode = "invalid_revision"
+	ConfigurationInvalidStartMonth     ConfigurationErrorCode = "invalid_start_month"
+	ConfigurationMissingFiscalYears    ConfigurationErrorCode = "missing_fiscal_years"
+	ConfigurationInvalidAccount        ConfigurationErrorCode = "invalid_classification_account"
+	ConfigurationInvalidCategory       ConfigurationErrorCode = "invalid_classification_category"
+	ConfigurationOverlappingAccounts   ConfigurationErrorCode = "overlapping_classifications"
+	ConfigurationInvalidFiscalYear     ConfigurationErrorCode = "invalid_fiscal_year"
+	ConfigurationNoncontiguousYears    ConfigurationErrorCode = "noncontiguous_fiscal_years"
+	ConfigurationInvalidOpeningMode    ConfigurationErrorCode = "invalid_opening_mode"
+	ConfigurationMissingOpeningEntries ConfigurationErrorCode = "missing_opening_entries"
+	ConfigurationInvalidOpeningEntries ConfigurationErrorCode = "invalid_opening_entries"
+)
+
+type ConfigurationError struct {
+	Code ConfigurationErrorCode
+}
+
+func (err *ConfigurationError) Error() string {
+	return "invalid reporting configuration: " + string(err.Code)
+}
+
+func (err *ConfigurationError) Unwrap() error {
+	return ErrInvalidConfiguration
+}
+
+func invalidConfiguration(code ConfigurationErrorCode) error {
+	return &ConfigurationError{Code: code}
+}
+
 type Category string
 
 const (
@@ -133,19 +165,28 @@ type TrialBalance struct {
 }
 
 func ValidateConfiguration(configuration Configuration) error {
-	if configuration.Revision < 1 || configuration.StartMonth < 1 || configuration.StartMonth > 12 || len(configuration.FiscalYears) == 0 {
-		return ErrInvalidConfiguration
+	if configuration.Revision < 1 {
+		return invalidConfiguration(ConfigurationInvalidRevision)
+	}
+	if configuration.StartMonth < 1 || configuration.StartMonth > 12 {
+		return invalidConfiguration(ConfigurationInvalidStartMonth)
+	}
+	if len(configuration.FiscalYears) == 0 {
+		return invalidConfiguration(ConfigurationMissingFiscalYears)
 	}
 	classifications := append([]Classification(nil), configuration.Classifications...)
 	sort.Slice(classifications, func(i, j int) bool { return classifications[i].Account < classifications[j].Account })
 	for index, classification := range classifications {
-		if err := ledger.ValidateAccount(classification.Account); err != nil || !validCategory(classification.Category) {
-			return ErrInvalidConfiguration
+		if err := ledger.ValidateAccount(classification.Account); err != nil {
+			return invalidConfiguration(ConfigurationInvalidAccount)
+		}
+		if !validCategory(classification.Category) {
+			return invalidConfiguration(ConfigurationInvalidCategory)
 		}
 		for previous := 0; previous < index; previous++ {
 			ancestor := classifications[previous].Account
 			if classification.Account == ancestor || strings.HasPrefix(classification.Account, ancestor+":") {
-				return ErrInvalidConfiguration
+				return invalidConfiguration(ConfigurationOverlappingAccounts)
 			}
 		}
 	}
@@ -154,22 +195,22 @@ func ValidateConfiguration(configuration Configuration) error {
 	for index, year := range years {
 		start, end, err := parseFiscalYear(year, configuration.StartMonth)
 		if err != nil {
-			return err
+			return invalidConfiguration(ConfigurationInvalidFiscalYear)
 		}
 		if index > 0 {
 			previousEnd, _ := time.Parse(time.DateOnly, years[index-1].EndDate)
 			if !previousEnd.AddDate(0, 0, 1).Equal(start) {
-				return ErrInvalidConfiguration
+				return invalidConfiguration(ConfigurationNoncontiguousYears)
 			}
 		}
 		if year.OpeningMode != OpeningAutomatic && year.OpeningMode != OpeningEntries {
-			return ErrInvalidConfiguration
+			return invalidConfiguration(ConfigurationInvalidOpeningMode)
 		}
 		if year.OpeningMode == OpeningEntries && len(year.OpeningEntryIDs) == 0 {
-			return ErrInvalidConfiguration
+			return invalidConfiguration(ConfigurationMissingOpeningEntries)
 		}
 		if hasDuplicateOrEmpty(year.OpeningEntryIDs) || end.Before(start) {
-			return ErrInvalidConfiguration
+			return invalidConfiguration(ConfigurationInvalidOpeningEntries)
 		}
 	}
 	return nil

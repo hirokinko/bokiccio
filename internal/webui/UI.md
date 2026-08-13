@@ -14,6 +14,10 @@ BokiccioのWeb UIは、Cloud Run direct IAPで保護された単一利用者向�
 - `POST /ui/entries/{id}/approvals`: latest revisionの承認
 - `GET /entries/{id}`: 仕訳候補とrevision・承認履歴
 - `GET /imports/{run-identity}`: 取込結果とdiagnostic
+- `GET /settings/reporting`: reporting calendar、classification、会計年度、期首残高方式の設定
+- `POST /ui/settings/reporting`: reporting configuration revisionの作成
+- `GET /reports/trial-balance`: 選択した会計年度または月次期間のcommodity別試算表
+- `POST /ui/reports/trial-balance`: form bodyで選択した期間へのredirect
 - `GET /en/`: 最新50件の仕訳候補（英語UI）
 - `POST /en/ui/imports`: normalized input v1/v2 JSON fileのupload（英語UI）
 - `POST /en/ui/imports/tackler`: Tackler互換subset `.txn` fileのupload（英語UI）
@@ -24,6 +28,10 @@ BokiccioのWeb UIは、Cloud Run direct IAPで保護された単一利用者向�
 - `POST /en/ui/entries/{id}/approvals`: latest revisionの承認（英語UI）
 - `GET /en/entries/{id}`: 仕訳候補とrevision・承認履歴（英語UI）
 - `GET /en/imports/{run-identity}`: 取込結果とdiagnostic（英語UI）
+- `GET /en/settings/reporting`: reporting設定（英語UI）
+- `POST /en/ui/settings/reporting`: reporting configuration revisionの作成（英語UI）
+- `GET /en/reports/trial-balance`: commodity別試算表（英語UI）
+- `POST /en/ui/reports/trial-balance`: form bodyで選択した期間へのredirect（英語UI）
 - `GET /assets/app.css`: 同梱した画面style
 - `GET /assets/htmx-2.0.10.min.js`: 同梱したhtmx
 
@@ -43,12 +51,27 @@ entry detailのrevision formはTackler風の1 entryをtextareaで送信する。
 omitted amountとして扱う。空行は無視する。textarea内のTabは
 first-party JavaScriptで4 spaces入力にする。postingの追加は行追加、削除は行削除で行える。invalid revisionは履歴として保存し、approval routeではvalidation済みのlatest revisionだけを承認する。
 
+reporting設定formは`base_revision`を含む全設定を送信し、保存時にimmutableな新revisionを作る。分類は親accountから
+descendantへ継承し、会計年度は開始日・終了日、期首残高方式、改行区切りの期首仕訳IDを保持する。calendar変更時は
+過去reportも再集計される旨を画面に表示する。stale formは`409 Conflict`、不正な期間・分類・期首仕訳は`400 Bad Request`とし、
+既存revisionを変更しない。400 responseは開始月、年度境界、分類の重複、期首仕訳の承認・日付・分類など、利用者が
+修正できる原因をlocale別の安全なmessageで表示する。
+
+試算表画面はconfigured fiscal yearと各月次期間だけを選択肢にし、queryには選択済みの`start_date`と`end_date`だけを持つ。
+初期表示は設定内の最後の会計年度全体を決定的に選び、current dateへ依存しない。commodityを別sectionに分け、category、
+account階層、直接計上値、小計、期首・発生・期末の借方・貸方をcanonical decimal stringのまま表示する。未分類accountも
+金額へ含め、WARNINGと設定画面への導線を表示する。
+
 normalized input uploadは`multipart/form-data`のPOST bodyで送信します。file fieldは`file`、file contentは最大10 MiB、request全体にも小さなoverhead上限を設けます。filenameとclient側Content-Typeはsource、identity、format判定には使わず、保存、log、HTML responseへの反映もしません。record単位のerrorを含んだ取込runも保存できた場合は成功uploadとして扱い、`303 See Other`で`/imports/{run-identity}`または`/en/imports/{run-identity}`へredirectします。
 
 Tackler `.txn` uploadはnormalized input uploadとは別form/routeで扱う。対応subsetは`internal/tacklerfmt/COMPATIBILITY.md`に従い、parse後のentryをnormalized input v2へ変換して既存import経路へ渡す。sourceはprivate filenameではなく`tackler: uploaded.txn`として記録する。
 parseやdomain validationに失敗した場合は、line numberまたはentry numberと原因をHTML errorとserver logへ出す。原因にはparser/domain validationが返すoffending valueを含む場合がある。filename、SQL error、request body全体は表示しない。
 
 すべてのHTMLとassetはproduction handlerのIAP検証を通り、`Cache-Control: no-store`と同一originを前提としたContent Security Policyを付与します。画面のHTMLはtemplから生成し、生成済みの`*_templ.go`もsource treeへcommitします。
+
+500 responseは既定で内部errorを表示しない。明示的に`BOKICCIO_ENVIRONMENT=development`を設定した環境だけ、原因となった
+error textをHTML escapeしてdevelopment detailとして表示する。この値はprivateなaccount、SQL、pathを含み得るため、owner以外が
+到達できる環境やproductionでは設定しない。未設定または`production`では常にprivate-safeな固定messageだけを返す。
 
 ## Development commands
 
@@ -66,4 +89,5 @@ npm run format
 npm run check
 ```
 
-この段階の画面はnormalized JSON upload、Tackler `.txn` upload、検索、閲覧、revision作成、approval、承認済み仕訳のexportに対応しています。
+この段階の画面はnormalized JSON upload、Tackler `.txn` upload、検索、閲覧、revision作成、approval、承認済み仕訳のexport、
+reporting設定、commodity別試算表に対応しています。

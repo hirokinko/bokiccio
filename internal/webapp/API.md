@@ -99,6 +99,12 @@ token separately from the credential-free database URL.
 - `BOKICCIO_EXTERNAL_ORIGIN`
 - `PORT`
 
+`BOKICCIO_ENVIRONMENT` is optional and defaults to `production`. The exact
+value `development` enables escaped internal error details on server-rendered
+HTML error pages for controlled development only; JSON API errors remain
+private-safe. Do not enable it where anyone other than the owner can reach the
+service.
+
 Cloud Run must have direct IAP enabled and unauthenticated invocation disabled.
 Only the owner Google Account receives IAP access. Except for `/livez`, every
 request must have a valid ES256 `X-Goog-IAP-JWT-Assertion` with the configured

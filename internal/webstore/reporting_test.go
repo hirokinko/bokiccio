@@ -96,6 +96,11 @@ func TestReportingConfigurationValidatesOpeningEntryAgainstApprovedSnapshot(t *t
 	}}
 	if _, err := store.CreateReportingConfiguration(ctx, changedCalendar); !errors.Is(err, webapp.ErrInvalidRequest) {
 		t.Fatalf("CreateReportingConfiguration(calendar change) error = %v, want ErrInvalidRequest", err)
+	} else {
+		var configurationErr *webapp.ReportingConfigurationError
+		if !errors.As(err, &configurationErr) || configurationErr.Code != webapp.ReportingOpeningEntryDateMismatch {
+			t.Fatalf("calendar change error detail = %#v", err)
+		}
 	}
 	current, err := store.GetCurrentReportingConfiguration(ctx)
 	if err != nil || current.Revision != 1 {
@@ -135,13 +140,34 @@ func TestReportingConfigurationRejectsUnapprovedAndTemporaryOpeningEntries(t *te
 	}
 	if _, err := store.CreateReportingConfiguration(ctx, request); !errors.Is(err, webapp.ErrInvalidRequest) {
 		t.Fatalf("CreateReportingConfiguration(unapproved) error = %v, want ErrInvalidRequest", err)
+	} else {
+		var configurationErr *webapp.ReportingConfigurationError
+		if !errors.As(err, &configurationErr) || configurationErr.Code != webapp.ReportingOpeningEntryNotApproved {
+			t.Fatalf("unapproved error detail = %#v", err)
+		}
 	}
 
-	if _, err := store.ApproveRevision(ctx, unapprovedID, webapp.ApprovalRequest{Revision: &zero}); err != nil {
+	amount := "207.00"
+	revision, err := store.CreateRevision(ctx, unapprovedID, webapp.RevisionRequest{
+		BaseRevision: &zero, OccurredAt: "2026-08-01", Description: "anonymous temporary opening",
+		Postings: []webapp.PostingDetail{
+			{Account: "費用:食費", Amount: &amount, Commodity: "JPY"},
+			{Account: "資産:現金"},
+		},
+	})
+	if err != nil || !revision.Valid {
+		t.Fatalf("CreateRevision() revision=%+v error=%v", revision, err)
+	}
+	if _, err := store.ApproveRevision(ctx, unapprovedID, webapp.ApprovalRequest{Revision: &revision.Revision}); err != nil {
 		t.Fatalf("ApproveRevision() error = %v", err)
 	}
 	if _, err := store.CreateReportingConfiguration(ctx, request); !errors.Is(err, webapp.ErrInvalidRequest) {
 		t.Fatalf("CreateReportingConfiguration(temporary account) error = %v, want ErrInvalidRequest", err)
+	} else {
+		var configurationErr *webapp.ReportingConfigurationError
+		if !errors.As(err, &configurationErr) || configurationErr.Code != webapp.ReportingOpeningEntryTemporaryAccount {
+			t.Fatalf("temporary account error detail = %#v", err)
+		}
 	}
 }
 
