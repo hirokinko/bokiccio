@@ -427,6 +427,78 @@ td {
 .period-form label {
 	flex: 1;
 }
+.report-navigation {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0.5rem;
+	margin-bottom: 1.5rem;
+}
+.report-navigation a {
+	padding: 0.5rem 0.75rem;
+	border: 1px solid #d8d4ca;
+	border-radius: 999px;
+	background: #fff;
+}
+.statement-table {
+	width: 100%;
+	font-variant-numeric: tabular-nums;
+}
+.statement-table th:first-child {
+	width: 60%;
+}
+.statement-table td {
+	text-align: right;
+}
+.statement-table td:last-child,
+.statement-table th:last-child {
+	width: 9rem;
+}
+.statement-table .category-row,
+.statement-table tfoot {
+	background: #f4f2ec;
+	font-weight: 700;
+}
+.balance-trend-grid {
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(min(100%, 20rem), 1fr));
+	gap: 1rem;
+}
+.balance-trend-point {
+	min-width: 0;
+	padding: 1rem;
+	border: 1px solid #d8d4ca;
+	border-radius: 0.5rem;
+	background: #fff;
+}
+.balance-trend-point > h2,
+.trend-commodity h3 {
+	margin-top: 0;
+}
+.trend-commodity h4 {
+	display: flex;
+	justify-content: space-between;
+	gap: 1rem;
+	margin-bottom: 0.4rem;
+	padding-bottom: 0.35rem;
+	border-bottom: 1px solid #d8d4ca;
+	font-variant-numeric: tabular-nums;
+}
+.trend-account-list {
+	display: grid;
+	gap: 0.35rem;
+	margin: 0 0 1rem;
+	padding: 0;
+	list-style: none;
+}
+.trend-account-list li {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) auto;
+	gap: 0.25rem 1rem;
+	font-variant-numeric: tabular-nums;
+}
+.trend-account-list small {
+	grid-column: 1 / -1;
+}
 .trial-balance-table {
 	min-width: 58rem;
 	font-variant-numeric: tabular-nums;
@@ -518,6 +590,27 @@ td {
 	.period-form {
 		align-items: stretch;
 		flex-direction: column;
+	}
+	.report-navigation {
+		display: grid;
+		grid-template-columns: repeat(2, minmax(0, 1fr));
+	}
+	.report-navigation a {
+		text-align: center;
+	}
+	.statement-table {
+		font-size: 0.9rem;
+	}
+	.statement-table th,
+	.statement-table td {
+		padding: 0.65rem 0.4rem;
+	}
+	.statement-table th:first-child {
+		width: auto;
+	}
+	.statement-table td:last-child,
+	.statement-table th:last-child {
+		width: auto;
 	}
 	.trial-balance-desktop {
 		display: none;

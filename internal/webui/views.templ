@@ -189,6 +189,7 @@ templ trialBalancePage(model trialBalancePageModel) {
 		<body>
 			@siteHeader(model.Page)
 			<main id="main-content" class="page detail-page trial-balance-page">
+				@reportNavigation(model.Page)
 				<header class="page-heading"><div><p class="eyebrow">{ model.Page.Messages.TrialBalanceEyebrow }</p><h1>{ model.Page.Messages.TrialBalanceTitle }</h1></div></header>
 				if !model.Configured {
 					<section class="empty-state"><p>{ model.Page.Messages.TrialBalanceNotConfigured }</p><a href={ model.SetupHref }>{ model.Page.Messages.TrialBalanceSetupLink }</a></section>
@@ -225,6 +226,192 @@ templ trialBalancePage(model trialBalancePageModel) {
 			</main>
 		</body>
 	</html>
+}
+
+templ reportNavigation(page pageContext) {
+	<nav class="report-navigation" aria-label={ page.Messages.ReportNavigationLabel }>
+		<a href={ trialBalanceHref(page.Locale) }>{ page.Messages.ReportNavigationTrialBalance }</a>
+		<a href={ balanceSheetHref(page.Locale) }>{ page.Messages.ReportNavigationBalanceSheet }</a>
+		<a href={ incomeStatementHref(page.Locale) }>{ page.Messages.ReportNavigationIncomeStatement }</a>
+		<a href={ balanceTrendHref(page.Locale) }>{ page.Messages.ReportNavigationBalanceTrend }</a>
+	</nav>
+}
+
+templ statementPeriodForm(msg messages, action string, periods []trialBalancePeriodOption, selected reporting.Period, label string) {
+	<form class="period-form" method="post" action={ action }>
+		<label>{ label }<select name="period">
+			for _, option := range periods {
+				if option.Period == selected {
+					<option value={ option.Period.StartDate + "/" + option.Period.EndDate } selected>{ option.Label }</option>
+				} else {
+					<option value={ option.Period.StartDate + "/" + option.Period.EndDate }>{ option.Label }</option>
+				}
+			}
+		</select></label>
+		<button type="submit">{ msg.StatementShow }</button>
+	</form>
+}
+
+templ statementStatus(msg messages, setupHref string, complete bool) {
+	if !complete {
+		<section class="form-error" role="alert"><p>{ msg.StatementClassificationWarning } <a href={ setupHref }>{ msg.StatementSetupLink }</a></p></section>
+	}
+}
+
+templ balanceSheetPage(model balanceSheetPageModel) {
+	<!DOCTYPE html>
+	<html lang={ model.Page.Locale.lang() }>
+		@documentHead(model.Page.Messages.BalanceSheetTitle)
+		<body>
+			@siteHeader(model.Page)
+			<main id="main-content" class="page detail-page statement-page">
+				@reportNavigation(model.Page)
+				<header class="page-heading"><div><p class="eyebrow">{ model.Page.Messages.BalanceSheetEyebrow }</p><h1>{ model.Page.Messages.BalanceSheetTitle }</h1></div></header>
+				if !model.Configured {
+					<section class="empty-state"><p>{ model.Page.Messages.StatementNotConfigured }</p><a href={ model.SetupHref }>{ model.Page.Messages.StatementSetupLink }</a></section>
+				} else {
+					if model.FormError != "" {
+						<section class="form-error" role="alert"><h2>{ model.Page.Messages.FormErrorTitle }</h2><p>{ model.FormError }</p><a href={ model.SetupHref }>{ model.Page.Messages.StatementSetupLink }</a></section>
+					}
+					@statementPeriodForm(model.Page.Messages, model.FormAction, model.Periods, model.Selected, model.Page.Messages.StatementFiscalYearLabel)
+					if model.Report != nil {
+						<p>{ model.Page.Messages.StatementConfigurationRevision }: { model.Report.ConfigurationRevision } · { model.Page.Messages.BalanceSheetAsOf }: { model.Report.AsOf }</p>
+						@statementStatus(model.Page.Messages, model.SetupHref, model.Report.ClassificationComplete)
+						if len(model.Report.Commodities) == 0 {
+							<section class="empty-state"><p>{ model.Page.Messages.StatementEmpty }</p></section>
+						} else {
+							for _, commodity := range model.Report.Commodities {
+								@statementCommodity(model.Page.Messages, commodity, "")
+							}
+						}
+					}
+				}
+			</main>
+		</body>
+	</html>
+}
+
+templ incomeStatementPage(model incomeStatementPageModel) {
+	<!DOCTYPE html>
+	<html lang={ model.Page.Locale.lang() }>
+		@documentHead(model.Page.Messages.IncomeStatementTitle)
+		<body>
+			@siteHeader(model.Page)
+			<main id="main-content" class="page detail-page statement-page">
+				@reportNavigation(model.Page)
+				<header class="page-heading"><div><p class="eyebrow">{ model.Page.Messages.IncomeStatementEyebrow }</p><h1>{ model.Page.Messages.IncomeStatementTitle }</h1></div></header>
+				if !model.Configured {
+					<section class="empty-state"><p>{ model.Page.Messages.StatementNotConfigured }</p><a href={ model.SetupHref }>{ model.Page.Messages.StatementSetupLink }</a></section>
+				} else {
+					if model.FormError != "" {
+						<section class="form-error" role="alert"><h2>{ model.Page.Messages.FormErrorTitle }</h2><p>{ model.FormError }</p></section>
+					}
+					@statementPeriodForm(model.Page.Messages, model.FormAction, model.Periods, model.Selected, model.Page.Messages.StatementMonthlyPeriodLabel)
+					if model.Report != nil {
+						<p>{ model.Page.Messages.StatementConfigurationRevision }: { model.Report.ConfigurationRevision } · { model.Report.Period.StartDate } – { model.Report.Period.EndDate }</p>
+						@statementStatus(model.Page.Messages, model.SetupHref, model.Report.ClassificationComplete)
+						if len(model.Report.Commodities) == 0 {
+							<section class="empty-state"><p>{ model.Page.Messages.StatementEmpty }</p></section>
+						} else {
+							for _, commodity := range model.Report.Commodities {
+								@statementCommodity(model.Page.Messages, commodity.StatementCommoditySection, statementAmount(reporting.CategoryRevenue, commodity.NetIncome))
+							}
+						}
+					}
+				}
+			</main>
+		</body>
+	</html>
+}
+
+templ statementCommodity(msg messages, commodity reporting.StatementCommoditySection, netIncome string) {
+	<section class="commodity-section statement-commodity">
+		<h2>{ msg.StatementCommodity }: { commodity.Commodity }</h2>
+		<div class="table-wrap"><table class="statement-table">
+			<thead><tr><th>{ msg.AccountColumn }</th><th>{ msg.StatementAmount }</th><th>{ msg.StatementActualSide }</th></tr></thead>
+			<tbody>
+				for _, group := range commodity.Groups {
+					<tr class="category-row"><th>{ reportingCategoryLabel(msg, group.Category) }</th><td>{ statementAmount(group.Category, group.Total) }</td><td>{ statementActualSide(msg, group.Total) }</td></tr>
+					for _, account := range group.Accounts {
+						<tr><th>{ statementAccountLabel(account) }
+							for _, warning := range account.Warnings {
+								<span class="warning-code">{ warning.Code }
+									if warning.Side != "" {
+										<span> · { warningSideLabel(msg, warning.Side) }</span>
+									}
+								</span>
+							}
+						</th><td>{ statementAmount(group.Category, account.Subtotal) }</td><td>{ statementActualSide(msg, account.Subtotal) }</td></tr>
+						if hasDistinctStatementDirect(account) {
+							<tr class="direct-detail-row"><th>{ msg.StatementDirect }</th><td>{ statementAmount(group.Category, account.Direct) }</td><td>{ statementActualSide(msg, account.Direct) }</td></tr>
+						}
+					}
+				}
+			</tbody>
+			if netIncome != "" {
+				<tfoot><tr><th>{ msg.IncomeStatementNetIncome }</th><td>{ netIncome }</td><td></td></tr></tfoot>
+			}
+		</table></div>
+	</section>
+}
+
+templ balanceTrendPage(model balanceTrendPageModel) {
+	<!DOCTYPE html>
+	<html lang={ model.Page.Locale.lang() }>
+		@documentHead(model.Page.Messages.BalanceTrendTitle)
+		<body>
+			@siteHeader(model.Page)
+			<main id="main-content" class="page detail-page statement-page">
+				@reportNavigation(model.Page)
+				<header class="page-heading"><div><p class="eyebrow">{ model.Page.Messages.BalanceTrendEyebrow }</p><h1>{ model.Page.Messages.BalanceTrendTitle }</h1></div></header>
+				<p>{ model.Page.Messages.BalanceTrendHelp }</p>
+				if !model.Configured {
+					<section class="empty-state"><p>{ model.Page.Messages.StatementNotConfigured }</p><a href={ model.SetupHref }>{ model.Page.Messages.StatementSetupLink }</a></section>
+				} else {
+					if model.FormError != "" {
+						<section class="form-error" role="alert"><h2>{ model.Page.Messages.FormErrorTitle }</h2><p>{ model.FormError }</p><a href={ model.SetupHref }>{ model.Page.Messages.StatementSetupLink }</a></section>
+					}
+					@statementPeriodForm(model.Page.Messages, model.FormAction, model.Periods, model.Selected, model.Page.Messages.StatementFiscalYearLabel)
+					if model.Report != nil {
+						<p>{ model.Page.Messages.StatementConfigurationRevision }: { model.Report.ConfigurationRevision } · { model.Report.FiscalYear.StartDate } – { model.Report.FiscalYear.EndDate }</p>
+						@statementStatus(model.Page.Messages, model.SetupHref, model.Report.ClassificationComplete)
+						<div class="balance-trend-grid">
+							for _, point := range model.Report.Points {
+								<section class="balance-trend-point">
+									<h2>{ model.Page.Messages.MonthlyPeriodLabel(point.Period.Month, point.Period.StartDate, point.Period.EndDate) }</h2>
+									for _, commodity := range point.Commodities {
+										@trendCommodity(model.Page.Messages, commodity)
+									}
+								</section>
+							}
+						</div>
+					}
+				}
+			</main>
+		</body>
+	</html>
+}
+
+templ trendCommodity(msg messages, commodity reporting.StatementCommoditySection) {
+	<section class="trend-commodity">
+		<h3>{ msg.StatementCommodity }: { commodity.Commodity }</h3>
+		for _, group := range commodity.Groups {
+			<h4>{ reportingCategoryLabel(msg, group.Category) } <span>{ statementAmount(group.Category, group.Total) }</span></h4>
+			<ul class="trend-account-list">
+				for _, account := range group.Accounts {
+					<li><span>{ statementAccountLabel(account) }</span><strong>{ statementAmount(group.Category, account.Subtotal) }</strong>
+						for _, warning := range account.Warnings {
+							<small class="warning-code">{ warning.Code }
+								if warning.Side != "" {
+									<span> · { warningSideLabel(msg, warning.Side) }</span>
+								}
+							</small>
+						}
+					</li>
+				}
+			</ul>
+		}
+	</section>
 }
 
 templ trialBalanceCommodity(msg messages, commodity reporting.CommoditySection) {

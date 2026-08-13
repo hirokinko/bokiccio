@@ -184,6 +184,37 @@ type messages struct {
 	TrialBalanceClosingCredit                  string
 	TrialBalanceWarnings                       string
 	TrialBalanceTableHelp                      string
+	ReportNavigationLabel                      string
+	ReportNavigationTrialBalance               string
+	ReportNavigationBalanceSheet               string
+	ReportNavigationIncomeStatement            string
+	ReportNavigationBalanceTrend               string
+	StatementNotConfigured                     string
+	StatementSetupLink                         string
+	StatementFiscalYearLabel                   string
+	StatementMonthlyPeriodLabel                string
+	StatementShow                              string
+	StatementInvalidPeriodMessage              string
+	StatementOpeningUnbalancedMessage          string
+	StatementClassificationWarning             string
+	StatementConfigurationRevision             string
+	StatementCommodity                         string
+	StatementAmount                            string
+	StatementActualSide                        string
+	StatementDebitSide                         string
+	StatementCreditSide                        string
+	StatementDirect                            string
+	StatementSubtotal                          string
+	StatementEmpty                             string
+	BalanceSheetTitle                          string
+	BalanceSheetEyebrow                        string
+	BalanceSheetAsOf                           string
+	IncomeStatementTitle                       string
+	IncomeStatementEyebrow                     string
+	IncomeStatementNetIncome                   string
+	BalanceTrendTitle                          string
+	BalanceTrendEyebrow                        string
+	BalanceTrendHelp                           string
 	CategoryAsset                              string
 	CategoryLiability                          string
 	CategoryEquity                             string
@@ -333,7 +364,7 @@ func japaneseMessages() messages {
 		ErrorLabel:                                 "Error",
 		NavigationEntries:                          "仕訳候補",
 		NavigationSettings:                         "レポート設定",
-		NavigationReports:                          "試算表",
+		NavigationReports:                          "レポート",
 		ReportingSettingsTitle:                     "レポート設定",
 		ReportingSettingsEyebrow:                   "Reporting configuration",
 		ReportingSettingsIntro:                     "勘定科目の分類、会計年度、年度ごとの期首残高方式を1つの履歴revisionとして保存します。",
@@ -396,6 +427,37 @@ func japaneseMessages() messages {
 		TrialBalanceClosingCredit:                  "期末貸方",
 		TrialBalanceWarnings:                       "Warning",
 		TrialBalanceTableHelp:                      "各科目の金額は配下を含む小計です。直接計上額が小計と異なる場合だけ、次の補助行に表示します。",
+		ReportNavigationLabel:                      "レポートの種類",
+		ReportNavigationTrialBalance:               "全勘定試算表",
+		ReportNavigationBalanceSheet:               "期首B/S",
+		ReportNavigationIncomeStatement:            "月次P/L",
+		ReportNavigationBalanceTrend:               "残高推移",
+		StatementNotConfigured:                     "レポートを表示するには、先にレポート設定を保存してください。",
+		StatementSetupLink:                         "レポート設定を開く",
+		StatementFiscalYearLabel:                   "会計年度",
+		StatementMonthlyPeriodLabel:                "月次期間",
+		StatementShow:                              "レポートを表示",
+		StatementInvalidPeriodMessage:              "設定された対象期間を選択してください。",
+		StatementOpeningUnbalancedMessage:          "自動繰越で作成した期首残高の貸借が一致しません。レポート設定と前年度の残高を確認してください。",
+		StatementClassificationWarning:             "未分類の勘定科目があります。金額には含まれていますが、分類設定を確認してください。",
+		StatementConfigurationRevision:             "Configuration revision",
+		StatementCommodity:                         "Commodity",
+		StatementAmount:                            "金額",
+		StatementActualSide:                        "実際の残高側",
+		StatementDebitSide:                         "借方",
+		StatementCreditSide:                        "貸方",
+		StatementDirect:                            "直接計上",
+		StatementSubtotal:                          "小計",
+		StatementEmpty:                             "この期間に表示する金額はありません。",
+		BalanceSheetTitle:                          "期首貸借対照表",
+		BalanceSheetEyebrow:                        "Opening balance sheet",
+		BalanceSheetAsOf:                           "期首日",
+		IncomeStatementTitle:                       "月次損益計算書",
+		IncomeStatementEyebrow:                     "Monthly income statement",
+		IncomeStatementNetIncome:                   "当月損益",
+		BalanceTrendTitle:                          "勘定残高推移",
+		BalanceTrendEyebrow:                        "Balance trend",
+		BalanceTrendHelp:                           "各月末時点の全勘定残高です。収益・費用は会計年度の期首から累計しています。",
 		CategoryAsset:                              "資産",
 		CategoryLiability:                          "負債",
 		CategoryEquity:                             "純資産",
@@ -556,7 +618,7 @@ func englishMessages() messages {
 		ErrorLabel:                                 "Error",
 		NavigationEntries:                          "Journal candidates",
 		NavigationSettings:                         "Reporting settings",
-		NavigationReports:                          "Trial balance",
+		NavigationReports:                          "Reports",
 		ReportingSettingsTitle:                     "Reporting settings",
 		ReportingSettingsEyebrow:                   "Reporting configuration",
 		ReportingSettingsIntro:                     "Save account classifications, fiscal years, and each year's opening-balance mode as one historical revision.",
@@ -619,6 +681,37 @@ func englishMessages() messages {
 		TrialBalanceClosingCredit:                  "Closing credit",
 		TrialBalanceWarnings:                       "Warning",
 		TrialBalanceTableHelp:                      "Account amounts are subtotals including descendants. A detail row appears only when the direct amount differs from the subtotal.",
+		ReportNavigationLabel:                      "Report type",
+		ReportNavigationTrialBalance:               "All-account trial balance",
+		ReportNavigationBalanceSheet:               "Opening B/S",
+		ReportNavigationIncomeStatement:            "Monthly P/L",
+		ReportNavigationBalanceTrend:               "Balance trend",
+		StatementNotConfigured:                     "Save reporting settings before viewing a report.",
+		StatementSetupLink:                         "Open reporting settings",
+		StatementFiscalYearLabel:                   "Fiscal year",
+		StatementMonthlyPeriodLabel:                "Monthly period",
+		StatementShow:                              "Show report",
+		StatementInvalidPeriodMessage:              "Select a configured reporting period.",
+		StatementOpeningUnbalancedMessage:          "The opening balance created by automatic carry-forward is not balanced. Review the reporting settings and the prior-year balances.",
+		StatementClassificationWarning:             "Some accounts are unclassified. Their amounts are included; review the classification settings.",
+		StatementConfigurationRevision:             "Configuration revision",
+		StatementCommodity:                         "Commodity",
+		StatementAmount:                            "Amount",
+		StatementActualSide:                        "Actual balance side",
+		StatementDebitSide:                         "Debit",
+		StatementCreditSide:                        "Credit",
+		StatementDirect:                            "Direct",
+		StatementSubtotal:                          "Subtotal",
+		StatementEmpty:                             "There are no amounts to show for this period.",
+		BalanceSheetTitle:                          "Opening balance sheet",
+		BalanceSheetEyebrow:                        "Opening balance sheet",
+		BalanceSheetAsOf:                           "Opening date",
+		IncomeStatementTitle:                       "Monthly income statement",
+		IncomeStatementEyebrow:                     "Monthly income statement",
+		IncomeStatementNetIncome:                   "Net income for the month",
+		BalanceTrendTitle:                          "Account balance trend",
+		BalanceTrendEyebrow:                        "Balance trend",
+		BalanceTrendHelp:                           "All account balances at each month end. Revenue and expenses accumulate from the start of the fiscal year.",
 		CategoryAsset:                              "Asset",
 		CategoryLiability:                          "Liability",
 		CategoryEquity:                             "Equity",

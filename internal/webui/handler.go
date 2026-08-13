@@ -140,6 +140,42 @@ func (handler *Handler) ServeHTTP(response http.ResponseWriter, request *http.Re
 			return
 		}
 		handler.selectTrialBalance(response, request, requestLocale)
+	case localPath == "/reports/balance-sheet":
+		if request.Method != http.MethodGet && request.Method != http.MethodHead {
+			handler.methodNotAllowed(response, request, requestLocale, localPath, "GET, HEAD")
+			return
+		}
+		handler.balanceSheet(response, request, requestLocale)
+	case localPath == "/ui/reports/balance-sheet":
+		if request.Method != http.MethodPost {
+			handler.methodNotAllowed(response, request, requestLocale, localPath, "POST")
+			return
+		}
+		handler.selectStatementPeriod(response, request, requestLocale, balanceSheetHref(requestLocale))
+	case localPath == "/reports/income-statement":
+		if request.Method != http.MethodGet && request.Method != http.MethodHead {
+			handler.methodNotAllowed(response, request, requestLocale, localPath, "GET, HEAD")
+			return
+		}
+		handler.incomeStatement(response, request, requestLocale)
+	case localPath == "/ui/reports/income-statement":
+		if request.Method != http.MethodPost {
+			handler.methodNotAllowed(response, request, requestLocale, localPath, "POST")
+			return
+		}
+		handler.selectStatementPeriod(response, request, requestLocale, incomeStatementHref(requestLocale))
+	case localPath == "/reports/balance-trend":
+		if request.Method != http.MethodGet && request.Method != http.MethodHead {
+			handler.methodNotAllowed(response, request, requestLocale, localPath, "GET, HEAD")
+			return
+		}
+		handler.balanceTrend(response, request, requestLocale)
+	case localPath == "/ui/reports/balance-trend":
+		if request.Method != http.MethodPost {
+			handler.methodNotAllowed(response, request, requestLocale, localPath, "POST")
+			return
+		}
+		handler.selectStatementPeriod(response, request, requestLocale, balanceTrendHref(requestLocale))
 	case strings.HasPrefix(localPath, "/ui/exports/"):
 		if request.Method != http.MethodPost {
 			handler.methodNotAllowed(response, request, requestLocale, localPath, "POST")
@@ -350,6 +386,155 @@ func (handler *Handler) selectTrialBalance(response http.ResponseWriter, request
 	}
 	query := url.Values{"start_date": {parts[0]}, "end_date": {parts[1]}}
 	http.Redirect(response, request, trialBalanceHref(requestLocale)+"?"+query.Encode(), http.StatusSeeOther)
+}
+
+func (handler *Handler) balanceSheet(response http.ResponseWriter, request *http.Request, requestLocale locale) {
+	detail, err := handler.repository.GetCurrentReportingConfiguration(request.Context())
+	if errors.Is(err, webapp.ErrReportingNotConfigured) {
+		render(response, request, http.StatusOK, balanceSheetPage(balanceSheetPageModel{
+			Page: newPageContext(requestLocale, "/reports/balance-sheet"), SetupHref: reportingSettingsHref(requestLocale),
+		}))
+		return
+	}
+	if err != nil {
+		handler.internalError(response, request, requestLocale, err)
+		return
+	}
+	model, err := newBalanceSheetPageModel(requestLocale, detail)
+	if err != nil {
+		handler.internalError(response, request, requestLocale, err)
+		return
+	}
+	period, explicit, ok := trialBalancePeriodQuery(request.URL.Query(), model.Selected)
+	if !ok {
+		model.FormError = messagesFor(requestLocale).StatementInvalidPeriodMessage
+		render(response, request, http.StatusBadRequest, balanceSheetPage(model))
+		return
+	}
+	if explicit {
+		model.Selected = period
+	}
+	report, err := handler.repository.GetBalanceSheet(request.Context(), model.Selected)
+	if errors.Is(err, reporting.ErrInvalidPeriod) {
+		model.FormError = messagesFor(requestLocale).StatementInvalidPeriodMessage
+		render(response, request, http.StatusBadRequest, balanceSheetPage(model))
+		return
+	}
+	if errors.Is(err, reporting.ErrOpeningUnbalanced) {
+		model.FormError = messagesFor(requestLocale).StatementOpeningUnbalancedMessage
+		render(response, request, http.StatusUnprocessableEntity, balanceSheetPage(model))
+		return
+	}
+	if err != nil {
+		handler.internalError(response, request, requestLocale, err)
+		return
+	}
+	model.Report = &report
+	render(response, request, http.StatusOK, balanceSheetPage(model))
+}
+
+func (handler *Handler) incomeStatement(response http.ResponseWriter, request *http.Request, requestLocale locale) {
+	detail, err := handler.repository.GetCurrentReportingConfiguration(request.Context())
+	if errors.Is(err, webapp.ErrReportingNotConfigured) {
+		render(response, request, http.StatusOK, incomeStatementPage(incomeStatementPageModel{
+			Page: newPageContext(requestLocale, "/reports/income-statement"), SetupHref: reportingSettingsHref(requestLocale),
+		}))
+		return
+	}
+	if err != nil {
+		handler.internalError(response, request, requestLocale, err)
+		return
+	}
+	model, err := newIncomeStatementPageModel(requestLocale, detail)
+	if err != nil {
+		handler.internalError(response, request, requestLocale, err)
+		return
+	}
+	period, explicit, ok := trialBalancePeriodQuery(request.URL.Query(), model.Selected)
+	if !ok {
+		model.FormError = messagesFor(requestLocale).StatementInvalidPeriodMessage
+		render(response, request, http.StatusBadRequest, incomeStatementPage(model))
+		return
+	}
+	if explicit {
+		model.Selected = period
+	}
+	report, err := handler.repository.GetIncomeStatement(request.Context(), model.Selected)
+	if errors.Is(err, reporting.ErrInvalidPeriod) {
+		model.FormError = messagesFor(requestLocale).StatementInvalidPeriodMessage
+		render(response, request, http.StatusBadRequest, incomeStatementPage(model))
+		return
+	}
+	if err != nil {
+		handler.internalError(response, request, requestLocale, err)
+		return
+	}
+	model.Report = &report
+	render(response, request, http.StatusOK, incomeStatementPage(model))
+}
+
+func (handler *Handler) balanceTrend(response http.ResponseWriter, request *http.Request, requestLocale locale) {
+	detail, err := handler.repository.GetCurrentReportingConfiguration(request.Context())
+	if errors.Is(err, webapp.ErrReportingNotConfigured) {
+		render(response, request, http.StatusOK, balanceTrendPage(balanceTrendPageModel{
+			Page: newPageContext(requestLocale, "/reports/balance-trend"), SetupHref: reportingSettingsHref(requestLocale),
+		}))
+		return
+	}
+	if err != nil {
+		handler.internalError(response, request, requestLocale, err)
+		return
+	}
+	model, err := newBalanceTrendPageModel(requestLocale, detail)
+	if err != nil {
+		handler.internalError(response, request, requestLocale, err)
+		return
+	}
+	period, explicit, ok := trialBalancePeriodQuery(request.URL.Query(), model.Selected)
+	if !ok {
+		model.FormError = messagesFor(requestLocale).StatementInvalidPeriodMessage
+		render(response, request, http.StatusBadRequest, balanceTrendPage(model))
+		return
+	}
+	if explicit {
+		model.Selected = period
+	}
+	report, err := handler.repository.GetBalanceTrend(request.Context(), model.Selected)
+	if errors.Is(err, reporting.ErrInvalidPeriod) {
+		model.FormError = messagesFor(requestLocale).StatementInvalidPeriodMessage
+		render(response, request, http.StatusBadRequest, balanceTrendPage(model))
+		return
+	}
+	if errors.Is(err, reporting.ErrOpeningUnbalanced) {
+		model.FormError = messagesFor(requestLocale).StatementOpeningUnbalancedMessage
+		render(response, request, http.StatusUnprocessableEntity, balanceTrendPage(model))
+		return
+	}
+	if err != nil {
+		handler.internalError(response, request, requestLocale, err)
+		return
+	}
+	model.Report = &report
+	render(response, request, http.StatusOK, balanceTrendPage(model))
+}
+
+func (handler *Handler) selectStatementPeriod(response http.ResponseWriter, request *http.Request, requestLocale locale, target string) {
+	form, ok := decodeStrictForm(response, request, maxSearchFormBody, map[string]bool{"period": false})
+	parts := strings.Split(form.Get("period"), "/")
+	if !ok || len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+		request.URL.RawQuery = "invalid_period=1"
+		switch target {
+		case balanceSheetHref(requestLocale):
+			handler.balanceSheet(response, request, requestLocale)
+		case incomeStatementHref(requestLocale):
+			handler.incomeStatement(response, request, requestLocale)
+		default:
+			handler.balanceTrend(response, request, requestLocale)
+		}
+		return
+	}
+	query := url.Values{"start_date": {parts[0]}, "end_date": {parts[1]}}
+	http.Redirect(response, request, target+"?"+query.Encode(), http.StatusSeeOther)
 }
 
 func (handler *Handler) searchEntries(response http.ResponseWriter, request *http.Request, requestLocale locale) {
@@ -839,6 +1024,63 @@ func newTrialBalancePageModel(requestLocale locale, detail webapp.ReportingConfi
 			model.Periods = append(model.Periods, trialBalancePeriodOption{Period: period.Period, Label: label})
 		}
 		model.Selected = periods[0].Period
+	}
+	return model, nil
+}
+
+func newBalanceSheetPageModel(requestLocale locale, detail webapp.ReportingConfigurationDetail) (balanceSheetPageModel, error) {
+	model := balanceSheetPageModel{
+		Page: newPageContext(requestLocale, "/reports/balance-sheet"), Configured: true,
+		SetupHref: reportingSettingsHref(requestLocale), FormAction: balanceSheetMutationHref(requestLocale),
+		Periods: []trialBalancePeriodOption{},
+	}
+	for _, year := range detail.FiscalYears {
+		period := reporting.Period{StartDate: year.StartDate, EndDate: year.EndDate}
+		model.Periods = append(model.Periods, trialBalancePeriodOption{
+			Period: period, Label: messagesFor(requestLocale).FiscalYearPeriodLabel(period.StartDate, period.EndDate),
+		})
+		model.Selected = period
+	}
+	return model, nil
+}
+
+func newIncomeStatementPageModel(requestLocale locale, detail webapp.ReportingConfigurationDetail) (incomeStatementPageModel, error) {
+	model := incomeStatementPageModel{
+		Page: newPageContext(requestLocale, "/reports/income-statement"), Configured: true,
+		SetupHref: reportingSettingsHref(requestLocale), FormAction: incomeStatementMutationHref(requestLocale),
+		Periods: []trialBalancePeriodOption{},
+	}
+	for _, year := range detail.FiscalYears {
+		periods, err := reporting.FiscalPeriods(reporting.FiscalYear{
+			StartDate: year.StartDate, EndDate: year.EndDate, OpeningMode: year.OpeningMode,
+			OpeningEntryIDs: year.OpeningEntryIDs,
+		}, detail.StartMonth)
+		if err != nil {
+			return incomeStatementPageModel{}, err
+		}
+		for _, period := range periods[1:] {
+			model.Periods = append(model.Periods, trialBalancePeriodOption{
+				Period: period.Period,
+				Label:  messagesFor(requestLocale).MonthlyPeriodLabel(period.Month, period.StartDate, period.EndDate),
+			})
+			model.Selected = period.Period
+		}
+	}
+	return model, nil
+}
+
+func newBalanceTrendPageModel(requestLocale locale, detail webapp.ReportingConfigurationDetail) (balanceTrendPageModel, error) {
+	model := balanceTrendPageModel{
+		Page: newPageContext(requestLocale, "/reports/balance-trend"), Configured: true,
+		SetupHref: reportingSettingsHref(requestLocale), FormAction: balanceTrendMutationHref(requestLocale),
+		Periods: []trialBalancePeriodOption{},
+	}
+	for _, year := range detail.FiscalYears {
+		period := reporting.Period{StartDate: year.StartDate, EndDate: year.EndDate}
+		model.Periods = append(model.Periods, trialBalancePeriodOption{
+			Period: period, Label: messagesFor(requestLocale).FiscalYearPeriodLabel(period.StartDate, period.EndDate),
+		})
+		model.Selected = period
 	}
 	return model, nil
 }

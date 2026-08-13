@@ -74,6 +74,30 @@ func trialBalanceMutationHref(l locale) string {
 	return localizedPath(l, "/ui/reports/trial-balance")
 }
 
+func balanceSheetHref(l locale) string {
+	return localizedPath(l, "/reports/balance-sheet")
+}
+
+func balanceSheetMutationHref(l locale) string {
+	return localizedPath(l, "/ui/reports/balance-sheet")
+}
+
+func incomeStatementHref(l locale) string {
+	return localizedPath(l, "/reports/income-statement")
+}
+
+func incomeStatementMutationHref(l locale) string {
+	return localizedPath(l, "/ui/reports/income-statement")
+}
+
+func balanceTrendHref(l locale) string {
+	return localizedPath(l, "/reports/balance-trend")
+}
+
+func balanceTrendMutationHref(l locale) string {
+	return localizedPath(l, "/ui/reports/balance-trend")
+}
+
 type pageContext struct {
 	Locale        locale
 	Messages      messages

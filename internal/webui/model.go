@@ -134,6 +134,39 @@ type trialBalancePeriodOption struct {
 	Label  string
 }
 
+type balanceSheetPageModel struct {
+	Page       pageContext
+	Configured bool
+	SetupHref  string
+	FormAction string
+	Periods    []trialBalancePeriodOption
+	Selected   reporting.Period
+	Report     *webapp.BalanceSheetDetail
+	FormError  string
+}
+
+type incomeStatementPageModel struct {
+	Page       pageContext
+	Configured bool
+	SetupHref  string
+	FormAction string
+	Periods    []trialBalancePeriodOption
+	Selected   reporting.Period
+	Report     *webapp.IncomeStatementDetail
+	FormError  string
+}
+
+type balanceTrendPageModel struct {
+	Page       pageContext
+	Configured bool
+	SetupHref  string
+	FormAction string
+	Periods    []trialBalancePeriodOption
+	Selected   reporting.Period
+	Report     *webapp.BalanceTrendDetail
+	FormError  string
+}
+
 func reportingCategoryLabel(msg messages, category reporting.Category) string {
 	switch category {
 	case reporting.CategoryAsset:
@@ -172,4 +205,48 @@ func accountLabel(row reporting.AccountRow) string {
 
 func hasDistinctDirectAmounts(row reporting.AccountRow) bool {
 	return row.Direct != row.Subtotal
+}
+
+func statementAccountLabel(row reporting.StatementAccountRow) string {
+	return strings.Repeat("— ", row.Depth) + row.Label
+}
+
+func hasDistinctStatementDirect(row reporting.StatementAccountRow) bool {
+	return row.Direct != row.Subtotal
+}
+
+func statementAmount(category reporting.Category, balance reporting.Balance) string {
+	if balance.Credit != "0" {
+		if category == reporting.CategoryLiability || category == reporting.CategoryEquity || category == reporting.CategoryRevenue {
+			return balance.Credit
+		}
+		return "-" + balance.Credit
+	}
+	if balance.Debit == "0" {
+		return "0"
+	}
+	if category == reporting.CategoryLiability || category == reporting.CategoryEquity || category == reporting.CategoryRevenue {
+		return "-" + balance.Debit
+	}
+	return balance.Debit
+}
+
+func statementActualSide(msg messages, balance reporting.Balance) string {
+	if balance.Credit != "0" {
+		return msg.StatementCreditSide
+	}
+	if balance.Debit != "0" {
+		return msg.StatementDebitSide
+	}
+	return "—"
+}
+
+func warningSideLabel(msg messages, side string) string {
+	if side == "credit" {
+		return msg.StatementCreditSide
+	}
+	if side == "debit" {
+		return msg.StatementDebitSide
+	}
+	return ""
 }

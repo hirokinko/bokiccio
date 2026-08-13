@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/hirokinko/bokiccio/internal/reporting"
 	"github.com/hirokinko/bokiccio/internal/webapp"
 	"github.com/hirokinko/bokiccio/internal/webstore"
 	"github.com/hirokinko/bokiccio/internal/webui"
@@ -165,6 +166,124 @@ func TestTrialBalanceUISelectionWarningsAndLocale(t *testing.T) {
 	}
 	method := serve(handler, http.MethodGet, "/ui/reports/trial-balance")
 	assertHTMLResponse(t, method, http.StatusMethodNotAllowed)
+}
+
+func TestFinancialStatementUIShowsSignedBalancesAndResponsiveTrend(t *testing.T) {
+	database := openUIDatabase(t)
+	store := webstore.New(database)
+	handler := webui.NewHandler(store)
+
+	notConfigured := serve(handler, http.MethodGet, "/reports/balance-sheet")
+	assertHTMLResponse(t, notConfigured, http.StatusOK)
+	assertContainsAll(t, notConfigured.Body.String(), []string{"先にレポート設定を保存", `href="/settings/reporting"`})
+
+	input := []byte(`{"schema_version":1,"records":[{"source":{"namespace":"ui-statements","display":"anonymous"},"occurred_at":"2025-04-01","description":"anonymous opening fixture","postings":[{"account":"Assets:Cash","amount":"100.00","commodity":"JPY"},{"account":"Equity:Opening","amount":"-100.00","commodity":"JPY"}]},{"source":{"namespace":"ui-statements","display":"anonymous"},"occurred_at":"2025-04-15","description":"anonymous expense fixture","postings":[{"account":"Expenses:Fees","amount":"20.00","commodity":"JPY"},{"account":"Assets:Cash","amount":"-20.00","commodity":"JPY"}]},{"source":{"namespace":"ui-statements","display":"anonymous"},"occurred_at":"2025-04-20","description":"anonymous opposite balance fixture","postings":[{"account":"Revenue:Refund","amount":"5.00","commodity":"JPY"},{"account":"Assets:Cash","amount":"-5.00","commodity":"JPY"}]}]}`)
+	result, err := store.Import(context.Background(), input)
+	if err != nil {
+		t.Fatalf("Import() error = %v", err)
+	}
+	run, err := store.GetRun(context.Background(), result.RunIdentity)
+	if err != nil || len(run.Outcomes) != 3 {
+		t.Fatalf("GetRun() error=%v run=%+v", err, run)
+	}
+	zero := 0
+	for _, outcome := range run.Outcomes {
+		if _, err := store.ApproveRevision(context.Background(), outcome.EntryID, webapp.ApprovalRequest{Revision: &zero}); err != nil {
+			t.Fatalf("ApproveRevision() error = %v", err)
+		}
+	}
+	if _, err := store.CreateReportingConfiguration(context.Background(), webapp.ReportingConfigurationRequest{
+		BaseRevision: &zero,
+		StartMonth:   4,
+		Classifications: []webapp.ReportingClassification{
+			{Account: "Assets", Category: reporting.CategoryAsset},
+			{Account: "Equity", Category: reporting.CategoryEquity},
+			{Account: "Expenses", Category: reporting.CategoryExpense},
+			{Account: "Revenue", Category: reporting.CategoryRevenue},
+		},
+		FiscalYears: []webapp.ReportingFiscalYear{{
+			StartDate: "2025-04-01", EndDate: "2026-03-31", OpeningMode: reporting.OpeningEntries,
+			OpeningEntryIDs: []string{run.Outcomes[0].EntryID},
+		}},
+	}); err != nil {
+		t.Fatalf("CreateReportingConfiguration() error = %v", err)
+	}
+
+	bs := serve(handler, http.MethodGet, "/reports/balance-sheet?start_date=2025-04-01&end_date=2026-03-31")
+	assertHTMLResponse(t, bs, http.StatusOK)
+	assertContainsAll(t, bs.Body.String(), []string{
+		"期首貸借対照表", "期首日: 2025-04-01", "Assets", "Cash", "100.00", "借方", "Equity", "Opening", "貸方",
+		`class="report-navigation"`, `href="/reports/income-statement"`, `class="statement-table"`,
+	})
+
+	pl := serve(handler, http.MethodGet, "/en/reports/income-statement?start_date=2025-04-01&end_date=2025-04-30")
+	assertHTMLResponse(t, pl, http.StatusOK)
+	assertContainsAll(t, pl.Body.String(), []string{
+		"Monthly income statement", "Expenses", "Fees", "20.00", "Revenue", "Refund", "-5.00",
+		"opposite_normal_balance", "Debit", "Net income for the month", "-25.00",
+		`action="/en/ui/reports/income-statement"`,
+	})
+
+	trend := serve(handler, http.MethodGet, "/reports/balance-trend?start_date=2025-04-01&end_date=2026-03-31")
+	assertHTMLResponse(t, trend, http.StatusOK)
+	assertContainsAll(t, trend.Body.String(), []string{
+		"勘定残高推移", "会計年度の期首から累計", `class="balance-trend-grid"`,
+		"月次 1: 2025-04-01 – 2025-04-30", "月次 12: 2026-03-01 – 2026-03-31", "-5.00", "opposite_normal_balance", "借方",
+	})
+	if count := strings.Count(trend.Body.String(), `class="balance-trend-point"`); count != 12 {
+		t.Fatalf("balance trend point count = %d, want 12", count)
+	}
+
+	selected := serveForm(handler, "/ui/reports/balance-sheet", url.Values{
+		"period": {"2025-04-01/2026-03-31"},
+	}, nil)
+	if selected.Code != http.StatusSeeOther || selected.Header().Get("Location") != "/reports/balance-sheet?end_date=2026-03-31&start_date=2025-04-01" {
+		t.Fatalf("select statement period status=%d location=%q", selected.Code, selected.Header().Get("Location"))
+	}
+	invalid := serve(handler, http.MethodGet, "/reports/income-statement?start_date=private&end_date=2025-04-30")
+	assertHTMLResponse(t, invalid, http.StatusBadRequest)
+	if strings.Contains(invalid.Body.String(), "private") {
+		t.Fatalf("invalid statement period reflected private input: %s", invalid.Body.String())
+	}
+}
+
+func TestBalanceSheetUIExplainsUnbalancedAutomaticOpening(t *testing.T) {
+	database := openUIDatabase(t)
+	store := webstore.New(database)
+	handler := webui.NewHandler(store)
+	input := []byte(`{"schema_version":1,"records":[{"source":{"namespace":"ui-unbalanced-opening","display":"anonymous"},"occurred_at":"2025-05-01","description":"anonymous revenue fixture","postings":[{"account":"Assets:Cash","amount":"10","commodity":"JPY"},{"account":"Revenue:Sales","amount":"-10","commodity":"JPY"}]}]}`)
+	result, err := store.Import(context.Background(), input)
+	if err != nil {
+		t.Fatalf("Import() error = %v", err)
+	}
+	run, err := store.GetRun(context.Background(), result.RunIdentity)
+	if err != nil || len(run.Outcomes) != 1 {
+		t.Fatalf("GetRun() error=%v run=%+v", err, run)
+	}
+	zero := 0
+	if _, err := store.ApproveRevision(context.Background(), run.Outcomes[0].EntryID, webapp.ApprovalRequest{Revision: &zero}); err != nil {
+		t.Fatalf("ApproveRevision() error = %v", err)
+	}
+	if _, err := store.CreateReportingConfiguration(context.Background(), webapp.ReportingConfigurationRequest{
+		BaseRevision: &zero,
+		StartMonth:   4,
+		Classifications: []webapp.ReportingClassification{
+			{Account: "Assets", Category: reporting.CategoryAsset},
+			{Account: "Revenue", Category: reporting.CategoryRevenue},
+		},
+		FiscalYears: []webapp.ReportingFiscalYear{
+			{StartDate: "2025-04-01", EndDate: "2026-03-31", OpeningMode: reporting.OpeningAutomatic},
+			{StartDate: "2026-04-01", EndDate: "2027-03-31", OpeningMode: reporting.OpeningAutomatic},
+		},
+	}); err != nil {
+		t.Fatalf("CreateReportingConfiguration() error = %v", err)
+	}
+
+	response := serve(handler, http.MethodGet, "/reports/balance-sheet?start_date=2026-04-01&end_date=2027-03-31")
+	assertHTMLResponse(t, response, http.StatusUnprocessableEntity)
+	assertContainsAll(t, response.Body.String(), []string{
+		"自動繰越で作成した期首残高の貸借が一致しません", `href="/settings/reporting"`,
+	})
 }
 
 func reportingSettingsForm(baseRevision string) url.Values {
