@@ -30,6 +30,14 @@ Cloud and an IAP-protected server command.
   final posting amount.
 - `GET /api/v1/exports/json` exports the same approved snapshots as versioned
   JSON without pagination.
+- `GET /api/v1/reporting/configuration` returns the current immutable reporting
+  configuration. `POST` appends a configuration revision and requires the
+  caller's `base_revision`; stale updates return `409 Conflict`.
+- `GET /api/v1/reporting/configurations/{revision}` returns a historical,
+  read-only reporting configuration revision.
+- `GET /api/v1/reports/trial-balance?start_date=YYYY-MM-DD&end_date=YYYY-MM-DD`
+  returns a commodity-separated trial balance for an exact configured fiscal
+  year or monthly period. Arbitrary date ranges are rejected.
 
 Every JSON response carries `schema_version: 1`. Amounts are decimal strings
 rather than JSON numbers. An omitted posting amount omits both `amount` and
@@ -54,10 +62,12 @@ and `entries: []`, respectively.
 
 Errors contain only a stable code and safe message. Request bodies, accounting
 values, SQL details, paths, and credentials are not reflected in error bodies.
+`reporting_not_configured` indicates that only reporting setup is missing;
+existing import, review, approval, and export routes remain available.
 
 ## Storage
 
-`webstore` uses `database/sql` and schema version `3`. A single import commits
+`webstore` uses `database/sql` and schema version `4`. A single import commits
 the run, outcomes, diagnostics, entries, postings, accepted identities, and
 workflow generation in one transaction. Decimal text and scale, date versus
 timestamp precision, comment order, and posting omission are preserved.
@@ -68,6 +78,11 @@ domain validation and records its diagnostics. Entry detail reports the latest
 revision and reports a current approval only when that latest revision has been
 approved. Schema v3 adds optional total-price columns to original and revision
 postings while preserving posting quantities separately.
+Schema v4 adds append-only reporting configuration revisions, explicit account
+classifications, fiscal-year date ranges, opening-balance modes, and retained
+opening-entry references. Trial balances read the latest configuration and all
+currently approved entry snapshots in one database transaction. Decimal values
+remain canonical strings and commodities are never implicitly converted.
 
 The local test driver is the official CGO-free `tursogo` driver. Production
 uses `libsql-client-go` through `database/sql`; its connector receives the

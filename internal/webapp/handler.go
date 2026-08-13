@@ -12,12 +12,14 @@ import (
 
 	"github.com/hirokinko/bokiccio/internal/ingest"
 	"github.com/hirokinko/bokiccio/internal/ledger"
+	"github.com/hirokinko/bokiccio/internal/reporting"
 	"github.com/hirokinko/bokiccio/internal/tacklerfmt"
 )
 
 const (
-	maxImportBody   = 10 << 20
-	maxRevisionBody = 1 << 20
+	maxImportBody    = 10 << 20
+	maxRevisionBody  = 1 << 20
+	maxReportingBody = 1 << 20
 )
 
 type Handler struct {
@@ -60,11 +62,77 @@ func (handler *Handler) ServeHTTP(response http.ResponseWriter, request *http.Re
 			return
 		}
 		handler.exportJSON(response, request)
+	case request.URL.Path == "/api/v1/reporting/configuration":
+		handler.reportingConfiguration(response, request)
+	case strings.HasPrefix(request.URL.Path, "/api/v1/reporting/configurations/"):
+		if request.Method != http.MethodGet {
+			handler.methodNotAllowed(response)
+			return
+		}
+		handler.getReportingConfiguration(response, request,
+			strings.TrimPrefix(request.URL.Path, "/api/v1/reporting/configurations/"))
+	case request.URL.Path == "/api/v1/reports/trial-balance":
+		if request.Method != http.MethodGet {
+			handler.methodNotAllowed(response)
+			return
+		}
+		handler.getTrialBalance(response, request)
 	case strings.HasPrefix(request.URL.Path, "/api/v1/entries/"):
 		handler.entryResource(response, request, strings.TrimPrefix(request.URL.Path, "/api/v1/entries/"))
 	default:
 		writeError(response, http.StatusNotFound, "not_found", "resource not found")
 	}
+}
+
+func (handler *Handler) reportingConfiguration(response http.ResponseWriter, request *http.Request) {
+	switch request.Method {
+	case http.MethodGet:
+		detail, err := handler.repository.GetCurrentReportingConfiguration(request.Context())
+		if err != nil {
+			handler.writeRepositoryError(response, err)
+			return
+		}
+		writeJSON(response, http.StatusOK, detail)
+	case http.MethodPost:
+		var input ReportingConfigurationRequest
+		if !decodeJSONRequest(response, request, maxReportingBody, &input) {
+			return
+		}
+		detail, err := handler.repository.CreateReportingConfiguration(request.Context(), input)
+		if err != nil {
+			handler.writeRepositoryError(response, err)
+			return
+		}
+		writeJSON(response, http.StatusCreated, detail)
+	default:
+		handler.methodNotAllowed(response)
+	}
+}
+
+func (handler *Handler) getReportingConfiguration(response http.ResponseWriter, request *http.Request, text string) {
+	revision, err := strconv.Atoi(text)
+	if err != nil || revision < 1 || strconv.Itoa(revision) != text {
+		writeError(response, http.StatusNotFound, "not_found", "resource not found")
+		return
+	}
+	detail, err := handler.repository.GetReportingConfiguration(request.Context(), revision)
+	if err != nil {
+		handler.writeRepositoryError(response, err)
+		return
+	}
+	writeJSON(response, http.StatusOK, detail)
+}
+
+func (handler *Handler) getTrialBalance(response http.ResponseWriter, request *http.Request) {
+	query := request.URL.Query()
+	detail, err := handler.repository.GetTrialBalance(request.Context(), reporting.Period{
+		StartDate: query.Get("start_date"), EndDate: query.Get("end_date"),
+	})
+	if err != nil {
+		handler.writeRepositoryError(response, err)
+		return
+	}
+	writeJSON(response, http.StatusOK, detail)
 }
 
 func (handler *Handler) entryResource(response http.ResponseWriter, request *http.Request, path string) {
@@ -307,6 +375,12 @@ func (handler *Handler) writeRepositoryError(response http.ResponseWriter, err e
 		writeError(response, http.StatusUnprocessableEntity, "invalid_revision", "revision failed validation and cannot be approved")
 	case errors.Is(err, ErrConflict):
 		writeError(response, http.StatusConflict, "conflict", "resource state changed; retry the request")
+	case errors.Is(err, ErrReportingNotConfigured):
+		writeError(response, http.StatusConflict, "reporting_not_configured", "financial reporting is not configured")
+	case errors.Is(err, reporting.ErrInvalidPeriod):
+		writeError(response, http.StatusBadRequest, "invalid_period", "reporting period is invalid")
+	case errors.Is(err, reporting.ErrAmountOverflow):
+		writeError(response, http.StatusUnprocessableEntity, "report_amount_overflow", "report amount exceeds the supported range")
 	default:
 		writeError(response, http.StatusInternalServerError, "internal_error", "request could not be completed")
 	}
