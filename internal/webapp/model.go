@@ -29,6 +29,7 @@ type Repository interface {
 	GetCurrentReportingConfiguration(context.Context) (ReportingConfigurationDetail, error)
 	GetReportingConfiguration(context.Context, int) (ReportingConfigurationDetail, error)
 	CreateReportingConfiguration(context.Context, ReportingConfigurationRequest) (ReportingConfigurationDetail, error)
+	GetTrialBalance(context.Context, reporting.Period) (TrialBalanceDetail, error)
 }
 
 type ImportResult struct {
@@ -227,4 +228,9 @@ type ReportingConfigurationDetail struct {
 	StartMonth      int                       `json:"start_month"`
 	Classifications []ReportingClassification `json:"classifications"`
 	FiscalYears     []ReportingFiscalYear     `json:"fiscal_years"`
+}
+
+type TrialBalanceDetail struct {
+	SchemaVersion int `json:"schema_version"`
+	reporting.TrialBalance
 }

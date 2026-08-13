@@ -1,0 +1,223 @@
+package webstore
+
+import (
+	"context"
+	"database/sql"
+	"errors"
+	"fmt"
+
+	"github.com/hirokinko/bokiccio/internal/ledger"
+	"github.com/hirokinko/bokiccio/internal/reporting"
+	"github.com/hirokinko/bokiccio/internal/webapp"
+)
+
+func (store *Store) GetTrialBalance(ctx context.Context, period reporting.Period) (_ webapp.TrialBalanceDetail, resultErr error) {
+	transaction, err := store.database.BeginTx(ctx, nil)
+	if err != nil {
+		return webapp.TrialBalanceDetail{}, fmt.Errorf("begin trial balance transaction: %w", err)
+	}
+	defer func() {
+		if resultErr != nil {
+			_ = transaction.Rollback()
+		}
+	}()
+	var revision int
+	if err := transaction.QueryRowContext(ctx,
+		`SELECT COALESCE(MAX(revision), 0) FROM reporting_configurations`).Scan(&revision); err != nil {
+		return webapp.TrialBalanceDetail{}, fmt.Errorf("read trial balance configuration revision: %w", err)
+	}
+	if revision == 0 {
+		return webapp.TrialBalanceDetail{}, webapp.ErrReportingNotConfigured
+	}
+	detail, err := loadReportingConfiguration(ctx, transaction, revision)
+	if err != nil {
+		return webapp.TrialBalanceDetail{}, err
+	}
+	entries, err := loadCurrentApprovedEntries(ctx, transaction)
+	if err != nil {
+		return webapp.TrialBalanceDetail{}, err
+	}
+	balance, err := reporting.BuildTrialBalance(reportingConfigurationFromDetail(detail), entries, period)
+	if err != nil {
+		return webapp.TrialBalanceDetail{}, err
+	}
+	if err := transaction.Commit(); err != nil {
+		return webapp.TrialBalanceDetail{}, fmt.Errorf("commit trial balance transaction: %w", err)
+	}
+	return webapp.TrialBalanceDetail{SchemaVersion: webapp.APISchemaVersion, TrialBalance: balance}, nil
+}
+
+type approvedEntryBuilder struct {
+	entry reporting.Entry
+}
+
+func loadCurrentApprovedEntries(ctx context.Context, transaction *sql.Tx) ([]reporting.Entry, error) {
+	statement := currentEntriesQuery + `
+		SELECT c.entry_id, c.occurred_precision, c.occurred_at, c.description
+        FROM current_entries c
+        WHERE c.workflow_status = 'approved'
+        ORDER BY substr(c.occurred_at, 1, 10), c.occurred_precision,
+                 CASE WHEN c.occurred_precision = 2 THEN julianday(c.occurred_at) END,
+                 c.sequence, c.record_index`
+	rows, err := transaction.QueryContext(ctx, statement)
+	if err != nil {
+		return nil, fmt.Errorf("query trial balance entries: %w", err)
+	}
+	builders := map[string]*approvedEntryBuilder{}
+	order := []string{}
+	for rows.Next() {
+		var id, occurredAt, description string
+		var precision int
+		if err := rows.Scan(&id, &precision, &occurredAt, &description); err != nil {
+			rows.Close()
+			return nil, fmt.Errorf("scan trial balance entry: %w", err)
+		}
+		entryTime, err := ledger.ParseEntryTime(occurredAt)
+		if err != nil || int(entryTime.Precision()) != precision {
+			rows.Close()
+			return nil, errors.New("stored trial balance entry time is invalid")
+		}
+		builders[id] = &approvedEntryBuilder{
+			entry: reporting.Entry{ID: id, Entry: ledger.JournalEntry{
+				Date: entryTime, Description: description, Comments: []string{}, Postings: []ledger.Posting{},
+			}},
+		}
+		order = append(order, id)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return nil, fmt.Errorf("iterate trial balance entries: %w", err)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, fmt.Errorf("close trial balance entries: %w", err)
+	}
+	if len(order) == 0 {
+		return []reporting.Entry{}, nil
+	}
+	if err := loadApprovedEntryComments(ctx, transaction, builders); err != nil {
+		return nil, err
+	}
+	if err := loadApprovedEntryPostings(ctx, transaction, builders); err != nil {
+		return nil, err
+	}
+	entries := make([]reporting.Entry, 0, len(order))
+	for _, id := range order {
+		entry := builders[id].entry
+		if err := ledger.Validate(entry.Entry); err != nil {
+			return nil, fmt.Errorf("stored approved entry is invalid: %w", err)
+		}
+		entries = append(entries, entry)
+	}
+	return entries, nil
+}
+
+func loadApprovedEntryComments(ctx context.Context, transaction *sql.Tx, builders map[string]*approvedEntryBuilder) error {
+	statement := currentEntriesQuery + `,
+approved_entries AS (
+    SELECT entry_id, current_revision FROM current_entries WHERE workflow_status = 'approved'
+)
+SELECT c.entry_id, oc.comment_index, oc.comment
+FROM approved_entries c
+JOIN entry_comments oc ON oc.entry_id = c.entry_id
+WHERE c.current_revision = 0
+UNION ALL
+SELECT c.entry_id, rc.comment_index, rc.comment
+FROM approved_entries c
+JOIN revision_comments rc ON rc.entry_id = c.entry_id AND rc.revision = c.current_revision
+WHERE c.current_revision > 0
+ORDER BY entry_id, comment_index`
+	rows, err := transaction.QueryContext(ctx, statement)
+	if err != nil {
+		return fmt.Errorf("query trial balance comments: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id, comment string
+		var index int
+		if err := rows.Scan(&id, &index, &comment); err != nil {
+			return fmt.Errorf("scan trial balance comment: %w", err)
+		}
+		builder, found := builders[id]
+		if !found || index != len(builder.entry.Entry.Comments) {
+			return errors.New("stored trial balance comments are invalid")
+		}
+		builder.entry.Entry.Comments = append(builder.entry.Entry.Comments, comment)
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("iterate trial balance comments: %w", err)
+	}
+	return nil
+}
+
+func loadApprovedEntryPostings(ctx context.Context, transaction *sql.Tx, builders map[string]*approvedEntryBuilder) error {
+	statement := currentEntriesQuery + `,
+approved_entries AS (
+    SELECT entry_id, current_revision FROM current_entries WHERE workflow_status = 'approved'
+)
+SELECT c.entry_id, op.posting_index, op.account, op.amount_text, op.amount_scale, op.commodity,
+       op.total_price_amount_text, op.total_price_amount_scale, op.total_price_commodity, op.comment
+FROM approved_entries c
+JOIN postings op ON op.entry_id = c.entry_id
+WHERE c.current_revision = 0
+UNION ALL
+SELECT c.entry_id, rp.posting_index, rp.account, rp.amount_text, rp.amount_scale, rp.commodity,
+       rp.total_price_amount_text, rp.total_price_amount_scale, rp.total_price_commodity, rp.comment
+FROM approved_entries c
+JOIN revision_postings rp ON rp.entry_id = c.entry_id AND rp.revision = c.current_revision
+WHERE c.current_revision > 0
+ORDER BY entry_id, posting_index`
+	rows, err := transaction.QueryContext(ctx, statement)
+	if err != nil {
+		return fmt.Errorf("query trial balance postings: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id string
+		var index int
+		var posting ledger.Posting
+		var amountText, commodity, totalPriceText, totalPriceCommodity sql.NullString
+		var amountScale, totalPriceScale sql.NullInt64
+		if err := rows.Scan(&id, &index, &posting.Account, &amountText, &amountScale, &commodity,
+			&totalPriceText, &totalPriceScale, &totalPriceCommodity, &posting.Comment); err != nil {
+			return fmt.Errorf("scan trial balance posting: %w", err)
+		}
+		builder, found := builders[id]
+		if !found || index != len(builder.entry.Entry.Postings) {
+			return errors.New("stored trial balance postings are invalid")
+		}
+		if amountText.Valid != amountScale.Valid || amountText.Valid != commodity.Valid {
+			return errors.New("stored trial balance posting amount is invalid")
+		}
+		if totalPriceText.Valid != totalPriceScale.Valid || totalPriceText.Valid != totalPriceCommodity.Valid {
+			return errors.New("stored trial balance posting total price is invalid")
+		}
+		if amountText.Valid {
+			value, err := ledger.ParseDecimal(amountText.String)
+			if err != nil || int64(value.Scale()) != amountScale.Int64 {
+				return errors.New("stored trial balance posting amount is invalid")
+			}
+			posting.Amount = &ledger.Amount{Value: value, Commodity: ledger.Commodity(commodity.String)}
+		}
+		if totalPriceText.Valid {
+			value, err := ledger.ParseDecimal(totalPriceText.String)
+			if err != nil || int64(value.Scale()) != totalPriceScale.Int64 {
+				return errors.New("stored trial balance posting total price is invalid")
+			}
+			posting.TotalPrice = &ledger.Amount{Value: value, Commodity: ledger.Commodity(totalPriceCommodity.String)}
+		}
+		builder.entry.Entry.Postings = append(builder.entry.Entry.Postings, posting)
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("iterate trial balance postings: %w", err)
+	}
+	return nil
+}
+
+func reportingConfigurationFromDetail(detail webapp.ReportingConfigurationDetail) reporting.Configuration {
+	baseRevision := detail.BaseRevision
+	request := webapp.ReportingConfigurationRequest{
+		BaseRevision: &baseRevision, StartMonth: detail.StartMonth,
+		Classifications: detail.Classifications, FiscalYears: detail.FiscalYears,
+	}
+	return reportingConfiguration(detail.Revision, request)
+}
