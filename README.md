@@ -32,6 +32,7 @@ Bokiccio（ボキッチョ）は、複数の明細・メール・レシートか
 - 現在承認済みの仕訳だけを対象にしたTackler/JSON export
 - 明示的な5区分・会計年度・期首残高方式を履歴管理するreporting設定
 - 承認済み最新仕訳をcommodity別・勘定科目階層別に集計する月次・年度試算表
+- 年度別の期首貸借対照表、単月損益計算書、12か月の全勘定残高推移
 - reporting設定を含むchecksum付きlogical backupと空database限定のtransactional restore
 - 匿名化fixtureによるgolden test
 - Tackler 26.1.2以降を使った任意実行の互換性test
@@ -55,7 +56,7 @@ internal/ledger
 internal/reporting
   ├─ classification and fiscal calendar
   ├─ opening balance policy and exact aggregation
-  └─ commodity-separated hierarchical trial balance
+  └─ commodity-separated trial balance, statements, and balance trend
 
 internal/tacklerfmt
   ├─ Tackler-compatible subset parser and exporter
@@ -79,7 +80,7 @@ internal/webapp / internal/webstore / internal/webprod
   ├─ HTTP handler and database/sql persistence
   ├─ single-owner IAP and origin boundary
   ├─ revision, approval, search, and approved export
-  ├─ reporting configuration、trial balance、logical backup/restore
+  ├─ reporting configuration、financial reports、logical backup/restore
   └─ Turso Cloud production composition
 
 internal/webui

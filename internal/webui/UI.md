@@ -18,6 +18,12 @@ BokiccioのWeb UIは、Cloud Run direct IAPで保護された単一利用者向�
 - `POST /ui/settings/reporting`: reporting configuration revisionの作成
 - `GET /reports/trial-balance`: 選択した会計年度または月次期間のcommodity別試算表
 - `POST /ui/reports/trial-balance`: form bodyで選択した期間へのredirect
+- `GET /reports/balance-sheet`: 選択した会計年度の期首貸借対照表
+- `POST /ui/reports/balance-sheet`: form bodyで選択した会計年度へのredirect
+- `GET /reports/income-statement`: 選択した月次期間の損益計算書
+- `POST /ui/reports/income-statement`: form bodyで選択した月次期間へのredirect
+- `GET /reports/balance-trend`: 選択した会計年度の12か月の全勘定残高推移
+- `POST /ui/reports/balance-trend`: form bodyで選択した会計年度へのredirect
 - `GET /en/`: 最新50件の仕訳候補（英語UI）
 - `POST /en/ui/imports`: normalized input v1/v2 JSON fileのupload（英語UI）
 - `POST /en/ui/imports/tackler`: Tackler互換subset `.txn` fileのupload（英語UI）
@@ -32,6 +38,12 @@ BokiccioのWeb UIは、Cloud Run direct IAPで保護された単一利用者向�
 - `POST /en/ui/settings/reporting`: reporting configuration revisionの作成（英語UI）
 - `GET /en/reports/trial-balance`: commodity別試算表（英語UI）
 - `POST /en/ui/reports/trial-balance`: form bodyで選択した期間へのredirect（英語UI）
+- `GET /en/reports/balance-sheet`: 期首貸借対照表（英語UI）
+- `POST /en/ui/reports/balance-sheet`: form bodyで選択した会計年度へのredirect（英語UI）
+- `GET /en/reports/income-statement`: 月次損益計算書（英語UI）
+- `POST /en/ui/reports/income-statement`: form bodyで選択した月次期間へのredirect（英語UI）
+- `GET /en/reports/balance-trend`: 12か月の全勘定残高推移（英語UI）
+- `POST /en/ui/reports/balance-trend`: form bodyで選択した会計年度へのredirect（英語UI）
 - `GET /assets/app.css`: 同梱した画面style
 - `GET /assets/htmx-2.0.10.min.js`: 同梱したhtmx
 
@@ -65,6 +77,16 @@ account階層、小計、期首・発生・期末の借方・貸方をcanonical 
 表示する。狭い画面では横長tableを科目別cardへ切り替え、6つの金額を2列で表示する。小計と異なる直接計上値は折りたたみ内へ
 配置し、横スクロールなしでreport全体を確認できるようにする。
 
+期首貸借対照表は設定済み会計年度と完全一致する期間だけを受け付け、その年度の期首残高方式から資産・負債・純資産を
+requestごとに再構成する。月次損益計算書はreporting calendarが生成した単月だけを対象に、収益・費用と月次損益を表示する。
+いずれもcommodityを分離し、未分類accountを別groupに残す。金額は1列とし、資産・費用は借方、負債・純資産・収益は貸方を
+正として表示する。反対残高は負数、WARNING、実際の借方・貸方を併記する。
+
+残高推移は設定済み会計年度の12月末について、資産・負債・純資産・収益・費用・未分類の全勘定残高を表示する。収益・費用は
+年度期首から各月末までの累計であり、月次P/Lとは区別する。desktop・smartphoneとも月単位のcardを縦またはgridに並べ、
+横長の12列tableを必須にしない。自動繰越の期首が貸借不一致なら期首B/Sと残高推移は`422`で理由と設定導線を表示し、月次P/Lは
+引き続き利用できる。
+
 normalized input uploadは`multipart/form-data`のPOST bodyで送信します。file fieldは`file`、file contentは最大10 MiB、request全体にも小さなoverhead上限を設けます。filenameとclient側Content-Typeはsource、identity、format判定には使わず、保存、log、HTML responseへの反映もしません。record単位のerrorを含んだ取込runも保存できた場合は成功uploadとして扱い、`303 See Other`で`/imports/{run-identity}`または`/en/imports/{run-identity}`へredirectします。
 
 Tackler `.txn` uploadはnormalized input uploadとは別form/routeで扱う。対応subsetは`internal/tacklerfmt/COMPATIBILITY.md`に従い、parse後のentryをnormalized input v2へ変換して既存import経路へ渡す。sourceはprivate filenameではなく`tackler: uploaded.txn`として記録する。
@@ -93,4 +115,4 @@ npm run check
 ```
 
 この段階の画面はnormalized JSON upload、Tackler `.txn` upload、検索、閲覧、revision作成、approval、承認済み仕訳のexport、
-reporting設定、commodity別試算表に対応しています。
+reporting設定、commodity別試算表、期首B/S、月次P/L、全勘定残高推移に対応しています。
