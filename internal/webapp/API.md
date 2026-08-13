@@ -38,6 +38,17 @@ Cloud and an IAP-protected server command.
 - `GET /api/v1/reports/trial-balance?start_date=YYYY-MM-DD&end_date=YYYY-MM-DD`
   returns a commodity-separated trial balance for an exact configured fiscal
   year or monthly period. Arbitrary date ranges are rejected.
+- `GET /api/v1/reports/balance-sheet?start_date=YYYY-MM-DD&end_date=YYYY-MM-DD`
+  returns the opening balance sheet for an exact configured fiscal year. It
+  uses that year's opening-entry or automatic-carry mode and excludes ordinary
+  movements recorded on the fiscal-year start date.
+- `GET /api/v1/reports/income-statement?start_date=YYYY-MM-DD&end_date=YYYY-MM-DD`
+  returns revenue, expenses, and net income for an exact configured monthly
+  period. Fiscal-year and arbitrary ranges are rejected.
+- `GET /api/v1/reports/balance-trend?start_date=YYYY-MM-DD&end_date=YYYY-MM-DD`
+  returns twelve month-end points for an exact configured fiscal year. Each
+  point contains cumulative balances for all five categories and unclassified
+  accounts; it is not a monthly balance sheet.
 
 Every JSON response carries `schema_version: 1`. Amounts are decimal strings
 rather than JSON numbers. An omitted posting amount omits both `amount` and
@@ -64,6 +75,10 @@ Errors contain only a stable code and safe message. Request bodies, accounting
 values, SQL details, paths, and credentials are not reflected in error bodies.
 `reporting_not_configured` indicates that only reporting setup is missing;
 existing import, review, approval, and export routes remain available.
+`opening_balance_unbalanced` indicates that automatic carry-forward did not
+produce a balanced asset, liability, and equity opening. Balance-sheet and
+balance-trend responses use `422 Unprocessable Entity` in that state; monthly
+income statements remain available.
 
 ## Storage
 
@@ -83,6 +98,8 @@ classifications, fiscal-year date ranges, opening-balance modes, and retained
 opening-entry references. Trial balances read the latest configuration and all
 currently approved entry snapshots in one database transaction. Decimal values
 remain canonical strings and commodities are never implicitly converted.
+Balance sheets, monthly income statements, and balance trends use the same
+transactional reporting snapshot and do not add stored report tables.
 
 The local test driver is the official CGO-free `tursogo` driver. Production
 uses `libsql-client-go` through `database/sql`; its connector receives the

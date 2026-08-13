@@ -12,32 +12,16 @@ import (
 )
 
 func (store *Store) GetTrialBalance(ctx context.Context, period reporting.Period) (_ webapp.TrialBalanceDetail, resultErr error) {
-	transaction, err := store.database.BeginTx(ctx, nil)
+	transaction, configuration, entries, err := store.reportingSnapshot(ctx, "trial balance")
 	if err != nil {
-		return webapp.TrialBalanceDetail{}, fmt.Errorf("begin trial balance transaction: %w", err)
+		return webapp.TrialBalanceDetail{}, err
 	}
 	defer func() {
 		if resultErr != nil {
 			_ = transaction.Rollback()
 		}
 	}()
-	var revision int
-	if err := transaction.QueryRowContext(ctx,
-		`SELECT COALESCE(MAX(revision), 0) FROM reporting_configurations`).Scan(&revision); err != nil {
-		return webapp.TrialBalanceDetail{}, fmt.Errorf("read trial balance configuration revision: %w", err)
-	}
-	if revision == 0 {
-		return webapp.TrialBalanceDetail{}, webapp.ErrReportingNotConfigured
-	}
-	detail, err := loadReportingConfiguration(ctx, transaction, revision)
-	if err != nil {
-		return webapp.TrialBalanceDetail{}, err
-	}
-	entries, err := loadCurrentApprovedEntries(ctx, transaction)
-	if err != nil {
-		return webapp.TrialBalanceDetail{}, err
-	}
-	balance, err := reporting.BuildTrialBalance(reportingConfigurationFromDetail(detail), entries, period)
+	balance, err := reporting.BuildTrialBalance(configuration, entries, period)
 	if err != nil {
 		return webapp.TrialBalanceDetail{}, err
 	}
@@ -45,6 +29,34 @@ func (store *Store) GetTrialBalance(ctx context.Context, period reporting.Period
 		return webapp.TrialBalanceDetail{}, fmt.Errorf("commit trial balance transaction: %w", err)
 	}
 	return webapp.TrialBalanceDetail{SchemaVersion: webapp.APISchemaVersion, TrialBalance: balance}, nil
+}
+
+func (store *Store) reportingSnapshot(ctx context.Context, reportName string) (*sql.Tx, reporting.Configuration, []reporting.Entry, error) {
+	transaction, err := store.database.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, reporting.Configuration{}, nil, fmt.Errorf("begin %s transaction: %w", reportName, err)
+	}
+	var revision int
+	if err := transaction.QueryRowContext(ctx,
+		`SELECT COALESCE(MAX(revision), 0) FROM reporting_configurations`).Scan(&revision); err != nil {
+		_ = transaction.Rollback()
+		return nil, reporting.Configuration{}, nil, fmt.Errorf("read %s configuration revision: %w", reportName, err)
+	}
+	if revision == 0 {
+		_ = transaction.Rollback()
+		return nil, reporting.Configuration{}, nil, webapp.ErrReportingNotConfigured
+	}
+	detail, err := loadReportingConfiguration(ctx, transaction, revision)
+	if err != nil {
+		_ = transaction.Rollback()
+		return nil, reporting.Configuration{}, nil, err
+	}
+	entries, err := loadCurrentApprovedEntries(ctx, transaction)
+	if err != nil {
+		_ = transaction.Rollback()
+		return nil, reporting.Configuration{}, nil, err
+	}
+	return transaction, reportingConfigurationFromDetail(detail), entries, nil
 }
 
 type approvedEntryBuilder struct {

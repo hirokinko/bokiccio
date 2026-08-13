@@ -130,6 +130,31 @@ func TestTrialBalanceAPIEmptyAndMultipleCommodities(t *testing.T) {
 		t.Fatalf("multi-commodity totals = %+v", report.Commodities)
 	}
 
+	balanceSheetResponse := request(t, handler, http.MethodGet,
+		"/api/v1/reports/balance-sheet?start_date=2025-04-01&end_date=2026-03-31", nil, "")
+	var balanceSheet webapp.BalanceSheetDetail
+	decodeJSON(t, balanceSheetResponse.Body.Bytes(), &balanceSheet)
+	if balanceSheetResponse.Code != http.StatusOK || balanceSheet.SchemaVersion != webapp.APISchemaVersion ||
+		balanceSheet.AsOf != "2025-04-01" || balanceSheet.Commodities == nil || len(balanceSheet.Commodities) != 0 {
+		t.Fatalf("balance sheet status=%d detail=%+v", balanceSheetResponse.Code, balanceSheet)
+	}
+
+	incomeResponse := request(t, handler, http.MethodGet, "/api/v1/reports/income-statement?start_date=2025-04-01&end_date=2025-04-30", nil, "")
+	var income webapp.IncomeStatementDetail
+	decodeJSON(t, incomeResponse.Body.Bytes(), &income)
+	if incomeResponse.Code != http.StatusOK || len(income.Commodities) != 2 ||
+		income.Commodities[0].NetIncome.Credit != "100" || income.Commodities[1].NetIncome.Credit != "2.50" {
+		t.Fatalf("income statement status=%d detail=%+v", incomeResponse.Code, income)
+	}
+
+	trendResponse := request(t, handler, http.MethodGet,
+		"/api/v1/reports/balance-trend?start_date=2025-04-01&end_date=2026-03-31", nil, "")
+	var trend webapp.BalanceTrendDetail
+	decodeJSON(t, trendResponse.Body.Bytes(), &trend)
+	if trendResponse.Code != http.StatusOK || len(trend.Points) != 12 || len(trend.Points[0].Commodities) != 2 {
+		t.Fatalf("balance trend status=%d detail=%+v", trendResponse.Code, trend)
+	}
+
 	assertProblem(t, request(t, handler, http.MethodGet,
 		"/api/v1/reports/trial-balance?start_date=2025-04-02&end_date=2025-04-30", nil, ""),
 		http.StatusBadRequest, "invalid_period")
@@ -138,6 +163,60 @@ func TestTrialBalanceAPIEmptyAndMultipleCommodities(t *testing.T) {
 		http.StatusBadRequest, "invalid_period")
 	assertProblem(t, request(t, handler, http.MethodPost, periodPath, []byte(`{}`), "application/json"),
 		http.StatusMethodNotAllowed, "method_not_allowed")
+	assertProblem(t, request(t, handler, http.MethodGet,
+		"/api/v1/reports/income-statement?start_date=2025-04-01&end_date=2025-04-30&extra=private", nil, ""),
+		http.StatusBadRequest, "invalid_period")
+	assertProblem(t, request(t, handler, http.MethodPost,
+		"/api/v1/reports/balance-trend?start_date=2025-04-01&end_date=2026-03-31", []byte(`{}`), "application/json"),
+		http.StatusMethodNotAllowed, "method_not_allowed")
+}
+
+func TestFinancialReportAPIOpeningBalanceUnbalanced(t *testing.T) {
+	handler := webapp.NewHandler(webstore.New(openDatabase(t)))
+	input := []byte(`{
+  "schema_version": 1,
+  "records": [
+    {"source":{"namespace":"report-api","display":"opening"},"occurred_at":"2024-04-01","description":"opening fixture","postings":[{"account":"Assets:Cash","amount":"100","commodity":"JPY"},{"account":"Equity:Opening","amount":"-100","commodity":"JPY"}]},
+    {"source":{"namespace":"report-api","display":"expense"},"occurred_at":"2024-05-01","description":"expense fixture","postings":[{"account":"Expenses:Supplies","amount":"20","commodity":"JPY"},{"account":"Assets:Cash","amount":"-20","commodity":"JPY"}]}
+  ]
+}`)
+	result := postImport(t, handler, input)
+	runResponse := request(t, handler, http.MethodGet, result.DetailURL, nil, "")
+	var run webapp.RunDetail
+	decodeJSON(t, runResponse.Body.Bytes(), &run)
+	if len(run.Outcomes) != 2 {
+		t.Fatalf("financial report fixture run = %+v", run)
+	}
+	for _, outcome := range run.Outcomes {
+		approveEntry(t, handler, outcome.EntryID, 0)
+	}
+	created := requestJSON(t, handler, http.MethodPost, "/api/v1/reporting/configuration", map[string]any{
+		"base_revision": 0,
+		"start_month":   4,
+		"classifications": []map[string]any{
+			{"account": "Assets", "category": "asset"},
+			{"account": "Equity", "category": "equity"},
+			{"account": "Expenses", "category": "expense"},
+		},
+		"fiscal_years": []map[string]any{
+			{"start_date": "2024-04-01", "end_date": "2025-03-31", "opening_mode": "opening_entries", "opening_entry_ids": []string{run.Outcomes[0].EntryID}},
+			{"start_date": "2025-04-01", "end_date": "2026-03-31", "opening_mode": "automatic", "opening_entry_ids": []string{}},
+		},
+	})
+	if created.Code != http.StatusCreated {
+		t.Fatalf("create unbalanced reporting configuration status=%d body=%s", created.Code, created.Body.String())
+	}
+	assertProblem(t, request(t, handler, http.MethodGet,
+		"/api/v1/reports/balance-sheet?start_date=2025-04-01&end_date=2026-03-31", nil, ""),
+		http.StatusUnprocessableEntity, "opening_balance_unbalanced")
+	assertProblem(t, request(t, handler, http.MethodGet,
+		"/api/v1/reports/balance-trend?start_date=2025-04-01&end_date=2026-03-31", nil, ""),
+		http.StatusUnprocessableEntity, "opening_balance_unbalanced")
+	income := request(t, handler, http.MethodGet,
+		"/api/v1/reports/income-statement?start_date=2025-04-01&end_date=2025-04-30", nil, "")
+	if income.Code != http.StatusOK {
+		t.Fatalf("income statement after unbalanced opening status=%d body=%s", income.Code, income.Body.String())
+	}
 }
 
 func TestTrialBalanceAPINotConfigured(t *testing.T) {

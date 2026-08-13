@@ -77,6 +77,24 @@ func (handler *Handler) ServeHTTP(response http.ResponseWriter, request *http.Re
 			return
 		}
 		handler.getTrialBalance(response, request)
+	case request.URL.Path == "/api/v1/reports/balance-sheet":
+		if request.Method != http.MethodGet {
+			handler.methodNotAllowed(response)
+			return
+		}
+		handler.getBalanceSheet(response, request)
+	case request.URL.Path == "/api/v1/reports/income-statement":
+		if request.Method != http.MethodGet {
+			handler.methodNotAllowed(response)
+			return
+		}
+		handler.getIncomeStatement(response, request)
+	case request.URL.Path == "/api/v1/reports/balance-trend":
+		if request.Method != http.MethodGet {
+			handler.methodNotAllowed(response)
+			return
+		}
+		handler.getBalanceTrend(response, request)
 	case strings.HasPrefix(request.URL.Path, "/api/v1/entries/"):
 		handler.entryResource(response, request, strings.TrimPrefix(request.URL.Path, "/api/v1/entries/"))
 	default:
@@ -133,6 +151,57 @@ func (handler *Handler) getTrialBalance(response http.ResponseWriter, request *h
 		return
 	}
 	writeJSON(response, http.StatusOK, detail)
+}
+
+func (handler *Handler) getBalanceSheet(response http.ResponseWriter, request *http.Request) {
+	period, ok := strictReportPeriod(request)
+	if !ok {
+		writeError(response, http.StatusBadRequest, "invalid_period", "reporting period is invalid")
+		return
+	}
+	detail, err := handler.repository.GetBalanceSheet(request.Context(), period)
+	if err != nil {
+		handler.writeRepositoryError(response, err)
+		return
+	}
+	writeJSON(response, http.StatusOK, detail)
+}
+
+func (handler *Handler) getIncomeStatement(response http.ResponseWriter, request *http.Request) {
+	period, ok := strictReportPeriod(request)
+	if !ok {
+		writeError(response, http.StatusBadRequest, "invalid_period", "reporting period is invalid")
+		return
+	}
+	detail, err := handler.repository.GetIncomeStatement(request.Context(), period)
+	if err != nil {
+		handler.writeRepositoryError(response, err)
+		return
+	}
+	writeJSON(response, http.StatusOK, detail)
+}
+
+func (handler *Handler) getBalanceTrend(response http.ResponseWriter, request *http.Request) {
+	period, ok := strictReportPeriod(request)
+	if !ok {
+		writeError(response, http.StatusBadRequest, "invalid_period", "reporting period is invalid")
+		return
+	}
+	detail, err := handler.repository.GetBalanceTrend(request.Context(), period)
+	if err != nil {
+		handler.writeRepositoryError(response, err)
+		return
+	}
+	writeJSON(response, http.StatusOK, detail)
+}
+
+func strictReportPeriod(request *http.Request) (reporting.Period, bool) {
+	query := request.URL.Query()
+	if len(query) != 2 || len(query["start_date"]) != 1 || len(query["end_date"]) != 1 ||
+		query.Get("start_date") == "" || query.Get("end_date") == "" {
+		return reporting.Period{}, false
+	}
+	return reporting.Period{StartDate: query.Get("start_date"), EndDate: query.Get("end_date")}, true
 }
 
 func (handler *Handler) entryResource(response http.ResponseWriter, request *http.Request, path string) {
@@ -381,6 +450,8 @@ func (handler *Handler) writeRepositoryError(response http.ResponseWriter, err e
 		writeError(response, http.StatusBadRequest, "invalid_period", "reporting period is invalid")
 	case errors.Is(err, reporting.ErrAmountOverflow):
 		writeError(response, http.StatusUnprocessableEntity, "report_amount_overflow", "report amount exceeds the supported range")
+	case errors.Is(err, reporting.ErrOpeningUnbalanced):
+		writeError(response, http.StatusUnprocessableEntity, "opening_balance_unbalanced", "reporting opening balance is unbalanced")
 	default:
 		writeError(response, http.StatusInternalServerError, "internal_error", "request could not be completed")
 	}

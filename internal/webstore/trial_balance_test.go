@@ -105,15 +105,41 @@ func TestTrialBalanceUsesOnlyCurrentApprovedSnapshots(t *testing.T) {
 	if _, err := store.GetTrialBalance(ctx, reporting.Period{StartDate: "2025-04-02", EndDate: "2025-04-30"}); !errors.Is(err, reporting.ErrInvalidPeriod) {
 		t.Fatalf("GetTrialBalance(invalid period) error = %v, want ErrInvalidPeriod", err)
 	}
+
+	balanceSheet, err := store.GetBalanceSheet(ctx, reporting.Period{StartDate: "2025-04-01", EndDate: "2026-03-31"})
+	if err != nil || balanceSheet.SchemaVersion != webapp.APISchemaVersion || len(balanceSheet.Commodities) != 0 {
+		t.Fatalf("GetBalanceSheet() = %+v, error = %v", balanceSheet, err)
+	}
+	incomeStatement, err := store.GetIncomeStatement(ctx, reporting.Period{StartDate: "2025-04-01", EndDate: "2025-04-30"})
+	if err != nil || incomeStatement.SchemaVersion != webapp.APISchemaVersion || len(incomeStatement.Commodities) != 1 ||
+		incomeStatement.Commodities[0].NetIncome.Debit != "15" {
+		t.Fatalf("GetIncomeStatement() = %+v, error = %v", incomeStatement, err)
+	}
+	balanceTrend, err := store.GetBalanceTrend(ctx, reporting.Period{StartDate: "2025-04-01", EndDate: "2026-03-31"})
+	if err != nil || balanceTrend.SchemaVersion != webapp.APISchemaVersion || len(balanceTrend.Points) != 12 ||
+		len(balanceTrend.Points[0].Commodities) != 1 {
+		t.Fatalf("GetBalanceTrend() = %+v, error = %v", balanceTrend, err)
+	}
 }
 
 func TestTrialBalanceRequiresReportingConfiguration(t *testing.T) {
 	store := New(openBackupTestDatabase(t))
-	_, err := store.GetTrialBalance(context.Background(), reporting.Period{
+	ctx := context.Background()
+	period := reporting.Period{
 		StartDate: "2025-04-01", EndDate: "2025-04-30",
-	})
+	}
+	_, err := store.GetTrialBalance(ctx, period)
 	if !errors.Is(err, webapp.ErrReportingNotConfigured) {
 		t.Fatalf("GetTrialBalance() error = %v, want ErrReportingNotConfigured", err)
+	}
+	if _, err := store.GetBalanceSheet(ctx, period); !errors.Is(err, webapp.ErrReportingNotConfigured) {
+		t.Fatalf("GetBalanceSheet() error = %v, want ErrReportingNotConfigured", err)
+	}
+	if _, err := store.GetIncomeStatement(ctx, period); !errors.Is(err, webapp.ErrReportingNotConfigured) {
+		t.Fatalf("GetIncomeStatement() error = %v, want ErrReportingNotConfigured", err)
+	}
+	if _, err := store.GetBalanceTrend(ctx, period); !errors.Is(err, webapp.ErrReportingNotConfigured) {
+		t.Fatalf("GetBalanceTrend() error = %v, want ErrReportingNotConfigured", err)
 	}
 }
 

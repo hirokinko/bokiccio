@@ -50,6 +50,9 @@ type Repository interface {
 	GetReportingConfiguration(context.Context, int) (ReportingConfigurationDetail, error)
 	CreateReportingConfiguration(context.Context, ReportingConfigurationRequest) (ReportingConfigurationDetail, error)
 	GetTrialBalance(context.Context, reporting.Period) (TrialBalanceDetail, error)
+	GetBalanceSheet(context.Context, reporting.Period) (BalanceSheetDetail, error)
+	GetIncomeStatement(context.Context, reporting.Period) (IncomeStatementDetail, error)
+	GetBalanceTrend(context.Context, reporting.Period) (BalanceTrendDetail, error)
 }
 
 type ImportResult struct {
@@ -253,4 +256,19 @@ type ReportingConfigurationDetail struct {
 type TrialBalanceDetail struct {
 	SchemaVersion int `json:"schema_version"`
 	reporting.TrialBalance
+}
+
+type BalanceSheetDetail struct {
+	SchemaVersion int `json:"schema_version"`
+	reporting.BalanceSheet
+}
+
+type IncomeStatementDetail struct {
+	SchemaVersion int `json:"schema_version"`
+	reporting.IncomeStatement
+}
+
+type BalanceTrendDetail struct {
+	SchemaVersion int `json:"schema_version"`
+	reporting.BalanceTrend
 }
