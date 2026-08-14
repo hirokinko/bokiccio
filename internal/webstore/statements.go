@@ -48,6 +48,26 @@ func (store *Store) GetBalanceSheet(ctx context.Context, period reporting.Period
 	return webapp.BalanceSheetDetail{SchemaVersion: webapp.APISchemaVersion, BalanceSheet: report}, nil
 }
 
+func (store *Store) GetClosingBalanceSheet(ctx context.Context, period reporting.Period) (_ webapp.ClosingBalanceSheetDetail, resultErr error) {
+	transaction, configuration, entries, err := store.reportingSnapshot(ctx, "closing balance sheet")
+	if err != nil {
+		return webapp.ClosingBalanceSheetDetail{}, err
+	}
+	defer func() {
+		if resultErr != nil {
+			_ = transaction.Rollback()
+		}
+	}()
+	report, err := reporting.BuildClosingBalanceSheet(configuration, entries, period)
+	if err != nil {
+		return webapp.ClosingBalanceSheetDetail{}, err
+	}
+	if err := transaction.Commit(); err != nil {
+		return webapp.ClosingBalanceSheetDetail{}, fmt.Errorf("commit closing balance sheet transaction: %w", err)
+	}
+	return webapp.ClosingBalanceSheetDetail{SchemaVersion: webapp.APISchemaVersion, ClosingBalanceSheet: report}, nil
+}
+
 func (store *Store) GetIncomeStatement(ctx context.Context, period reporting.Period) (_ webapp.IncomeStatementDetail, resultErr error) {
 	transaction, configuration, entries, err := store.reportingSnapshot(ctx, "income statement")
 	if err != nil {

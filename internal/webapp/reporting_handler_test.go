@@ -139,6 +139,19 @@ func TestTrialBalanceAPIEmptyAndMultipleCommodities(t *testing.T) {
 		t.Fatalf("balance sheet status=%d detail=%+v", balanceSheetResponse.Code, balanceSheet)
 	}
 
+	closingResponse := request(t, handler, http.MethodGet,
+		"/api/v1/reports/closing-balance-sheet?start_date=2025-04-01&end_date=2026-03-31", nil, "")
+	var closing webapp.ClosingBalanceSheetDetail
+	decodeJSON(t, closingResponse.Body.Bytes(), &closing)
+	if closingResponse.Code != http.StatusOK || closing.SchemaVersion != webapp.APISchemaVersion ||
+		closing.ConfigurationRevision != 1 || closing.AsOf != "2026-03-31" || len(closing.Commodities) != 2 ||
+		closing.Commodities[0].Commodity != "JPY" || closing.Commodities[0].CurrentEarnings.Credit != "100" ||
+		closing.Commodities[1].Commodity != "USD" || closing.Commodities[1].CurrentEarnings.Credit != "2.50" ||
+		closing.Commodities[0].Total.Debit != "0" || closing.Commodities[0].Total.Credit != "0" ||
+		closing.Commodities[1].Total.Debit != "0.00" || closing.Commodities[1].Total.Credit != "0" {
+		t.Fatalf("closing balance sheet status=%d detail=%+v", closingResponse.Code, closing)
+	}
+
 	incomeResponse := request(t, handler, http.MethodGet, "/api/v1/reports/income-statement?start_date=2025-04-01&end_date=2025-04-30", nil, "")
 	var income webapp.IncomeStatementDetail
 	decodeJSON(t, incomeResponse.Body.Bytes(), &income)
@@ -177,6 +190,15 @@ func TestTrialBalanceAPIEmptyAndMultipleCommodities(t *testing.T) {
 		http.StatusBadRequest, "invalid_period")
 	assertProblem(t, request(t, handler, http.MethodPost,
 		"/api/v1/reports/balance-trend?start_date=2025-04-01&end_date=2026-03-31", []byte(`{}`), "application/json"),
+		http.StatusMethodNotAllowed, "method_not_allowed")
+	assertProblem(t, request(t, handler, http.MethodGet,
+		"/api/v1/reports/closing-balance-sheet?start_date=2025-04-01&end_date=2025-04-30", nil, ""),
+		http.StatusBadRequest, "invalid_period")
+	assertProblem(t, request(t, handler, http.MethodGet,
+		"/api/v1/reports/closing-balance-sheet?start_date=2025-04-01&end_date=2026-03-31&extra=private", nil, ""),
+		http.StatusBadRequest, "invalid_period")
+	assertProblem(t, request(t, handler, http.MethodPost,
+		"/api/v1/reports/closing-balance-sheet?start_date=2025-04-01&end_date=2026-03-31", []byte(`{}`), "application/json"),
 		http.StatusMethodNotAllowed, "method_not_allowed")
 	assertProblem(t, request(t, handler, http.MethodGet,
 		"/api/v1/reports/current-overview?as_of=2025-04-15&expense_start_date=2025-04-01&expense_end_date=2025-04-30&extra=private", nil, ""),
@@ -231,6 +253,9 @@ func TestFinancialReportAPIOpeningBalanceUnbalanced(t *testing.T) {
 		"/api/v1/reports/balance-sheet?start_date=2025-04-01&end_date=2026-03-31", nil, ""),
 		http.StatusUnprocessableEntity, "opening_balance_unbalanced")
 	assertProblem(t, request(t, handler, http.MethodGet,
+		"/api/v1/reports/closing-balance-sheet?start_date=2025-04-01&end_date=2026-03-31", nil, ""),
+		http.StatusUnprocessableEntity, "opening_balance_unbalanced")
+	assertProblem(t, request(t, handler, http.MethodGet,
 		"/api/v1/reports/balance-trend?start_date=2025-04-01&end_date=2026-03-31", nil, ""),
 		http.StatusUnprocessableEntity, "opening_balance_unbalanced")
 	income := request(t, handler, http.MethodGet,
@@ -250,6 +275,9 @@ func TestTrialBalanceAPINotConfigured(t *testing.T) {
 	response := request(t, handler, http.MethodGet,
 		"/api/v1/reports/trial-balance?start_date=2025-04-01&end_date=2025-04-30", nil, "")
 	assertProblem(t, response, http.StatusConflict, "reporting_not_configured")
+	closing := request(t, handler, http.MethodGet,
+		"/api/v1/reports/closing-balance-sheet?start_date=2025-04-01&end_date=2026-03-31", nil, "")
+	assertProblem(t, closing, http.StatusConflict, "reporting_not_configured")
 	current := request(t, handler, http.MethodGet,
 		"/api/v1/reports/current-overview?as_of=2025-04-01&expense_start_date=2025-04-01&expense_end_date=2025-04-30", nil, "")
 	assertProblem(t, current, http.StatusConflict, "reporting_not_configured")

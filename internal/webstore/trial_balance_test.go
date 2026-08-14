@@ -110,6 +110,21 @@ func TestTrialBalanceUsesOnlyCurrentApprovedSnapshots(t *testing.T) {
 	if err != nil || balanceSheet.SchemaVersion != webapp.APISchemaVersion || len(balanceSheet.Commodities) != 0 {
 		t.Fatalf("GetBalanceSheet() = %+v, error = %v", balanceSheet, err)
 	}
+	closingBalanceSheet, err := store.GetClosingBalanceSheet(ctx, reporting.Period{StartDate: "2025-04-01", EndDate: "2026-03-31"})
+	if err != nil || closingBalanceSheet.SchemaVersion != webapp.APISchemaVersion ||
+		closingBalanceSheet.ConfigurationRevision != 1 || closingBalanceSheet.AsOf != "2026-03-31" ||
+		len(closingBalanceSheet.Commodities) != 1 || closingBalanceSheet.Commodities[0].Commodity != "JPY" ||
+		closingBalanceSheet.Commodities[0].CurrentEarnings.Debit != "2" ||
+		closingBalanceSheet.Commodities[0].Total != (reporting.Balance{Debit: "0", Credit: "0"}) {
+		t.Fatalf("GetClosingBalanceSheet() = %+v, error = %v", closingBalanceSheet, err)
+	}
+	closingAssets := findStatementCategory([]reporting.StatementCommoditySection{{
+		Commodity: closingBalanceSheet.Commodities[0].Commodity,
+		Groups:    closingBalanceSheet.Commodities[0].Groups,
+	}}, "JPY", reporting.CategoryAsset)
+	if closingAssets == nil || closingAssets.Total.Debit != "98" {
+		t.Fatalf("closing balance sheet assets = %+v", closingAssets)
+	}
 	incomeStatement, err := store.GetIncomeStatement(ctx, reporting.Period{StartDate: "2025-04-01", EndDate: "2025-04-30"})
 	if err != nil || incomeStatement.SchemaVersion != webapp.APISchemaVersion || len(incomeStatement.Commodities) != 1 ||
 		incomeStatement.Commodities[0].NetIncome.Debit != "15" {
@@ -144,6 +159,9 @@ func TestTrialBalanceRequiresReportingConfiguration(t *testing.T) {
 	}
 	if _, err := store.GetBalanceSheet(ctx, period); !errors.Is(err, webapp.ErrReportingNotConfigured) {
 		t.Fatalf("GetBalanceSheet() error = %v, want ErrReportingNotConfigured", err)
+	}
+	if _, err := store.GetClosingBalanceSheet(ctx, period); !errors.Is(err, webapp.ErrReportingNotConfigured) {
+		t.Fatalf("GetClosingBalanceSheet() error = %v, want ErrReportingNotConfigured", err)
 	}
 	if _, err := store.GetIncomeStatement(ctx, period); !errors.Is(err, webapp.ErrReportingNotConfigured) {
 		t.Fatalf("GetIncomeStatement() error = %v, want ErrReportingNotConfigured", err)

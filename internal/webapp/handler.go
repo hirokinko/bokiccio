@@ -89,6 +89,12 @@ func (handler *Handler) ServeHTTP(response http.ResponseWriter, request *http.Re
 			return
 		}
 		handler.getBalanceSheet(response, request)
+	case request.URL.Path == "/api/v1/reports/closing-balance-sheet":
+		if request.Method != http.MethodGet {
+			handler.methodNotAllowed(response)
+			return
+		}
+		handler.getClosingBalanceSheet(response, request)
 	case request.URL.Path == "/api/v1/reports/income-statement":
 		if request.Method != http.MethodGet {
 			handler.methodNotAllowed(response)
@@ -184,6 +190,20 @@ func (handler *Handler) getBalanceSheet(response http.ResponseWriter, request *h
 		return
 	}
 	detail, err := handler.repository.GetBalanceSheet(request.Context(), period)
+	if err != nil {
+		handler.writeRepositoryError(response, err)
+		return
+	}
+	writeJSON(response, http.StatusOK, detail)
+}
+
+func (handler *Handler) getClosingBalanceSheet(response http.ResponseWriter, request *http.Request) {
+	period, ok := strictReportPeriod(request)
+	if !ok {
+		writeError(response, http.StatusBadRequest, "invalid_period", "reporting period is invalid")
+		return
+	}
+	detail, err := handler.repository.GetClosingBalanceSheet(request.Context(), period)
 	if err != nil {
 		handler.writeRepositoryError(response, err)
 		return
@@ -476,6 +496,8 @@ func (handler *Handler) writeRepositoryError(response http.ResponseWriter, err e
 		writeError(response, http.StatusUnprocessableEntity, "report_amount_overflow", "report amount exceeds the supported range")
 	case errors.Is(err, reporting.ErrOpeningUnbalanced):
 		writeError(response, http.StatusUnprocessableEntity, "opening_balance_unbalanced", "reporting opening balance is unbalanced")
+	case errors.Is(err, reporting.ErrClosingUnbalanced):
+		writeError(response, http.StatusUnprocessableEntity, "closing_balance_unbalanced", "reporting closing balance is unbalanced")
 	default:
 		writeError(response, http.StatusInternalServerError, "internal_error", "request could not be completed")
 	}

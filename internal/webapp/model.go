@@ -51,6 +51,7 @@ type Repository interface {
 	CreateReportingConfiguration(context.Context, ReportingConfigurationRequest) (ReportingConfigurationDetail, error)
 	GetTrialBalance(context.Context, reporting.Period) (TrialBalanceDetail, error)
 	GetBalanceSheet(context.Context, reporting.Period) (BalanceSheetDetail, error)
+	GetClosingBalanceSheet(context.Context, reporting.Period) (ClosingBalanceSheetDetail, error)
 	GetIncomeStatement(context.Context, reporting.Period) (IncomeStatementDetail, error)
 	GetBalanceTrend(context.Context, reporting.Period) (BalanceTrendDetail, error)
 	GetCurrentOverview(context.Context, string, reporting.Period) (CurrentOverviewDetail, error)
@@ -262,6 +263,11 @@ type TrialBalanceDetail struct {
 type BalanceSheetDetail struct {
 	SchemaVersion int `json:"schema_version"`
 	reporting.BalanceSheet
+}
+
+type ClosingBalanceSheetDetail struct {
+	SchemaVersion int `json:"schema_version"`
+	reporting.ClosingBalanceSheet
 }
 
 type IncomeStatementDetail struct {
