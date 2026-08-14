@@ -185,6 +185,7 @@ type messages struct {
 	TrialBalanceWarnings                       string
 	TrialBalanceTableHelp                      string
 	ReportNavigationLabel                      string
+	ReportNavigationCurrent                    string
 	ReportNavigationTrialBalance               string
 	ReportNavigationBalanceSheet               string
 	ReportNavigationIncomeStatement            string
@@ -215,6 +216,22 @@ type messages struct {
 	BalanceTrendTitle                          string
 	BalanceTrendEyebrow                        string
 	BalanceTrendHelp                           string
+	CurrentOverviewTitle                       string
+	CurrentOverviewEyebrow                     string
+	CurrentOverviewIntro                       string
+	CurrentOverviewDateLabel                   string
+	CurrentOverviewShow                        string
+	CurrentOverviewInvalidDate                 string
+	CurrentOverviewAsOf                        string
+	CurrentOverviewFiscalYear                  string
+	CurrentBalancesHeading                     string
+	CurrentBalancesHelp                        string
+	CurrentExpenseHeading                      string
+	CurrentExpenseHelp                         string
+	CurrentExpensePeriod                       string
+	CurrentExpenseTotal                        string
+	CurrentOverviewEmptyBalances               string
+	CurrentOverviewEmptyExpenses               string
 	CategoryAsset                              string
 	CategoryLiability                          string
 	CategoryEquity                             string
@@ -428,7 +445,8 @@ func japaneseMessages() messages {
 		TrialBalanceWarnings:                       "Warning",
 		TrialBalanceTableHelp:                      "各科目の金額は配下を含む小計です。直接計上額が小計と異なる場合だけ、次の補助行に表示します。",
 		ReportNavigationLabel:                      "レポートの種類",
-		ReportNavigationTrialBalance:               "全勘定試算表",
+		ReportNavigationCurrent:                    "現在残高・当月費用",
+		ReportNavigationTrialBalance:               "検証用試算表",
 		ReportNavigationBalanceSheet:               "期首B/S",
 		ReportNavigationIncomeStatement:            "月次P/L",
 		ReportNavigationBalanceTrend:               "残高推移",
@@ -458,6 +476,22 @@ func japaneseMessages() messages {
 		BalanceTrendTitle:                          "勘定残高推移",
 		BalanceTrendEyebrow:                        "Balance trend",
 		BalanceTrendHelp:                           "各月末時点の全勘定残高です。収益・費用は会計年度の期首から累計しています。",
+		CurrentOverviewTitle:                       "現在残高・当月費用",
+		CurrentOverviewEyebrow:                     "Current balance and expenses",
+		CurrentOverviewIntro:                       "参照日時点の資産・負債・純資産と、同じ月の月初から参照日までに計上した費用を分けて表示します。決算書の貸借対照表ではありません。",
+		CurrentOverviewDateLabel:                   "参照日",
+		CurrentOverviewShow:                        "この日付で表示",
+		CurrentOverviewInvalidDate:                 "設定された会計年度内の日付を指定してください。",
+		CurrentOverviewAsOf:                        "残高基準日",
+		CurrentOverviewFiscalYear:                  "会計年度",
+		CurrentBalancesHeading:                     "現在残高",
+		CurrentBalancesHelp:                        "資産・負債・純資産の実残高です。収益・費用は含めず、category間の貸借一致を表示条件にしません。",
+		CurrentExpenseHeading:                      "当月費用",
+		CurrentExpenseHelp:                         "費用に分類した勘定科目だけを月初から参照日まで集計しています。",
+		CurrentExpensePeriod:                       "集計期間",
+		CurrentExpenseTotal:                        "費用合計",
+		CurrentOverviewEmptyBalances:               "この日付に表示する資産・負債・純資産残高はありません。",
+		CurrentOverviewEmptyExpenses:               "この期間に計上された費用はありません。",
 		CategoryAsset:                              "資産",
 		CategoryLiability:                          "負債",
 		CategoryEquity:                             "純資産",
@@ -682,7 +716,8 @@ func englishMessages() messages {
 		TrialBalanceWarnings:                       "Warning",
 		TrialBalanceTableHelp:                      "Account amounts are subtotals including descendants. A detail row appears only when the direct amount differs from the subtotal.",
 		ReportNavigationLabel:                      "Report type",
-		ReportNavigationTrialBalance:               "All-account trial balance",
+		ReportNavigationCurrent:                    "Current balance & expenses",
+		ReportNavigationTrialBalance:               "Verification trial balance",
 		ReportNavigationBalanceSheet:               "Opening B/S",
 		ReportNavigationIncomeStatement:            "Monthly P/L",
 		ReportNavigationBalanceTrend:               "Balance trend",
@@ -712,6 +747,22 @@ func englishMessages() messages {
 		BalanceTrendTitle:                          "Account balance trend",
 		BalanceTrendEyebrow:                        "Balance trend",
 		BalanceTrendHelp:                           "All account balances at each month end. Revenue and expenses accumulate from the start of the fiscal year.",
+		CurrentOverviewTitle:                       "Current balance and expenses",
+		CurrentOverviewEyebrow:                     "Current balance and expenses",
+		CurrentOverviewIntro:                       "Shows asset, liability, and equity balances at the selected date separately from expenses posted from the start of that month. This is not a statutory balance sheet.",
+		CurrentOverviewDateLabel:                   "As-of date",
+		CurrentOverviewShow:                        "Show this date",
+		CurrentOverviewInvalidDate:                 "Select a date within a configured fiscal year.",
+		CurrentOverviewAsOf:                        "Balance date",
+		CurrentOverviewFiscalYear:                  "Fiscal year",
+		CurrentBalancesHeading:                     "Current balances",
+		CurrentBalancesHelp:                        "Actual asset, liability, and equity balances. Revenue and expenses are excluded, and category balance is not required.",
+		CurrentExpenseHeading:                      "Month-to-date expenses",
+		CurrentExpenseHelp:                         "Includes only accounts classified as expenses, from the start of the month through the selected date.",
+		CurrentExpensePeriod:                       "Expense period",
+		CurrentExpenseTotal:                        "Expense total",
+		CurrentOverviewEmptyBalances:               "There are no asset, liability, or equity balances to show at this date.",
+		CurrentOverviewEmptyExpenses:               "No expenses were posted in this period.",
 		CategoryAsset:                              "Asset",
 		CategoryLiability:                          "Liability",
 		CategoryEquity:                             "Equity",

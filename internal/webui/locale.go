@@ -74,6 +74,14 @@ func trialBalanceMutationHref(l locale) string {
 	return localizedPath(l, "/ui/reports/trial-balance")
 }
 
+func currentOverviewHref(l locale) string {
+	return localizedPath(l, "/reports/current")
+}
+
+func currentOverviewMutationHref(l locale) string {
+	return localizedPath(l, "/ui/reports/current")
+}
+
 func balanceSheetHref(l locale) string {
 	return localizedPath(l, "/reports/balance-sheet")
 }
@@ -119,6 +127,6 @@ func newPageContext(l locale, localPath string) pageContext {
 		EnglishHref:   localizedPath(localeEN, localPath),
 		CurrentLocale: msg.LocaleName,
 		SettingsHref:  reportingSettingsHref(l),
-		ReportsHref:   trialBalanceHref(l),
+		ReportsHref:   currentOverviewHref(l),
 	}
 }

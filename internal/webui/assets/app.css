@@ -458,6 +458,49 @@ td {
 	background: #f4f2ec;
 	font-weight: 700;
 }
+.current-overview-section {
+	display: grid;
+	gap: 1rem;
+	margin-top: 2rem;
+	padding-top: 1.5rem;
+	border-top: 2px solid #d8d4ca;
+}
+.current-overview-section > h2,
+.current-overview-section > p,
+.current-overview-commodity > h3 {
+	margin: 0;
+}
+.current-summary-grid {
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+	gap: 0.75rem;
+	margin-bottom: 1rem;
+}
+.current-summary-card {
+	display: grid;
+	gap: 0.35rem;
+	padding: 1rem;
+	border: 1px solid #d8d4ca;
+	border-radius: 0.5rem;
+	background: #f4f2ec;
+	font-variant-numeric: tabular-nums;
+}
+.current-summary-card h4 {
+	margin: 0;
+}
+.current-summary-card strong {
+	font-size: clamp(1.35rem, 4vw, 2rem);
+}
+.current-summary-card span {
+	color: #667066;
+	font-size: 0.8rem;
+}
+.expense-summary-card {
+	max-width: 20rem;
+	margin-bottom: 1rem;
+	border-color: #99b8a6;
+	background: #eef6f1;
+}
 .balance-trend-grid {
 	display: grid;
 	grid-template-columns: repeat(auto-fit, minmax(min(100%, 20rem), 1fr));
@@ -607,6 +650,13 @@ td {
 	}
 	.statement-table th:first-child {
 		width: auto;
+	}
+	.statement-table th:first-child,
+	.statement-table td {
+		overflow-wrap: anywhere;
+	}
+	.expense-summary-card {
+		max-width: none;
 	}
 	.statement-table td:last-child,
 	.statement-table th:last-child {

@@ -230,11 +230,93 @@ templ trialBalancePage(model trialBalancePageModel) {
 
 templ reportNavigation(page pageContext) {
 	<nav class="report-navigation" aria-label={ page.Messages.ReportNavigationLabel }>
+		<a href={ currentOverviewHref(page.Locale) }>{ page.Messages.ReportNavigationCurrent }</a>
 		<a href={ trialBalanceHref(page.Locale) }>{ page.Messages.ReportNavigationTrialBalance }</a>
 		<a href={ balanceSheetHref(page.Locale) }>{ page.Messages.ReportNavigationBalanceSheet }</a>
 		<a href={ incomeStatementHref(page.Locale) }>{ page.Messages.ReportNavigationIncomeStatement }</a>
 		<a href={ balanceTrendHref(page.Locale) }>{ page.Messages.ReportNavigationBalanceTrend }</a>
 	</nav>
+}
+
+templ currentOverviewPage(model currentOverviewPageModel) {
+	<!DOCTYPE html>
+	<html lang={ model.Page.Locale.lang() }>
+		@documentHead(model.Page.Messages.CurrentOverviewTitle)
+		<body>
+			@siteHeader(model.Page)
+			<main id="main-content" class="page detail-page current-overview-page">
+				@reportNavigation(model.Page)
+				<header class="page-heading"><div><p class="eyebrow">{ model.Page.Messages.CurrentOverviewEyebrow }</p><h1>{ model.Page.Messages.CurrentOverviewTitle }</h1></div></header>
+				<p>{ model.Page.Messages.CurrentOverviewIntro }</p>
+				if !model.Configured {
+					<section class="empty-state"><p>{ model.Page.Messages.StatementNotConfigured }</p><a href={ model.SetupHref }>{ model.Page.Messages.StatementSetupLink }</a></section>
+				} else {
+					if model.FormError != "" {
+						<section class="form-error" role="alert"><h2>{ model.Page.Messages.FormErrorTitle }</h2><p>{ model.FormError }</p></section>
+					}
+					<form class="period-form" method="post" action={ model.FormAction }>
+						<label>{ model.Page.Messages.CurrentOverviewDateLabel }<input type="date" name="as_of" value={ model.AsOf } required/></label>
+						<button type="submit">{ model.Page.Messages.CurrentOverviewShow }</button>
+					</form>
+					if model.Report != nil {
+						<p>{ model.Page.Messages.StatementConfigurationRevision }: { model.Report.ConfigurationRevision } · { model.Page.Messages.CurrentOverviewAsOf }: { model.Report.AsOf } · { model.Page.Messages.CurrentOverviewFiscalYear }: { model.Report.FiscalYear.StartDate } – { model.Report.FiscalYear.EndDate }</p>
+						@statementStatus(model.Page.Messages, model.SetupHref, model.Report.ClassificationComplete)
+						<section class="current-overview-section" aria-labelledby="current-balances-heading">
+							<h2 id="current-balances-heading">{ model.Page.Messages.CurrentBalancesHeading }</h2>
+							<p>{ model.Page.Messages.CurrentBalancesHelp }</p>
+							if len(model.Report.Balances) == 0 {
+								<section class="empty-state"><p>{ model.Page.Messages.CurrentOverviewEmptyBalances }</p></section>
+							} else {
+								for _, commodity := range model.Report.Balances {
+									@currentBalanceCommodity(model.Page.Messages, commodity)
+								}
+							}
+						</section>
+						<section class="current-overview-section" aria-labelledby="current-expenses-heading">
+							<h2 id="current-expenses-heading">{ model.Page.Messages.CurrentExpenseHeading }</h2>
+							<p>{ model.Page.Messages.CurrentExpenseHelp }</p>
+							<p>{ model.Page.Messages.CurrentExpensePeriod }: { model.Report.ExpensePeriod.StartDate } – { model.Report.ExpensePeriod.EndDate }</p>
+							if len(model.Report.Expenses) == 0 {
+								<section class="empty-state"><p>{ model.Page.Messages.CurrentOverviewEmptyExpenses }</p></section>
+							} else {
+								for _, commodity := range model.Report.Expenses {
+									@currentExpenseCommodity(model.Page.Messages, commodity)
+								}
+							}
+						</section>
+					}
+				}
+			</main>
+		</body>
+	</html>
+}
+
+templ currentBalanceCommodity(msg messages, commodity reporting.StatementCommoditySection) {
+	<section class="commodity-section current-overview-commodity">
+		<h3>{ msg.StatementCommodity }: { commodity.Commodity }</h3>
+		<div class="current-summary-grid">
+			for _, group := range currentBalanceSummaryGroups(commodity) {
+				<article class="current-summary-card">
+					<h4>{ reportingCategoryLabel(msg, group.Category) }</h4>
+					<strong>{ statementAmount(group.Category, group.Total) }</strong>
+					<span>{ msg.StatementActualSide }: { statementActualSide(msg, group.Total) }</span>
+				</article>
+			}
+		</div>
+		@statementTable(msg, commodity, "")
+	</section>
+}
+
+templ currentExpenseCommodity(msg messages, commodity reporting.StatementCommoditySection) {
+	<section class="commodity-section current-overview-commodity">
+		<h3>{ msg.StatementCommodity }: { commodity.Commodity }</h3>
+		<article class="current-summary-card expense-summary-card">
+			<h4>{ msg.CurrentExpenseTotal }</h4>
+			<strong>{ statementAmount(reporting.CategoryExpense, commodity.Total) }</strong>
+			<span>{ msg.StatementActualSide }: { statementActualSide(msg, commodity.Total) }</span>
+		</article>
+		@statementTable(msg, commodity, "")
+	</section>
 }
 
 templ statementPeriodForm(msg messages, action string, periods []trialBalancePeriodOption, selected reporting.Period, label string) {
@@ -327,7 +409,12 @@ templ incomeStatementPage(model incomeStatementPageModel) {
 templ statementCommodity(msg messages, commodity reporting.StatementCommoditySection, netIncome string) {
 	<section class="commodity-section statement-commodity">
 		<h2>{ msg.StatementCommodity }: { commodity.Commodity }</h2>
-		<div class="table-wrap"><table class="statement-table">
+		@statementTable(msg, commodity, netIncome)
+	</section>
+}
+
+templ statementTable(msg messages, commodity reporting.StatementCommoditySection, netIncome string) {
+	<div class="table-wrap"><table class="statement-table">
 			<thead><tr><th>{ msg.AccountColumn }</th><th>{ msg.StatementAmount }</th><th>{ msg.StatementActualSide }</th></tr></thead>
 			<tbody>
 				for _, group := range commodity.Groups {
@@ -351,8 +438,7 @@ templ statementCommodity(msg messages, commodity reporting.StatementCommoditySec
 			if netIncome != "" {
 				<tfoot><tr><th>{ msg.IncomeStatementNetIncome }</th><td>{ netIncome }</td><td></td></tr></tfoot>
 			}
-		</table></div>
-	</section>
+	</table></div>
 }
 
 templ balanceTrendPage(model balanceTrendPageModel) {

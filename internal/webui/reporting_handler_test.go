@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/hirokinko/bokiccio/internal/reporting"
 	"github.com/hirokinko/bokiccio/internal/webapp"
@@ -284,6 +285,78 @@ func TestBalanceSheetUIExplainsUnbalancedAutomaticOpening(t *testing.T) {
 	assertContainsAll(t, response.Body.String(), []string{
 		"自動繰越で作成した期首残高の貸借が一致しません", `href="/settings/reporting"`,
 	})
+}
+
+func TestCurrentOverviewUIPrioritizesBalancesAndMonthToDateExpenses(t *testing.T) {
+	database := openUIDatabase(t)
+	store := webstore.New(database)
+	now := func() time.Time { return time.Date(2025, 4, 20, 12, 0, 0, 0, time.UTC) }
+	handler := webui.NewHandler(store, webui.HandlerOptions{Now: now})
+
+	notConfigured := serve(handler, http.MethodGet, "/reports/current")
+	assertHTMLResponse(t, notConfigured, http.StatusOK)
+	assertContainsAll(t, notConfigured.Body.String(), []string{
+		"現在残高・当月費用", "先にレポート設定を保存", `href="/settings/reporting"`,
+	})
+
+	input := []byte(`{"schema_version":1,"records":[{"source":{"namespace":"ui-current","display":"anonymous"},"occurred_at":"2025-04-01","description":"anonymous opening fixture","postings":[{"account":"Assets:Cash","amount":"100","commodity":"JPY"},{"account":"Equity:Opening","amount":"-100","commodity":"JPY"}]},{"source":{"namespace":"ui-current","display":"anonymous"},"occurred_at":"2025-04-02","description":"anonymous reservation fixture","postings":[{"account":"Assets:ScheduledPayment","amount":"30","commodity":"JPY"},{"account":"Assets:Cash","amount":"-30","commodity":"JPY"}]},{"source":{"namespace":"ui-current","display":"anonymous"},"occurred_at":"2025-04-20","description":"anonymous expense fixture","postings":[{"account":"Expenses:Communication","amount":"10","commodity":"JPY"},{"account":"Assets:ScheduledPayment","amount":"-10","commodity":"JPY"}]},{"source":{"namespace":"ui-current","display":"anonymous"},"occurred_at":"2025-04-21","description":"anonymous future fixture","postings":[{"account":"Expenses:Communication","amount":"20","commodity":"JPY"},{"account":"Assets:ScheduledPayment","amount":"-20","commodity":"JPY"}]}]}`)
+	result, err := store.Import(context.Background(), input)
+	if err != nil {
+		t.Fatalf("Import() error = %v", err)
+	}
+	run, err := store.GetRun(context.Background(), result.RunIdentity)
+	if err != nil || len(run.Outcomes) != 4 {
+		t.Fatalf("GetRun() error=%v run=%+v", err, run)
+	}
+	zero := 0
+	for _, outcome := range run.Outcomes {
+		if outcome.EntryID == "" {
+			t.Fatalf("current overview fixture outcome has no entry: %+v", outcome)
+		}
+		if _, err := store.ApproveRevision(context.Background(), outcome.EntryID, webapp.ApprovalRequest{Revision: &zero}); err != nil {
+			t.Fatalf("ApproveRevision() error = %v", err)
+		}
+	}
+	if _, err := store.CreateReportingConfiguration(context.Background(), webapp.ReportingConfigurationRequest{
+		BaseRevision: &zero,
+		StartMonth:   4,
+		Classifications: []webapp.ReportingClassification{
+			{Account: "Assets", Category: reporting.CategoryAsset},
+			{Account: "Equity", Category: reporting.CategoryEquity},
+			{Account: "Expenses", Category: reporting.CategoryExpense},
+		},
+		FiscalYears: []webapp.ReportingFiscalYear{{
+			StartDate: "2025-04-01", EndDate: "2026-03-31", OpeningMode: reporting.OpeningEntries,
+			OpeningEntryIDs: []string{run.Outcomes[0].EntryID},
+		}},
+	}); err != nil {
+		t.Fatalf("CreateReportingConfiguration() error = %v", err)
+	}
+
+	ja := serve(handler, http.MethodGet, "/reports/current")
+	en := serve(handler, http.MethodGet, "/en/reports/current?as_of=2025-04-20")
+	assertHTMLResponse(t, ja, http.StatusOK)
+	assertHTMLResponse(t, en, http.StatusOK)
+	assertContainsAll(t, ja.Body.String(), []string{
+		"現在残高・当月費用", "残高基準日: 2025-04-20", "現在残高", "当月費用", "資産", "負債", "純資産", "Assets", "ScheduledPayment",
+		"費用合計", "10", "2025-04-01 – 2025-04-20", `class="current-summary-grid"`,
+		`class="current-summary-card expense-summary-card"`, `href="/reports/current"`, "検証用試算表",
+	})
+	assertContainsAll(t, en.Body.String(), []string{
+		"Current balance and expenses", "Balance date: 2025-04-20", "Current balances", "Month-to-date expenses",
+		"ScheduledPayment", "Expense total", `action="/en/ui/reports/current"`, "Verification trial balance",
+	})
+	selected := serveForm(handler, "/en/ui/reports/current", url.Values{"as_of": {"2025-04-19"}}, nil)
+	if selected.Code != http.StatusSeeOther || selected.Header().Get("Location") != "/en/reports/current?as_of=2025-04-19" {
+		t.Fatalf("select current date status=%d location=%q", selected.Code, selected.Header().Get("Location"))
+	}
+	invalid := serve(handler, http.MethodGet, "/reports/current?as_of=private")
+	assertHTMLResponse(t, invalid, http.StatusBadRequest)
+	if strings.Contains(invalid.Body.String(), "private") {
+		t.Fatalf("invalid current date reflected private input: %s", invalid.Body.String())
+	}
+	method := serve(handler, http.MethodGet, "/ui/reports/current")
+	assertHTMLResponse(t, method, http.StatusMethodNotAllowed)
 }
 
 func reportingSettingsForm(baseRevision string) url.Values {

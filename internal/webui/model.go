@@ -134,6 +134,16 @@ type trialBalancePeriodOption struct {
 	Label  string
 }
 
+type currentOverviewPageModel struct {
+	Page       pageContext
+	Configured bool
+	SetupHref  string
+	FormAction string
+	AsOf       string
+	Report     *webapp.CurrentOverviewDetail
+	FormError  string
+}
+
 type balanceSheetPageModel struct {
 	Page       pageContext
 	Configured bool
@@ -249,4 +259,29 @@ func warningSideLabel(msg messages, side string) string {
 		return msg.StatementDebitSide
 	}
 	return ""
+}
+
+func currentBalanceSummaryGroups(section reporting.StatementCommoditySection) []reporting.StatementCategoryGroup {
+	categories := []reporting.Category{
+		reporting.CategoryAsset, reporting.CategoryLiability, reporting.CategoryEquity,
+	}
+	result := make([]reporting.StatementCategoryGroup, 0, len(categories)+1)
+	for _, category := range categories {
+		group := reporting.StatementCategoryGroup{
+			Category: category, Total: reporting.Balance{Debit: "0", Credit: "0"}, Accounts: []reporting.StatementAccountRow{},
+		}
+		for _, candidate := range section.Groups {
+			if candidate.Category == category {
+				group = candidate
+				break
+			}
+		}
+		result = append(result, group)
+	}
+	for _, group := range section.Groups {
+		if group.Category == reporting.CategoryUnknown {
+			result = append(result, group)
+		}
+	}
+	return result
 }

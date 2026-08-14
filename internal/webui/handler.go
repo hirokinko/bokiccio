@@ -16,6 +16,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/a-h/templ"
 	"github.com/hirokinko/bokiccio/internal/ingest"
@@ -41,16 +42,21 @@ var assetFiles embed.FS
 type Handler struct {
 	repository  webapp.Repository
 	development bool
+	now         func() time.Time
 }
 
 type HandlerOptions struct {
 	Development bool
+	Now         func() time.Time
 }
 
 func NewHandler(repository webapp.Repository, options ...HandlerOptions) *Handler {
-	handler := &Handler{repository: repository}
+	handler := &Handler{repository: repository, now: time.Now}
 	if len(options) > 0 {
 		handler.development = options[0].Development
+		if options[0].Now != nil {
+			handler.now = options[0].Now
+		}
 	}
 	return handler
 }
@@ -134,6 +140,18 @@ func (handler *Handler) ServeHTTP(response http.ResponseWriter, request *http.Re
 			return
 		}
 		handler.trialBalance(response, request, requestLocale)
+	case localPath == "/reports/current":
+		if request.Method != http.MethodGet && request.Method != http.MethodHead {
+			handler.methodNotAllowed(response, request, requestLocale, localPath, "GET, HEAD")
+			return
+		}
+		handler.currentOverview(response, request, requestLocale)
+	case localPath == "/ui/reports/current":
+		if request.Method != http.MethodPost {
+			handler.methodNotAllowed(response, request, requestLocale, localPath, "POST")
+			return
+		}
+		handler.selectCurrentOverviewDate(response, request, requestLocale)
 	case localPath == "/ui/reports/trial-balance":
 		if request.Method != http.MethodPost {
 			handler.methodNotAllowed(response, request, requestLocale, localPath, "POST")
@@ -386,6 +404,63 @@ func (handler *Handler) selectTrialBalance(response http.ResponseWriter, request
 	}
 	query := url.Values{"start_date": {parts[0]}, "end_date": {parts[1]}}
 	http.Redirect(response, request, trialBalanceHref(requestLocale)+"?"+query.Encode(), http.StatusSeeOther)
+}
+
+func (handler *Handler) currentOverview(response http.ResponseWriter, request *http.Request, requestLocale locale) {
+	asOf, ok := currentOverviewDateQuery(request.URL.Query(), handler.now().In(time.FixedZone("JST", 9*60*60)).Format(time.DateOnly))
+	model := currentOverviewPageModel{
+		Page: newPageContext(requestLocale, "/reports/current"), Configured: true,
+		SetupHref: reportingSettingsHref(requestLocale), FormAction: currentOverviewMutationHref(requestLocale), AsOf: asOf,
+	}
+	if !ok {
+		model.FormError = messagesFor(requestLocale).CurrentOverviewInvalidDate
+		render(response, request, http.StatusBadRequest, currentOverviewPage(model))
+		return
+	}
+	report, err := handler.repository.GetCurrentOverview(request.Context(), asOf)
+	if errors.Is(err, webapp.ErrReportingNotConfigured) {
+		model.Configured = false
+		model.Report = nil
+		render(response, request, http.StatusOK, currentOverviewPage(model))
+		return
+	}
+	if errors.Is(err, reporting.ErrInvalidPeriod) {
+		model.FormError = messagesFor(requestLocale).CurrentOverviewInvalidDate
+		render(response, request, http.StatusBadRequest, currentOverviewPage(model))
+		return
+	}
+	if err != nil {
+		handler.internalError(response, request, requestLocale, err)
+		return
+	}
+	model.Report = &report
+	render(response, request, http.StatusOK, currentOverviewPage(model))
+}
+
+func (handler *Handler) selectCurrentOverviewDate(response http.ResponseWriter, request *http.Request, requestLocale locale) {
+	form, ok := decodeStrictForm(response, request, maxSearchFormBody, map[string]bool{"as_of": false})
+	if !ok || form.Get("as_of") == "" {
+		request.URL.RawQuery = "invalid_date=1"
+		handler.currentOverview(response, request, requestLocale)
+		return
+	}
+	query := url.Values{"as_of": {form.Get("as_of")}}
+	http.Redirect(response, request, currentOverviewHref(requestLocale)+"?"+query.Encode(), http.StatusSeeOther)
+}
+
+func currentOverviewDateQuery(query url.Values, fallback string) (string, bool) {
+	if len(query) == 0 {
+		return fallback, true
+	}
+	if len(query) != 1 || len(query["as_of"]) != 1 || query.Get("as_of") == "" {
+		return fallback, false
+	}
+	asOf := query.Get("as_of")
+	parsed, err := time.Parse(time.DateOnly, asOf)
+	if err != nil || parsed.Format(time.DateOnly) != asOf {
+		return fallback, false
+	}
+	return asOf, true
 }
 
 func (handler *Handler) balanceSheet(response http.ResponseWriter, request *http.Request, requestLocale locale) {
