@@ -254,12 +254,31 @@ templ currentOverviewPage(model currentOverviewPageModel) {
 					if model.FormError != "" {
 						<section class="form-error" role="alert"><h2>{ model.Page.Messages.FormErrorTitle }</h2><p>{ model.FormError }</p></section>
 					}
-					<div class="overview-controls">
+					if model.Report != nil {
+						<p>{ model.Page.Messages.StatementConfigurationRevision }: { model.Report.ConfigurationRevision } · { model.Page.Messages.CurrentOverviewAsOf }: { model.Report.AsOf } · { model.Page.Messages.CurrentOverviewFiscalYear }: { model.Report.FiscalYear.StartDate } – { model.Report.FiscalYear.EndDate }</p>
+						@statementStatus(model.Page.Messages, model.SetupHref, model.Report.ClassificationComplete)
+					}
+					<section class="current-overview-section" aria-labelledby="current-balances-heading">
+						<h2 id="current-balances-heading">{ model.Page.Messages.CurrentBalancesHeading }</h2>
+						<p>{ model.Page.Messages.CurrentBalancesHelp }</p>
 						<form class="period-form" method="post" action={ model.FormAction }>
 							<input type="hidden" name="expense_period" value={ model.Selected.StartDate + "/" + model.Selected.EndDate }/>
 							<label>{ model.Page.Messages.CurrentOverviewDateLabel }<input type="date" name="as_of" value={ model.AsOf } required/></label>
 							<button type="submit">{ model.Page.Messages.CurrentOverviewShow }</button>
 						</form>
+						if model.Report != nil {
+							if len(model.Report.Balances) == 0 {
+								<section class="empty-state"><p>{ model.Page.Messages.CurrentOverviewEmptyBalances }</p></section>
+							} else {
+								for _, commodity := range model.Report.Balances {
+									@currentBalanceCommodity(model.Page.Messages, commodity)
+								}
+							}
+						}
+					</section>
+					<section class="current-overview-section" aria-labelledby="current-expenses-heading">
+						<h2 id="current-expenses-heading">{ model.Page.Messages.CurrentExpenseHeading }</h2>
+						<p>{ model.Page.Messages.CurrentExpenseHelp }</p>
 						<form class="period-form" method="post" action={ model.FormAction }>
 							<input type="hidden" name="as_of" value={ model.AsOf }/>
 							<label>{ model.Page.Messages.CurrentOverviewExpenseMonthLabel }<select name="expense_period">
@@ -273,24 +292,7 @@ templ currentOverviewPage(model currentOverviewPageModel) {
 							</select></label>
 							<button type="submit">{ model.Page.Messages.CurrentOverviewShowExpenses }</button>
 						</form>
-					</div>
-					if model.Report != nil {
-						<p>{ model.Page.Messages.StatementConfigurationRevision }: { model.Report.ConfigurationRevision } · { model.Page.Messages.CurrentOverviewAsOf }: { model.Report.AsOf } · { model.Page.Messages.CurrentOverviewFiscalYear }: { model.Report.FiscalYear.StartDate } – { model.Report.FiscalYear.EndDate }</p>
-						@statementStatus(model.Page.Messages, model.SetupHref, model.Report.ClassificationComplete)
-						<section class="current-overview-section" aria-labelledby="current-balances-heading">
-							<h2 id="current-balances-heading">{ model.Page.Messages.CurrentBalancesHeading }</h2>
-							<p>{ model.Page.Messages.CurrentBalancesHelp }</p>
-							if len(model.Report.Balances) == 0 {
-								<section class="empty-state"><p>{ model.Page.Messages.CurrentOverviewEmptyBalances }</p></section>
-							} else {
-								for _, commodity := range model.Report.Balances {
-									@currentBalanceCommodity(model.Page.Messages, commodity)
-								}
-							}
-						</section>
-						<section class="current-overview-section" aria-labelledby="current-expenses-heading">
-							<h2 id="current-expenses-heading">{ model.Page.Messages.CurrentExpenseHeading }</h2>
-							<p>{ model.Page.Messages.CurrentExpenseHelp }</p>
+						if model.Report != nil {
 							<p>{ model.Page.Messages.CurrentExpensePeriod }: { model.Report.ExpensePeriod.StartDate } – { model.Report.ExpensePeriod.EndDate }</p>
 							if len(model.Report.Expenses) == 0 {
 								<section class="empty-state"><p>{ model.Page.Messages.CurrentOverviewEmptyExpenses }</p></section>
@@ -299,8 +301,8 @@ templ currentOverviewPage(model currentOverviewPageModel) {
 									@currentExpenseCommodity(model.Page.Messages, commodity)
 								}
 							}
-						</section>
-					}
+						}
+					</section>
 				}
 			</main>
 		</body>

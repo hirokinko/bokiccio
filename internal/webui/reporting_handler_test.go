@@ -346,6 +346,17 @@ func TestCurrentOverviewUISelectsBalanceDateAndExpenseMonthIndependently(t *test
 		"Current balance and expenses", "Balance date: 2025-04-20", "Current balances", "Monthly expenses", "Expense month",
 		"ScheduledPayment", "Expense total", `action="/en/ui/reports/current"`, "Verification trial balance",
 	})
+	jaBody := ja.Body.String()
+	balancesHeading := strings.Index(jaBody, `id="current-balances-heading"`)
+	balanceDateSelector := strings.Index(jaBody, `<input type="date" name="as_of"`)
+	expensesHeading := strings.Index(jaBody, `id="current-expenses-heading"`)
+	expenseMonthSelector := strings.Index(jaBody, `<select name="expense_period">`)
+	if balancesHeading < 0 || balanceDateSelector < balancesHeading || expensesHeading < balanceDateSelector || expenseMonthSelector < expensesHeading {
+		t.Fatalf("current overview selectors are not in their corresponding sections: %s", jaBody)
+	}
+	if strings.Contains(jaBody, `class="overview-controls"`) {
+		t.Fatalf("current overview still renders detached selector controls: %s", jaBody)
+	}
 	selected := serveForm(handler, "/en/ui/reports/current", url.Values{
 		"as_of": {"2025-04-19"}, "expense_period": {"2025-04-01/2025-04-30"},
 	}, nil)
@@ -364,6 +375,10 @@ func TestCurrentOverviewUISelectsBalanceDateAndExpenseMonthIndependently(t *test
 
 	invalid := serve(handler, http.MethodGet, "/reports/current?as_of=private&expense_start_date=2025-04-01&expense_end_date=2025-04-30")
 	assertHTMLResponse(t, invalid, http.StatusBadRequest)
+	assertContainsAll(t, invalid.Body.String(), []string{
+		`id="current-balances-heading"`, `<input type="date" name="as_of"`,
+		`id="current-expenses-heading"`, `<select name="expense_period">`,
+	})
 	if strings.Contains(invalid.Body.String(), "private") {
 		t.Fatalf("invalid current date reflected private input: %s", invalid.Body.String())
 	}

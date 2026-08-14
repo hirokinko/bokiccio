@@ -465,11 +465,6 @@ td {
 	padding-top: 1.5rem;
 	border-top: 2px solid #d8d4ca;
 }
-.overview-controls {
-	display: grid;
-	grid-template-columns: repeat(2, minmax(0, 1fr));
-	gap: 1rem;
-}
 .current-overview-section > h2,
 .current-overview-section > p,
 .current-overview-commodity > h3 {
@@ -638,9 +633,6 @@ td {
 	.period-form {
 		align-items: stretch;
 		flex-direction: column;
-	}
-	.overview-controls {
-		grid-template-columns: 1fr;
 	}
 	.report-navigation {
 		display: grid;
