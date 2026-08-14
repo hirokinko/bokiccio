@@ -8,6 +8,26 @@ import (
 	"github.com/hirokinko/bokiccio/internal/webapp"
 )
 
+func (store *Store) GetCurrentOverview(ctx context.Context, asOf string) (_ webapp.CurrentOverviewDetail, resultErr error) {
+	transaction, configuration, entries, err := store.reportingSnapshot(ctx, "current overview")
+	if err != nil {
+		return webapp.CurrentOverviewDetail{}, err
+	}
+	defer func() {
+		if resultErr != nil {
+			_ = transaction.Rollback()
+		}
+	}()
+	report, err := reporting.BuildCurrentOverview(configuration, entries, asOf)
+	if err != nil {
+		return webapp.CurrentOverviewDetail{}, err
+	}
+	if err := transaction.Commit(); err != nil {
+		return webapp.CurrentOverviewDetail{}, fmt.Errorf("commit current overview transaction: %w", err)
+	}
+	return webapp.CurrentOverviewDetail{SchemaVersion: webapp.APISchemaVersion, CurrentOverview: report}, nil
+}
+
 func (store *Store) GetBalanceSheet(ctx context.Context, period reporting.Period) (_ webapp.BalanceSheetDetail, resultErr error) {
 	transaction, configuration, entries, err := store.reportingSnapshot(ctx, "balance sheet")
 	if err != nil {

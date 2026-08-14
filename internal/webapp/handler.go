@@ -77,6 +77,12 @@ func (handler *Handler) ServeHTTP(response http.ResponseWriter, request *http.Re
 			return
 		}
 		handler.getTrialBalance(response, request)
+	case request.URL.Path == "/api/v1/reports/current-overview":
+		if request.Method != http.MethodGet {
+			handler.methodNotAllowed(response)
+			return
+		}
+		handler.getCurrentOverview(response, request)
 	case request.URL.Path == "/api/v1/reports/balance-sheet":
 		if request.Method != http.MethodGet {
 			handler.methodNotAllowed(response)
@@ -146,6 +152,20 @@ func (handler *Handler) getTrialBalance(response http.ResponseWriter, request *h
 	detail, err := handler.repository.GetTrialBalance(request.Context(), reporting.Period{
 		StartDate: query.Get("start_date"), EndDate: query.Get("end_date"),
 	})
+	if err != nil {
+		handler.writeRepositoryError(response, err)
+		return
+	}
+	writeJSON(response, http.StatusOK, detail)
+}
+
+func (handler *Handler) getCurrentOverview(response http.ResponseWriter, request *http.Request) {
+	query := request.URL.Query()
+	if len(query) != 1 || len(query["as_of"]) != 1 || query.Get("as_of") == "" {
+		writeError(response, http.StatusBadRequest, "invalid_period", "reporting period is invalid")
+		return
+	}
+	detail, err := handler.repository.GetCurrentOverview(request.Context(), query.Get("as_of"))
 	if err != nil {
 		handler.writeRepositoryError(response, err)
 		return

@@ -120,6 +120,16 @@ func TestTrialBalanceUsesOnlyCurrentApprovedSnapshots(t *testing.T) {
 		len(balanceTrend.Points[0].Commodities) != 1 {
 		t.Fatalf("GetBalanceTrend() = %+v, error = %v", balanceTrend, err)
 	}
+	current, err := store.GetCurrentOverview(ctx, "2025-04-10")
+	if err != nil || current.SchemaVersion != webapp.APISchemaVersion || current.AsOf != "2025-04-10" ||
+		len(current.Balances) != 1 || len(current.Expenses) != 1 {
+		t.Fatalf("GetCurrentOverview() = %+v, error = %v", current, err)
+	}
+	currentAssets := findStatementCategory(current.Balances, "JPY", reporting.CategoryAsset)
+	currentExpenses := findStatementCategory(current.Expenses, "JPY", reporting.CategoryExpense)
+	if currentAssets == nil || currentAssets.Total.Debit != "80" || currentExpenses == nil || currentExpenses.Total.Debit != "20" {
+		t.Fatalf("current overview categories = %+v / %+v", current.Balances, current.Expenses)
+	}
 }
 
 func TestTrialBalanceRequiresReportingConfiguration(t *testing.T) {
@@ -141,6 +151,23 @@ func TestTrialBalanceRequiresReportingConfiguration(t *testing.T) {
 	if _, err := store.GetBalanceTrend(ctx, period); !errors.Is(err, webapp.ErrReportingNotConfigured) {
 		t.Fatalf("GetBalanceTrend() error = %v, want ErrReportingNotConfigured", err)
 	}
+	if _, err := store.GetCurrentOverview(ctx, "2025-04-01"); !errors.Is(err, webapp.ErrReportingNotConfigured) {
+		t.Fatalf("GetCurrentOverview() error = %v, want ErrReportingNotConfigured", err)
+	}
+}
+
+func findStatementCategory(sections []reporting.StatementCommoditySection, commodity string, category reporting.Category) *reporting.StatementCategoryGroup {
+	for _, section := range sections {
+		if section.Commodity != commodity {
+			continue
+		}
+		for _, group := range section.Groups {
+			if group.Category == category {
+				return &group
+			}
+		}
+	}
+	return nil
 }
 
 func assertCategoryAmounts(t *testing.T, section reporting.CommoditySection, category reporting.Category,
