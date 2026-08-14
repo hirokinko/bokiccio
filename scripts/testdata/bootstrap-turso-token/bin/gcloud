@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+
+printf 'gcloud %s\n' "$*" >>"${FAKE_CAPTURE_DIR}/commands"
+
+case "$1 $2 $3" in
+  "secrets describe bokiccio-demo-turso-token")
+    exit 0
+    ;;
+  "secrets versions add")
+    IFS= read -r -d '' payload || true
+    printf '%s' "$payload" >"${FAKE_CAPTURE_DIR}/secret-payload"
+    if [[ "${FAKE_GCLOUD_ADD_FAIL:-0}" == "1" ]]; then
+      printf 'fake gcloud: version add failed\n' >&2
+      exit 1
+    fi
+    printf 'projects/123456789012/secrets/bokiccio-demo-turso-token/versions/7\n'
+    ;;
+  *)
+    printf 'fake gcloud: unexpected arguments\n' >&2
+    exit 2
+    ;;
+esac

@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+
+printf 'turso %s\n' "$*" >>"${FAKE_CAPTURE_DIR}/commands"
+
+case "$*" in
+  "db show bokiccio-demo")
+    exit 0
+    ;;
+  "db tokens create bokiccio-demo --expiration never")
+    printf 'test-token-value\n'
+    ;;
+  *)
+    printf 'fake turso: unexpected arguments\n' >&2
+    exit 2
+    ;;
+esac

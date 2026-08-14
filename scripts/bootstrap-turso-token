@@ -1,0 +1,98 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+
+usage() {
+  cat >&2 <<'USAGE'
+Usage: scripts/bootstrap-turso-token \
+  --database <name> \
+  --database-url <libsql-url> \
+  --project <google-cloud-project-id> \
+  --secret <secret-manager-secret-id>
+
+Creates a full-access Turso database token and streams it directly into a new
+Secret Manager version. The token is never written to stdout, an argument, or
+a temporary file.
+USAGE
+}
+
+fail() {
+  printf 'bootstrap-turso-token: %s\n' "$1" >&2
+  exit 1
+}
+
+database=""
+database_url=""
+project=""
+secret=""
+
+while (($# > 0)); do
+  case "$1" in
+    --database)
+      (($# >= 2)) || fail "--database requires a value"
+      database="$2"
+      shift 2
+      ;;
+    --database-url)
+      (($# >= 2)) || fail "--database-url requires a value"
+      database_url="$2"
+      shift 2
+      ;;
+    --project)
+      (($# >= 2)) || fail "--project requires a value"
+      project="$2"
+      shift 2
+      ;;
+    --secret)
+      (($# >= 2)) || fail "--secret requires a value"
+      secret="$2"
+      shift 2
+      ;;
+    -h | --help)
+      usage
+      exit 0
+      ;;
+    *)
+      usage
+      fail "unknown argument: $1"
+      ;;
+  esac
+done
+
+[[ "$database" =~ ^[a-z0-9]([a-z0-9-]{0,62}[a-z0-9])?$ ]] || fail "--database must be a valid Turso database name"
+[[ "$database_url" =~ ^libsql://[A-Za-z0-9.-]+(:[0-9]+)?$ ]] || fail "--database-url must be a credential-free libsql URL"
+[[ "$project" =~ ^[a-z][a-z0-9-]{4,28}[a-z0-9]$ ]] || fail "--project must be a valid Google Cloud project ID"
+[[ "$secret" =~ ^[A-Za-z0-9_-]{1,255}$ ]] || fail "--secret must be a valid Secret Manager secret ID"
+
+command -v turso >/dev/null 2>&1 || fail "turso CLI is required"
+command -v gcloud >/dev/null 2>&1 || fail "gcloud CLI is required"
+command -v tr >/dev/null 2>&1 || fail "tr is required"
+
+turso db show "$database" >/dev/null || fail "database metadata could not be read"
+gcloud secrets describe "$secret" \
+  --project="$project" \
+  --format='value(name)' >/dev/null || fail "Secret Manager secret metadata could not be read"
+
+set +e
+version_name="$({
+  turso db tokens create "$database" --expiration never |
+    tr -d '\r\n' |
+    gcloud secrets versions add "$secret" \
+      --project="$project" \
+      --data-file=- \
+      --format='value(name)'
+})"
+pipeline_status=$?
+set -e
+
+if ((pipeline_status != 0)); then
+  fail "token generation or Secret Manager registration failed; do not retry until Secret Manager versions are checked. If a token was generated but not stored, invalidate all tokens with 'turso db tokens invalidate ${database} --yes' and then recreate every affected token"
+fi
+
+secret_version="${version_name##*/}"
+if [[ ! "$secret_version" =~ ^[1-9][0-9]*$ ]]; then
+  fail "Secret Manager returned an invalid version name; a version may already exist, so inspect version metadata before retrying"
+fi
+
+printf '{"database_url":"%s","secret_id":"%s","secret_version":"%s"}\n' \
+  "$database_url" "$secret" "$secret_version"
