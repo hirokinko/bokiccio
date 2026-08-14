@@ -18,7 +18,7 @@ format version 1のtop-level fieldは次のとおりである。
 
 payloadは全tableを依存順、各table内をprimary key順で保持する。SQL BLOBはJSONのbase64 stringとして
 losslessにencodeする。`workflow_state`と`sqlite_sequence`の対象counterも保持する。
-schema metadataそのもの、Turso credential、database URL、IAP audience、owner emailは含めない。
+schema metadataそのもの、Turso credential、database URL、IAP audience、IAP principal listは含めない。
 
 formatは手編集を想定しない。restoreはunknown field、trailing JSON、field欠落、format/schema version不一致、
 checksum・row count不一致を拒否する。

@@ -16,7 +16,6 @@ const (
 	DatabaseURLEnv    = "TURSO_DATABASE_URL"
 	DatabaseTokenEnv  = "TURSO_AUTH_TOKEN"
 	IAPAudienceEnv    = "BOKICCIO_IAP_AUDIENCE"
-	OwnerEmailEnv     = "BOKICCIO_OWNER_EMAIL"
 	ExternalOriginEnv = "BOKICCIO_EXTERNAL_ORIGIN"
 	PortEnv           = "PORT"
 	EnvironmentEnv    = "BOKICCIO_ENVIRONMENT"
@@ -66,10 +65,6 @@ func LoadServerConfig(lookup LookupEnv) (ServerConfig, error) {
 	if !cloudRunIAPAudience.MatchString(audience) {
 		return ServerConfig{}, fmt.Errorf("%s is not a Cloud Run IAP audience", IAPAudienceEnv)
 	}
-	ownerEmail, err := requiredEnvironment(lookup, OwnerEmailEnv)
-	if err != nil {
-		return ServerConfig{}, err
-	}
 	externalOrigin, err := requiredEnvironment(lookup, ExternalOriginEnv)
 	if err != nil {
 		return ServerConfig{}, err
@@ -82,7 +77,7 @@ func LoadServerConfig(lookup LookupEnv) (ServerConfig, error) {
 	if err != nil || port < 1 || port > 65535 {
 		return ServerConfig{}, fmt.Errorf("%s must be an integer between 1 and 65535", PortEnv)
 	}
-	security := webapp.IAPSecurity{Audience: audience, OwnerEmail: ownerEmail, ExternalOrigin: externalOrigin}
+	security := webapp.IAPSecurity{Audience: audience, ExternalOrigin: externalOrigin}
 	if err := security.Validate(); err != nil {
 		return ServerConfig{}, fmt.Errorf("security configuration is invalid: %w", err)
 	}

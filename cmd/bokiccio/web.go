@@ -142,7 +142,7 @@ func printMigrateUsage(destination io.Writer) {
 func printServeUsage(destination io.Writer) {
 	fmt.Fprintln(destination, "usage: bokiccio serve")
 	fmt.Fprintln(destination)
-	fmt.Fprintf(destination, "Requires %s, %s, %s, %s, %s, and %s.\n",
+	fmt.Fprintf(destination, "Requires %s, %s, %s, %s, and %s.\n",
 		webprod.DatabaseURLEnv, webprod.DatabaseTokenEnv, webprod.IAPAudienceEnv,
-		webprod.OwnerEmailEnv, webprod.ExternalOriginEnv, webprod.PortEnv)
+		webprod.ExternalOriginEnv, webprod.PortEnv)
 }

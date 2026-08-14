@@ -49,8 +49,8 @@ type acceptingValidator struct{}
 func (acceptingValidator) Validate(_ context.Context, _, _ string) (webapp.IAPClaims, error) {
 	return webapp.IAPClaims{
 		Issuer:   "https://cloud.google.com/iap",
-		Subject:  "owner",
-		Email:    "owner@example.com",
+		Subject:  "iap-user",
+		Email:    "iap-user@example.com",
 		IssuedAt: time.Now().Add(-time.Minute),
 		Expires:  time.Now().Add(5 * time.Minute),
 	}, nil
@@ -60,7 +60,7 @@ func TestProductionHandlerOnlyExemptsHealth(t *testing.T) {
 	application := http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
 		response.WriteHeader(http.StatusNoContent)
 	})
-	security := webapp.IAPSecurity{Audience: "audience", OwnerEmail: "owner@example.com", ExternalOrigin: "https://example.com,https://service.run.app"}
+	security := webapp.IAPSecurity{Audience: "audience", ExternalOrigin: "https://example.com,https://service.run.app"}
 	handler, err := NewProductionHandler(application, acceptingValidator{}, security)
 	if err != nil {
 		t.Fatalf("NewProductionHandler() error = %v", err)

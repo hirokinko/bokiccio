@@ -158,7 +158,6 @@ func TestWebCommandsRequireProductionConfiguration(t *testing.T) {
 		"TURSO_DATABASE_URL",
 		"TURSO_AUTH_TOKEN",
 		"BOKICCIO_IAP_AUDIENCE",
-		"BOKICCIO_OWNER_EMAIL",
 		"BOKICCIO_EXTERNAL_ORIGIN",
 		"PORT",
 	} {

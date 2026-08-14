@@ -11,7 +11,6 @@ func TestLoadServerConfig(t *testing.T) {
 		DatabaseURLEnv:    "libsql://bokiccio-example.turso.io",
 		DatabaseTokenEnv:  "private-token",
 		IAPAudienceEnv:    "/projects/123/locations/asia-northeast1/services/bokiccio",
-		OwnerEmailEnv:     "owner@example.com",
 		ExternalOriginEnv: "https://bokiccio.example.com,https://bokiccio-123.asia-northeast1.run.app",
 		PortEnv:           "8080",
 	}
@@ -22,7 +21,7 @@ func TestLoadServerConfig(t *testing.T) {
 	if config.Database.URL != values[DatabaseURLEnv] || config.Database.authToken != values[DatabaseTokenEnv] || config.Port != 8080 {
 		t.Fatalf("config = %+v", config)
 	}
-	if config.Security.Audience != values[IAPAudienceEnv] || config.Security.OwnerEmail != values[OwnerEmailEnv] {
+	if config.Security.Audience != values[IAPAudienceEnv] {
 		t.Fatalf("security = %+v", config.Security)
 	}
 	if config.Security.ExternalOrigin != values[ExternalOriginEnv] {
@@ -33,8 +32,8 @@ func TestLoadServerConfig(t *testing.T) {
 func TestLoadServerConfigDevelopmentErrorsAreExplicit(t *testing.T) {
 	values := map[string]string{
 		DatabaseURLEnv: "libsql://bokiccio-example.turso.io", DatabaseTokenEnv: "private-token",
-		IAPAudienceEnv: "/projects/123/locations/asia-northeast1/services/bokiccio",
-		OwnerEmailEnv:  "owner@example.com", ExternalOriginEnv: "https://bokiccio.example.com", PortEnv: "8080",
+		IAPAudienceEnv:    "/projects/123/locations/asia-northeast1/services/bokiccio",
+		ExternalOriginEnv: "https://bokiccio.example.com", PortEnv: "8080",
 	}
 	production, err := LoadServerConfig(mapLookup(values))
 	if err != nil || production.Development {
@@ -77,11 +76,10 @@ func TestServerConfigRequiresEverySecuritySetting(t *testing.T) {
 		DatabaseURLEnv:    "libsql://bokiccio-example.turso.io",
 		DatabaseTokenEnv:  "token",
 		IAPAudienceEnv:    "/projects/123/locations/asia-northeast1/services/bokiccio",
-		OwnerEmailEnv:     "owner@example.com",
 		ExternalOriginEnv: "https://bokiccio.example.com",
 		PortEnv:           "8080",
 	}
-	for _, name := range []string{DatabaseURLEnv, DatabaseTokenEnv, IAPAudienceEnv, OwnerEmailEnv, ExternalOriginEnv, PortEnv} {
+	for _, name := range []string{DatabaseURLEnv, DatabaseTokenEnv, IAPAudienceEnv, ExternalOriginEnv, PortEnv} {
 		values := make(map[string]string, len(base))
 		for key, value := range base {
 			values[key] = value

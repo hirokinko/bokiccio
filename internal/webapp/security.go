@@ -26,7 +26,6 @@ type IAPTokenValidator interface {
 
 type IAPSecurity struct {
 	Audience       string
-	OwnerEmail     string
 	ExternalOrigin string
 }
 
@@ -41,9 +40,6 @@ type SecurityErrorWriter func(http.ResponseWriter, *http.Request, SecurityError)
 func (security IAPSecurity) Validate() error {
 	if security.Audience == "" || strings.TrimSpace(security.Audience) != security.Audience {
 		return errors.New("IAP audience is required")
-	}
-	if security.OwnerEmail == "" || strings.TrimSpace(security.OwnerEmail) != security.OwnerEmail || !strings.Contains(security.OwnerEmail, "@") {
-		return errors.New("owner email is invalid")
 	}
 	if _, err := allowedExternalOrigins(security.ExternalOrigin); err != nil {
 		return err
@@ -76,7 +72,7 @@ func RequireIAPWithErrorWriter(next http.Handler, validator IAPTokenValidator, s
 	return http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
 		token := request.Header.Get("X-Goog-IAP-JWT-Assertion")
 		claims, err := validator.Validate(request.Context(), token, security.Audience)
-		if err != nil || token == "" || !validIAPClaims(claims, security.OwnerEmail, time.Now()) {
+		if err != nil || token == "" || !validIAPClaims(claims, time.Now()) {
 			writeError(response, request, SecurityError{Status: http.StatusUnauthorized, Code: "unauthorized", Message: "authentication required"})
 			return
 		}
@@ -120,10 +116,10 @@ func originAllowed(origin string, allowed map[string]struct{}) bool {
 	return ok
 }
 
-func validIAPClaims(claims IAPClaims, ownerEmail string, now time.Time) bool {
+func validIAPClaims(claims IAPClaims, now time.Time) bool {
 	const clockSkew = 30 * time.Second
 	const maximumLifetime = 10*time.Minute + 2*clockSkew
-	if claims.Issuer != iapIssuer || claims.Subject == "" || claims.Email == "" || !strings.EqualFold(claims.Email, ownerEmail) {
+	if claims.Issuer != iapIssuer || claims.Subject == "" || claims.Email == "" {
 		return false
 	}
 	if claims.IssuedAt.IsZero() || claims.Expires.IsZero() || claims.IssuedAt.After(now.Add(clockSkew)) || !claims.Expires.After(now.Add(-clockSkew)) {

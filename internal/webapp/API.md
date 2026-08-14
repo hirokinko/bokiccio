@@ -127,21 +127,22 @@ token separately from the credential-free database URL.
 - `TURSO_DATABASE_URL`
 - `TURSO_AUTH_TOKEN`
 - `BOKICCIO_IAP_AUDIENCE`
-- `BOKICCIO_OWNER_EMAIL`
 - `BOKICCIO_EXTERNAL_ORIGIN`
 - `PORT`
 
 `BOKICCIO_ENVIRONMENT` is optional and defaults to `production`. The exact
 value `development` enables escaped internal error details on server-rendered
 HTML error pages for controlled development only; JSON API errors remain
-private-safe. Do not enable it where anyone other than the owner can reach the
-service.
+private-safe. Enable it only in a controlled environment restricted to trusted
+developers.
 
 Cloud Run must have direct IAP enabled and unauthenticated invocation disabled.
-Only the owner Google Account receives IAP access. Except for `/livez`, every
+Only Google Accounts explicitly granted access by the IAP IAM policy may reach
+the application. Except for `/livez`, every
 request must have a valid ES256 `X-Goog-IAP-JWT-Assertion` with the configured
-audience, the IAP issuer, a subject, and the configured owner email. The
-application does not trust unsigned identity or forwarded-host headers.
+audience, the IAP issuer, a subject, a non-empty email, and a valid lifetime.
+The application does not maintain a second email allowlist and does not trust
+unsigned identity or forwarded-host headers.
 
 State-changing methods additionally require an `Origin` exactly matching one of
 the comma-separated HTTPS origins in `BOKICCIO_EXTERNAL_ORIGIN`. The application

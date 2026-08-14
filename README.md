@@ -24,7 +24,7 @@ Bokiccio（ボキッチョ）は、複数の明細・メール・レシートか
 - `bokiccio import`による外部service不要のローカル取込
 - Turso互換schemaとJSON APIによるlocal Web vertical slice
 - Turso Cloud remote driver、明示migration、Cloud Run向けHTTP server
-- Cloud Run direct IAP JWT、single-owner、same-origin mutationの検証
+- Cloud Run direct IAP JWT、IAP-authorized user、same-origin mutationの検証
 - templによる型付きserver-side renderingの日本語・英語対応仕訳検索・取込履歴閲覧画面
 - Web UIからのnormalized JSON upload
 - immutableな仕訳revision、domain再validation、append-onlyな承認履歴
@@ -79,7 +79,7 @@ cmd/bokiccio
 
 internal/webapp / internal/webstore / internal/webprod
   ├─ HTTP handler and database/sql persistence
-  ├─ single-owner IAP and origin boundary
+  ├─ IAP-authorized user and origin boundary
   ├─ revision, approval, search, and approved export
   ├─ reporting configuration、financial reports、logical backup/restore
   └─ Turso Cloud production composition
@@ -148,13 +148,14 @@ TURSO_AUTH_TOKEN='secret-manager-injected-token' \
 go run ./cmd/bokiccio migrate
 ```
 
-production serverはCloud Run direct IAPを前提とします。Cloud Run側でもunauthenticated invocationを禁止し、ownerのGoogle AccountだけへIAP accessを付与してください。applicationはsigned IAP JWTとowner emailを再検証します。
+production serverはCloud Run direct IAPを前提とします。Cloud Run側でもunauthenticated invocationを禁止し、
+許可するGoogle AccountへIAP accessを付与してください。applicationはsigned IAP JWTの署名、issuer、audience、subject、email、時刻を検証し、
+利用者のallowlistはIAP IAM policyへ委譲します。
 
 ```sh
 TURSO_DATABASE_URL=libsql://database-name.turso.io \
 TURSO_AUTH_TOKEN='secret-manager-injected-token' \
 BOKICCIO_IAP_AUDIENCE='/projects/123456789/locations/asia-northeast1/services/bokiccio' \
-BOKICCIO_OWNER_EMAIL='owner@example.com' \
 BOKICCIO_EXTERNAL_ORIGIN='https://bokiccio.example.com' \
 PORT=8080 \
 go run ./cmd/bokiccio serve
@@ -190,7 +191,7 @@ format、checksum、transactional validationの詳細は
 
 backup/restoreはWeb UIから実行せず、operator CLIで行います。restore前にtarget databaseへ`bokiccio migrate`を
 実行し、application dataが空であることを前提にしてください。restore後はproduction serverを起動し、
-owner accountでIAP越しに仕訳検索、entry詳細、承認済みexportを確認します。
+IAPで許可したaccountから仕訳検索、entry詳細、承認済みexportを確認します。
 
 Cloud Runの複数URLやcustom domainを併用する場合、`BOKICCIO_EXTERNAL_ORIGIN`には利用するHTTPS originを
 comma-separatedで設定します。shellや`gcloud --update-env-vars`ではcommaを区切り文字として扱うため、

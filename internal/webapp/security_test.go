@@ -27,13 +27,12 @@ func TestRequireIAP(t *testing.T) {
 	secondaryOrigin := "https://bokiccio-123.asia-northeast1.run.app"
 	security := IAPSecurity{
 		Audience:       "/projects/123/locations/asia-northeast1/services/bokiccio",
-		OwnerEmail:     "owner@example.com",
 		ExternalOrigin: primaryOrigin + "," + secondaryOrigin,
 	}
 	validClaims := IAPClaims{
 		Issuer:   iapIssuer,
-		Subject:  "owner-subject",
-		Email:    "OWNER@example.com",
+		Subject:  "iap-user-subject",
+		Email:    "iap-user@example.com",
 		IssuedAt: time.Now().Add(-time.Minute),
 		Expires:  time.Now().Add(5 * time.Minute),
 	}
@@ -52,7 +51,9 @@ func TestRequireIAP(t *testing.T) {
 		{name: "missing token", method: http.MethodGet, claims: validClaims, status: http.StatusUnauthorized},
 		{name: "invalid signature", method: http.MethodGet, token: "invalid", claims: validClaims, err: errors.New("invalid"), status: http.StatusUnauthorized},
 		{name: "wrong issuer", method: http.MethodGet, token: "signed", claims: replaceClaims(validClaims, func(value *IAPClaims) { value.Issuer = "https://accounts.google.com" }), status: http.StatusUnauthorized},
-		{name: "wrong owner", method: http.MethodGet, token: "signed", claims: replaceClaims(validClaims, func(value *IAPClaims) { value.Email = "other@example.com" }), status: http.StatusUnauthorized},
+		{name: "different IAP user", method: http.MethodGet, token: "signed", claims: replaceClaims(validClaims, func(value *IAPClaims) { value.Email = "other@example.com" }), status: http.StatusNoContent},
+		{name: "missing subject", method: http.MethodGet, token: "signed", claims: replaceClaims(validClaims, func(value *IAPClaims) { value.Subject = "" }), status: http.StatusUnauthorized},
+		{name: "missing email", method: http.MethodGet, token: "signed", claims: replaceClaims(validClaims, func(value *IAPClaims) { value.Email = "" }), status: http.StatusUnauthorized},
 		{name: "future issued at", method: http.MethodGet, token: "signed", claims: replaceClaims(validClaims, func(value *IAPClaims) { value.IssuedAt = time.Now().Add(time.Minute) }), status: http.StatusUnauthorized},
 		{name: "excessive lifetime", method: http.MethodGet, token: "signed", claims: replaceClaims(validClaims, func(value *IAPClaims) { value.Expires = value.IssuedAt.Add(12 * time.Minute) }), status: http.StatusUnauthorized},
 		{name: "missing mutation origin", method: http.MethodPost, token: "signed", claims: validClaims, status: http.StatusForbidden},
@@ -87,15 +88,14 @@ func TestRequireIAP(t *testing.T) {
 }
 
 func TestIAPSecurityValidation(t *testing.T) {
-	valid := IAPSecurity{Audience: "audience", OwnerEmail: "owner@example.com", ExternalOrigin: "https://example.com"}
-	validMultiple := IAPSecurity{Audience: "audience", OwnerEmail: "owner@example.com", ExternalOrigin: "https://example.com, https://service.run.app/"}
+	valid := IAPSecurity{Audience: "audience", ExternalOrigin: "https://example.com"}
+	validMultiple := IAPSecurity{Audience: "audience", ExternalOrigin: "https://example.com, https://service.run.app/"}
 	tests := []IAPSecurity{
 		{},
-		{Audience: " audience", OwnerEmail: valid.OwnerEmail, ExternalOrigin: valid.ExternalOrigin},
-		{Audience: valid.Audience, OwnerEmail: "owner", ExternalOrigin: valid.ExternalOrigin},
-		{Audience: valid.Audience, OwnerEmail: valid.OwnerEmail, ExternalOrigin: "http://example.com"},
-		{Audience: valid.Audience, OwnerEmail: valid.OwnerEmail, ExternalOrigin: "https://example.com/path"},
-		{Audience: valid.Audience, OwnerEmail: valid.OwnerEmail, ExternalOrigin: "https://example.com,"},
+		{Audience: " audience", ExternalOrigin: valid.ExternalOrigin},
+		{Audience: valid.Audience, ExternalOrigin: "http://example.com"},
+		{Audience: valid.Audience, ExternalOrigin: "https://example.com/path"},
+		{Audience: valid.Audience, ExternalOrigin: "https://example.com,"},
 	}
 	for _, security := range tests {
 		if err := security.Validate(); err == nil {

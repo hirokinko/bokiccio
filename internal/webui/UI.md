@@ -124,8 +124,8 @@ parseやdomain validationに失敗した場合は、line numberまたはentry nu
 すべてのHTMLとassetはproduction handlerのIAP検証を通り、`Cache-Control: no-store`と同一originを前提としたContent Security Policyを付与します。画面のHTMLはtemplから生成し、生成済みの`*_templ.go`もsource treeへcommitします。
 
 500 responseは既定で内部errorを表示しない。明示的に`BOKICCIO_ENVIRONMENT=development`を設定した環境だけ、原因となった
-error textをHTML escapeしてdevelopment detailとして表示する。この値はprivateなaccount、SQL、pathを含み得るため、owner以外が
-到達できる環境やproductionでは設定しない。未設定または`production`では常にprivate-safeな固定messageだけを返す。
+error textをHTML escapeしてdevelopment detailとして表示する。この値はprivateなaccount、SQL、pathを含み得るため、信頼できる
+開発者以外が到達できる環境やproductionでは設定しない。未設定または`production`では常にprivate-safeな固定messageだけを返す。
 
 ## Development commands
 

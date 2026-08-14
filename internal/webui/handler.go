@@ -1,4 +1,4 @@
-// Package webui provides Bokiccio's server-rendered owner interface.
+// Package webui provides Bokiccio's server-rendered interface.
 package webui
 
 import (
