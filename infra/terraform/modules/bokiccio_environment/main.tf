@@ -29,6 +29,18 @@ resource "google_secret_manager_secret_iam_member" "runtime_accessor" {
   member    = "serviceAccount:${google_service_account.runtime.email}"
 }
 
+# Google IAM bindings can be acknowledged before dependent APIs observe them.
+# Keep the narrow service-account-level grant and wait only when its identity or
+# the runtime secret binding changes, rather than broadening project IAM.
+resource "time_sleep" "runtime_iam_propagation" {
+  create_duration = "30s"
+
+  triggers = {
+    deployment_binding = google_service_account_iam_member.deployment_act_as_runtime.id
+    runtime_accessor   = google_secret_manager_secret_iam_member.runtime_accessor.id
+  }
+}
+
 resource "google_cloud_run_v2_service" "application" {
   project             = var.project_id
   name                = var.service_name
@@ -110,8 +122,7 @@ resource "google_cloud_run_v2_service" "application" {
   }
 
   depends_on = [
-    google_service_account_iam_member.deployment_act_as_runtime,
-    google_secret_manager_secret_iam_member.runtime_accessor,
+    time_sleep.runtime_iam_propagation,
   ]
 }
 

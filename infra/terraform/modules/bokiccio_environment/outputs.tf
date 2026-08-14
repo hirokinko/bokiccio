@@ -17,3 +17,8 @@ output "runtime_service_account_email" {
   description = "Stable runtime identity, independent of service_name."
   value       = google_service_account.runtime.email
 }
+
+output "container_image" {
+  description = "Immutable image digest currently configured for the Cloud Run service."
+  value       = google_cloud_run_v2_service.application.template[0].containers[0].image
+}

@@ -1,0 +1,122 @@
+steps:
+  - id: preflight
+    name: golang:1.26.0-bookworm@sha256:2a0ba12e116687098780d3ce700f9ce3cb340783779646aafbabed748fa6677c
+    entrypoint: bash
+    args:
+      - -ceu
+      - |
+        test -f infra/terraform/environments/demo/application/terraform.tfvars
+        test "${_TURSO_SECRET_VERSION}" != latest
+        case "${_TURSO_SECRET_VERSION}" in
+          ''|*[!0-9]*|0) exit 1 ;;
+        esac
+
+  - id: test
+    name: golang:1.26.0-bookworm@sha256:2a0ba12e116687098780d3ce700f9ce3cb340783779646aafbabed748fa6677c
+    entrypoint: bash
+    args:
+      - -ceu
+      - |
+        go test ./...
+        go test -race ./...
+        go vet ./...
+
+  - id: build-image
+    name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - --pull
+      - --tag
+      - ${_IMAGE_URI}:$BUILD_ID
+      - .
+
+  - id: push-and-resolve-digest
+    name: gcr.io/cloud-builders/docker
+    entrypoint: bash
+    args:
+      - -ceu
+      - |
+        image_tag="${_IMAGE_URI}:$BUILD_ID"
+        docker push "$${image_tag}"
+        docker pull "$${image_tag}" >/dev/null
+        image_digest="$$(docker inspect --format='{{index .RepoDigests 0}}' "$${image_tag}")"
+        case "$${image_digest}" in
+          "${_IMAGE_URI}@sha256:"*) ;;
+          *) exit 1 ;;
+        esac
+        digest="$${image_digest##*@sha256:}"
+        test "$${#digest}" -eq 64
+        case "$${digest}" in
+          *[!0-9a-f]*) exit 1 ;;
+        esac
+        printf '%s' "$${image_digest}" > /workspace/image-digest
+
+  - id: migrate
+    name: gcr.io/cloud-builders/docker
+    entrypoint: bash
+    secretEnv:
+      - TURSO_AUTH_TOKEN
+    args:
+      - -ceu
+      - |
+        docker run --rm \
+          --env TURSO_DATABASE_URL="${_TURSO_DATABASE_URL}" \
+          --env TURSO_AUTH_TOKEN \
+          "$$(cat /workspace/image-digest)" \
+          migrate
+
+  - id: terraform-apply
+    name: hashicorp/terraform:1.15.8
+    entrypoint: sh
+    args:
+      - -ceu
+      - |
+        terraform -chdir=infra/terraform/environments/demo/application init \
+          -input=false \
+          -backend-config="bucket=${_TF_STATE_BUCKET}" \
+          -backend-config="prefix=${_TF_STATE_PREFIX}"
+        terraform -chdir=infra/terraform/environments/demo/application plan \
+          -input=false \
+          -lock-timeout=5m \
+          -out=/workspace/application.tfplan \
+          -var="container_image=$$(cat /workspace/image-digest)"
+        terraform -chdir=infra/terraform/environments/demo/application apply \
+          -input=false \
+          -lock-timeout=5m \
+          /workspace/application.tfplan
+        terraform -chdir=infra/terraform/environments/demo/application output \
+          -raw service_url > /workspace/service-url
+
+  - id: verify-iap-boundary
+    name: curlimages/curl:8.16.0
+    entrypoint: sh
+    args:
+      - -ceu
+      - |
+        status="$$(curl --silent --show-error --output /dev/null \
+          --write-out '%{http_code}' \
+          "$$(cat /workspace/service-url)/livez")"
+        case "$${status}" in
+          302|401|403) ;;
+          *) exit 1 ;;
+        esac
+
+images:
+  - ${_IMAGE_URI}:$BUILD_ID
+
+availableSecrets:
+  secretManager:
+    - versionName: projects/$PROJECT_ID/secrets/${_TURSO_SECRET_ID}/versions/${_TURSO_SECRET_VERSION}
+      env: TURSO_AUTH_TOKEN
+
+serviceAccount: projects/$PROJECT_ID/serviceAccounts/${_DEPLOYMENT_SERVICE_ACCOUNT}
+
+options:
+  dynamicSubstitutions: true
+  logging: CLOUD_LOGGING_ONLY
+
+substitutions:
+  _IMAGE_URI: ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_ARTIFACT_REPOSITORY}/bokiccio
+  _TF_STATE_PREFIX: environments/demo/application
+
+timeout: 1800s

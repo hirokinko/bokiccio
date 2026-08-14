@@ -1,0 +1,22 @@
+project_id = "replace-with-google-cloud-project-id"
+region     = "asia-northeast1"
+
+# Cloud Run endpoint identity is intentionally independent from environment_id.
+service_name = "replace-with-cloud-run-service-name"
+
+turso_database_url               = "libsql://replace-with-demo-database-hostname"
+turso_secret_id                  = "bokiccio-demo-turso-token"
+turso_secret_version             = "1"
+deployment_service_account_email = "bokiccio-demo-deploy@replace-with-google-cloud-project-id.iam.gserviceaccount.com"
+
+# Keep personal Google Accounts only in the Git-ignored terraform.tfvars copy.
+iap_principals = [
+  "user:replace-with-personal-google-account@example.com",
+]
+
+max_instance_count  = 1
+deletion_protection = true
+
+labels = {
+  managed_by = "terraform"
+}

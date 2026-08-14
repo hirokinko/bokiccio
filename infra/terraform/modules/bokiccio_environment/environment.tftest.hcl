@@ -6,6 +6,8 @@ mock_provider "google" {
   }
 }
 
+mock_provider "time" {}
+
 variables {
   project_id                       = "bokiccio-example"
   region                           = "asia-northeast1"

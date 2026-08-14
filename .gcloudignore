@@ -1,0 +1,19 @@
+.gcloudignore
+.git
+.git/**
+.agents
+.agents/**
+.codex
+.codex/**
+.memo
+.memo/**
+.mise.local.toml
+
+#!include:.gitignore
+
+# The application tfvars file contains no secret payload. It is the authoritative
+# private IAP/environment input used by Terraform in the explicit deployment build.
+!infra/terraform/environments/demo/application/terraform.tfvars
+
+# Backend configuration is supplied as non-secret Cloud Build substitutions.
+**/backend.hcl
