@@ -31,6 +31,19 @@ go.work.sum
 # env file
 .env
 
+# Terraform local state, plans, credentials, and environment values
+**/.terraform/*
+*.tfstate
+*.tfstate.*
+*.tfplan
+*.tfvars
+*.tfvars.json
+!*.tfvars.example
+crash.log
+crash.*.log
+.terraformrc
+terraform.rc
+
 # Editor/IDE
 # .idea/
 # .vscode/
