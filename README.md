@@ -33,7 +33,7 @@ Bokiccio（ボキッチョ）は、複数の明細・メール・レシートか
 - 明示的な5区分・会計年度・期首残高方式を履歴管理するreporting設定
 - 承認済み最新仕訳をcommodity別・勘定科目階層別に集計する月次・年度試算表
 - 参照日時点の資産・負債・純資産と、独立して選択した月の費用を分けて確認する現在overview
-- 年度別の期首貸借対照表、単月損益計算書、12か月の全勘定残高推移
+- 年度別の期首貸借対照表、当期損益を表示補正する期末貸借対照表、単月損益計算書、12か月の全勘定残高推移
 - reporting設定を含むchecksum付きlogical backupと空database限定のtransactional restore
 - 匿名化fixtureによるgolden test
 - Tackler 26.1.2以降を使った任意実行の互換性test
@@ -57,7 +57,7 @@ internal/ledger
 internal/reporting
   ├─ classification and fiscal calendar
   ├─ opening balance policy and exact aggregation
-  └─ commodity-separated trial balance, statements, and balance trend
+  └─ commodity-separated trial balance, opening/closing statements, and balance trend
 
 internal/tacklerfmt
   ├─ Tackler-compatible subset parser and exporter

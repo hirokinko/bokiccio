@@ -22,6 +22,8 @@ BokiccioのWeb UIは、Cloud Run direct IAPで保護された単一利用者向�
 - `POST /ui/reports/current`: 選択した参照日または費用月のhtmx fragment、または非htmx redirect
 - `GET /reports/balance-sheet`: 選択した会計年度の期首貸借対照表
 - `POST /ui/reports/balance-sheet`: form bodyで選択した会計年度へのredirect
+- `GET /reports/closing-balance-sheet`: 選択した会計年度の期末貸借対照表
+- `POST /ui/reports/closing-balance-sheet`: form bodyで選択した会計年度へのredirect
 - `GET /reports/income-statement`: 選択した月次期間の損益計算書
 - `POST /ui/reports/income-statement`: form bodyで選択した月次期間へのredirect
 - `GET /reports/balance-trend`: 選択した会計年度の12か月の全勘定残高推移
@@ -44,6 +46,8 @@ BokiccioのWeb UIは、Cloud Run direct IAPで保護された単一利用者向�
 - `POST /en/ui/reports/current`: 選択した参照日または費用月のhtmx fragment、または非htmx redirect（英語UI）
 - `GET /en/reports/balance-sheet`: 期首貸借対照表（英語UI）
 - `POST /en/ui/reports/balance-sheet`: form bodyで選択した会計年度へのredirect（英語UI）
+- `GET /en/reports/closing-balance-sheet`: 期末貸借対照表（英語UI）
+- `POST /en/ui/reports/closing-balance-sheet`: form bodyで選択した会計年度へのredirect（英語UI）
 - `GET /en/reports/income-statement`: 月次損益計算書（英語UI）
 - `POST /en/ui/reports/income-statement`: form bodyで選択した月次期間へのredirect（英語UI）
 - `GET /en/reports/balance-trend`: 12か月の全勘定残高推移（英語UI）
@@ -102,6 +106,11 @@ requestごとに再構成する。月次損益計算書はreporting calendarが�
 いずれもcommodityを分離し、未分類accountを別groupに残す。金額は1列とし、資産・費用は借方、負債・純資産・収益は貸方を
 正として表示する。反対残高は負数、WARNING、実際の借方・貸方を併記する。
 
+期末貸借対照表は設定済み会計年度と完全一致する期間だけを受け付け、現在のreporting設定と承認済み最新仕訳を同じread transactionで
+読み、年度末時点の資産・負債・純資産・未分類の実残高をrequestごとに再集計する。収益と費用の差額は当期損益として純資産側へ
+表示補正するが、決算仕訳、仮想account、締め状態、snapshotは作らない。commodityごとに貸借差額を表示し、未分類accountと反対残高には
+WARNINGを付ける。初期表示は最後の設定済み会計年度を選び、desktopでは明細table、smartphoneではcategory別cardで表示する。
+
 残高推移は設定済み会計年度の12月末について、資産・負債・純資産・収益・費用・未分類の全勘定残高を表示する。収益・費用は
 年度期首から各月末までの累計であり、月次P/Lとは区別する。desktop・smartphoneとも月単位のcardを縦またはgridに並べ、
 横長の12列tableを必須にしない。自動繰越の期首が貸借不一致なら期首B/Sと残高推移は`422`で理由と設定導線を表示し、月次P/Lは
@@ -135,4 +144,4 @@ npm run check
 ```
 
 この段階の画面はnormalized JSON upload、Tackler `.txn` upload、検索、閲覧、revision作成、approval、承認済み仕訳のexport、
-reporting設定、現在残高・月間費用、commodity別試算表、期首B/S、月次P/L、全勘定残高推移に対応しています。
+reporting設定、現在残高・月間費用、commodity別試算表、期首B/S、期末B/S、月次P/L、全勘定残高推移に対応しています。
