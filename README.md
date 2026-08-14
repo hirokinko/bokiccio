@@ -32,6 +32,7 @@ Bokiccio（ボキッチョ）は、複数の明細・メール・レシートか
 - 現在承認済みの仕訳だけを対象にしたTackler/JSON export
 - 明示的な5区分・会計年度・期首残高方式を履歴管理するreporting設定
 - 承認済み最新仕訳をcommodity別・勘定科目階層別に集計する月次・年度試算表
+- 参照日時点の資産・負債・純資産と月初来費用を分けて確認する現在overview
 - 年度別の期首貸借対照表、単月損益計算書、12か月の全勘定残高推移
 - reporting設定を含むchecksum付きlogical backupと空database限定のtransactional restore
 - 匿名化fixtureによるgolden test
