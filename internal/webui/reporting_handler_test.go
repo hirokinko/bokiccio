@@ -110,6 +110,27 @@ func TestReportingInternalErrorDetailsOnlyInDevelopment(t *testing.T) {
 	assertContainsAll(t, development.Body.String(), []string{"Development error detail", "database is closed"})
 }
 
+func TestCurrentOverviewHtmxInternalErrorDetailsOnlyInDevelopment(t *testing.T) {
+	database := openUIDatabase(t)
+	store := webstore.New(database)
+	if err := database.Close(); err != nil {
+		t.Fatalf("Close() error = %v", err)
+	}
+	form := url.Values{"as_of": {"2025-04-20"}, "expense_period": {"2025-04-01/2025-04-30"}}
+	headers := map[string]string{"HX-Request": "true", "HX-Target": "current-balances-result"}
+
+	production := serveForm(webui.NewHandler(store), "/ui/reports/current", form, headers)
+	assertHTMLResponse(t, production, http.StatusInternalServerError)
+	assertContainsAll(t, production.Body.String(), []string{`id="current-balances-result"`, "ページを表示できませんでした。"})
+	assertNotContainsAny(t, production.Body.String(), []string{"database is closed", "Development error detail", "<!doctype html>"})
+
+	development := serveForm(webui.NewHandler(store, webui.HandlerOptions{Development: true}), "/ui/reports/current", form, headers)
+	assertHTMLResponse(t, development, http.StatusInternalServerError)
+	assertContainsAll(t, development.Body.String(), []string{
+		`id="current-balances-result"`, "Development error detail", "database is closed",
+	})
+}
+
 func TestTrialBalanceUISelectionWarningsAndLocale(t *testing.T) {
 	database := openUIDatabase(t)
 	store := webstore.New(database)
@@ -345,6 +366,7 @@ func TestCurrentOverviewUISelectsBalanceDateAndExpenseMonthIndependently(t *test
 	assertContainsAll(t, en.Body.String(), []string{
 		"Current balance and expenses", "Balance date: 2025-04-20", "Current balances", "Monthly expenses", "Expense month",
 		"ScheduledPayment", "Expense total", `action="/en/ui/reports/current"`, "Verification trial balance",
+		`hx-post="/en/ui/reports/current"`, `hx-target="#current-balances-result"`, `data-swap-error-response`,
 	})
 	jaBody := ja.Body.String()
 	balancesHeading := strings.Index(jaBody, `id="current-balances-heading"`)
@@ -363,6 +385,29 @@ func TestCurrentOverviewUISelectsBalanceDateAndExpenseMonthIndependently(t *test
 	if selected.Code != http.StatusSeeOther || selected.Header().Get("Location") != "/en/reports/current?as_of=2025-04-19&expense_end_date=2025-04-30&expense_start_date=2025-04-01" {
 		t.Fatalf("select current date status=%d location=%q", selected.Code, selected.Header().Get("Location"))
 	}
+	htmxBalance := serveForm(handler, "/en/ui/reports/current", url.Values{
+		"as_of": {"2025-04-19"}, "expense_period": {"2025-04-01/2025-04-30"},
+	}, map[string]string{"HX-Request": "true", "HX-Target": "current-balances-result"})
+	assertHTMLResponse(t, htmxBalance, http.StatusOK)
+	assertContainsAll(t, htmxBalance.Body.String(), []string{
+		`id="current-balances-result"`, "ScheduledPayment", `id="current-overview-metadata"`, `hx-swap-oob="outerHTML"`,
+		`id="current-expenses-as-of"`, `value="2025-04-19"`, "Balance date: 2025-04-19",
+	})
+	assertNotContainsAny(t, htmxBalance.Body.String(), []string{"<!doctype html>", `<html lang="en">`, `id="current-expenses-heading"`, "Monthly expenses"})
+	if got := htmxBalance.Header().Get("HX-Push-Url"); got != "/en/reports/current?as_of=2025-04-19&expense_end_date=2025-04-30&expense_start_date=2025-04-01" {
+		t.Fatalf("HX-Push-Url = %q", got)
+	}
+	if vary := htmxBalance.Header().Get("Vary"); !strings.Contains(vary, "HX-Request") || !strings.Contains(vary, "HX-Target") {
+		t.Fatalf("Vary = %q", vary)
+	}
+	htmxInvalid := serveForm(handler, "/ui/reports/current", url.Values{
+		"as_of": {"private"}, "expense_period": {"2025-04-01/2025-04-30"},
+	}, map[string]string{"HX-Request": "true", "HX-Target": "current-balances-result"})
+	assertHTMLResponse(t, htmxInvalid, http.StatusBadRequest)
+	assertContainsAll(t, htmxInvalid.Body.String(), []string{
+		`id="current-balances-result"`, `data-swap-error-response`, "設定された会計年度内の残高基準日と費用月を指定してください。",
+	})
+	assertNotContainsAny(t, htmxInvalid.Body.String(), []string{"private", "<!doctype html>", `id="current-expenses-heading"`})
 	expenseSelected := serveForm(handler, "/ui/reports/current", url.Values{
 		"as_of": {"2025-04-20"}, "expense_period": {"2025-05-01/2025-05-31"},
 	}, nil)

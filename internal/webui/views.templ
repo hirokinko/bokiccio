@@ -254,33 +254,22 @@ templ currentOverviewPage(model currentOverviewPageModel) {
 					if model.FormError != "" {
 						<section class="form-error" role="alert"><h2>{ model.Page.Messages.FormErrorTitle }</h2><p>{ model.FormError }</p></section>
 					}
-					if model.Report != nil {
-						<p>{ model.Page.Messages.StatementConfigurationRevision }: { model.Report.ConfigurationRevision } · { model.Page.Messages.CurrentOverviewAsOf }: { model.Report.AsOf } · { model.Page.Messages.CurrentOverviewFiscalYear }: { model.Report.FiscalYear.StartDate } – { model.Report.FiscalYear.EndDate }</p>
-						@statementStatus(model.Page.Messages, model.SetupHref, model.Report.ClassificationComplete)
-					}
+					@currentOverviewMetadata(model)
 					<section class="current-overview-section" aria-labelledby="current-balances-heading">
 						<h2 id="current-balances-heading">{ model.Page.Messages.CurrentBalancesHeading }</h2>
 						<p>{ model.Page.Messages.CurrentBalancesHelp }</p>
-						<form class="period-form" method="post" action={ model.FormAction }>
-							<input type="hidden" name="expense_period" value={ model.Selected.StartDate + "/" + model.Selected.EndDate }/>
+						<form class="period-form" method="post" action={ model.FormAction } hx-post={ model.FormAction } hx-target={ "#" + currentBalancesResultID } hx-swap="outerHTML">
+							<input id="current-balances-expense-period" type="hidden" name="expense_period" value={ model.Selected.StartDate + "/" + model.Selected.EndDate }/>
 							<label>{ model.Page.Messages.CurrentOverviewDateLabel }<input type="date" name="as_of" value={ model.AsOf } required/></label>
 							<button type="submit">{ model.Page.Messages.CurrentOverviewShow }</button>
 						</form>
-						if model.Report != nil {
-							if len(model.Report.Balances) == 0 {
-								<section class="empty-state"><p>{ model.Page.Messages.CurrentOverviewEmptyBalances }</p></section>
-							} else {
-								for _, commodity := range model.Report.Balances {
-									@currentBalanceCommodity(model.Page.Messages, commodity)
-								}
-							}
-						}
+						@currentBalanceResults(model, "")
 					</section>
 					<section class="current-overview-section" aria-labelledby="current-expenses-heading">
 						<h2 id="current-expenses-heading">{ model.Page.Messages.CurrentExpenseHeading }</h2>
 						<p>{ model.Page.Messages.CurrentExpenseHelp }</p>
 						<form class="period-form" method="post" action={ model.FormAction }>
-							<input type="hidden" name="as_of" value={ model.AsOf }/>
+							<input id="current-expenses-as-of" type="hidden" name="as_of" value={ model.AsOf }/>
 							<label>{ model.Page.Messages.CurrentOverviewExpenseMonthLabel }<select name="expense_period">
 								for _, option := range model.Periods {
 									if option.Period == model.Selected {
@@ -307,6 +296,58 @@ templ currentOverviewPage(model currentOverviewPageModel) {
 			</main>
 		</body>
 	</html>
+}
+
+templ currentOverviewMetadata(model currentOverviewPageModel) {
+	<div id="current-overview-metadata">
+		if model.Report != nil {
+			<p>{ model.Page.Messages.StatementConfigurationRevision }: { model.Report.ConfigurationRevision } · { model.Page.Messages.CurrentOverviewAsOf }: { model.Report.AsOf } · { model.Page.Messages.CurrentOverviewFiscalYear }: { model.Report.FiscalYear.StartDate } – { model.Report.FiscalYear.EndDate }</p>
+			@statementStatus(model.Page.Messages, model.SetupHref, model.Report.ClassificationComplete)
+		}
+	</div>
+}
+
+templ currentOverviewMetadataOOB(model currentOverviewPageModel) {
+	<div id="current-overview-metadata" hx-swap-oob="outerHTML">
+		if model.Report != nil {
+			<p>{ model.Page.Messages.StatementConfigurationRevision }: { model.Report.ConfigurationRevision } · { model.Page.Messages.CurrentOverviewAsOf }: { model.Report.AsOf } · { model.Page.Messages.CurrentOverviewFiscalYear }: { model.Report.FiscalYear.StartDate } – { model.Report.FiscalYear.EndDate }</p>
+			@statementStatus(model.Page.Messages, model.SetupHref, model.Report.ClassificationComplete)
+		}
+	</div>
+}
+
+templ currentBalanceResults(model currentOverviewPageModel, formError string) {
+	<div id={ currentBalancesResultID } class="current-overview-result" aria-live="polite" data-swap-error-response>
+		if formError != "" {
+			<section class="form-error" role="alert"><h3>{ model.Page.Messages.FormErrorTitle }</h3><p>{ formError }</p></section>
+		}
+		if model.Report != nil {
+			if len(model.Report.Balances) == 0 {
+				<section class="empty-state"><p>{ model.Page.Messages.CurrentOverviewEmptyBalances }</p></section>
+			} else {
+				for _, commodity := range model.Report.Balances {
+					@currentBalanceCommodity(model.Page.Messages, commodity)
+				}
+			}
+		}
+	</div>
+}
+
+templ currentBalanceUpdate(model currentOverviewPageModel) {
+	@currentBalanceResults(model, model.FormError)
+	if model.Report != nil {
+		@currentOverviewMetadataOOB(model)
+		<input id="current-expenses-as-of" type="hidden" name="as_of" value={ model.AsOf } hx-swap-oob="outerHTML"/>
+	}
+}
+
+templ currentOverviewResultError(target string, msg messages, detail string) {
+	<div id={ target } class="current-overview-result" aria-live="polite" data-swap-error-response>
+		<section class="form-error" role="alert"><h3>{ msg.InternalErrorTitle }</h3><p>{ msg.InternalErrorMessage }</p></section>
+		if detail != "" {
+			<section class="development-error" aria-labelledby="current-overview-development-error-heading"><h3 id="current-overview-development-error-heading">{ msg.DevelopmentErrorDetail }</h3><pre>{ detail }</pre></section>
+		}
+	</div>
 }
 
 templ currentBalanceCommodity(msg messages, commodity reporting.StatementCommoditySection) {

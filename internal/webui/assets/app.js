@@ -42,3 +42,15 @@ document.addEventListener("click", (event) => {
 		removeButton.closest("[data-configuration-row]")?.remove();
 	}
 });
+
+document.addEventListener("htmx:beforeSwap", (event) => {
+	const detail = event.detail;
+	if (
+		(detail.xhr.status === 400 || detail.xhr.status === 500) &&
+		detail.target instanceof Element &&
+		detail.target.hasAttribute("data-swap-error-response")
+	) {
+		detail.shouldSwap = true;
+		detail.isError = false;
+	}
+});

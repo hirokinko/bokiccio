@@ -27,13 +27,15 @@ import (
 )
 
 const (
-	defaultPageSize      = 50
-	maxSearchFormBody    = 16 << 10
-	maxRevisionFormBody  = 64 << 10
-	maxReportingFormBody = 256 << 10
-	maxImportFileSize    = 10 << 20
-	maxImportRequestSize = maxImportFileSize + (64 << 10)
-	importFileField      = "file"
+	defaultPageSize         = 50
+	maxSearchFormBody       = 16 << 10
+	maxRevisionFormBody     = 64 << 10
+	maxReportingFormBody    = 256 << 10
+	maxImportFileSize       = 10 << 20
+	maxImportRequestSize    = maxImportFileSize + (64 << 10)
+	importFileField         = "file"
+	currentBalancesResultID = "current-balances-result"
+	currentExpensesResultID = "current-expenses-result"
 )
 
 //go:embed assets/app.css assets/app.js assets/htmx-2.0.10.min.js
@@ -407,43 +409,48 @@ func (handler *Handler) selectTrialBalance(response http.ResponseWriter, request
 }
 
 func (handler *Handler) currentOverview(response http.ResponseWriter, request *http.Request, requestLocale locale) {
+	addVary(response, "HX-Request")
+	addVary(response, "HX-Target")
 	defaultAsOf := handler.now().In(time.FixedZone("JST", 9*60*60)).Format(time.DateOnly)
 	detail, err := handler.repository.GetCurrentReportingConfiguration(request.Context())
 	if errors.Is(err, webapp.ErrReportingNotConfigured) {
-		render(response, request, http.StatusOK, currentOverviewPage(currentOverviewPageModel{
+		handler.renderCurrentOverview(response, request, http.StatusOK, currentOverviewPageModel{
 			Page: newPageContext(requestLocale, "/reports/current"), SetupHref: reportingSettingsHref(requestLocale), AsOf: defaultAsOf,
-		}))
+		})
 		return
 	}
 	if err != nil {
-		handler.internalError(response, request, requestLocale, err)
+		handler.currentOverviewInternalError(response, request, requestLocale, err)
 		return
 	}
 	model, err := newCurrentOverviewPageModel(requestLocale, detail, defaultAsOf)
 	if err != nil {
-		handler.internalError(response, request, requestLocale, err)
+		handler.currentOverviewInternalError(response, request, requestLocale, err)
 		return
 	}
 	asOf, expensePeriod, ok := currentOverviewQuery(request.URL.Query(), model.AsOf, model.Selected)
 	if !ok {
 		model.FormError = messagesFor(requestLocale).CurrentOverviewInvalidDate
-		render(response, request, http.StatusBadRequest, currentOverviewPage(model))
+		handler.renderCurrentOverview(response, request, http.StatusBadRequest, model)
 		return
 	}
 	report, err := handler.repository.GetCurrentOverview(request.Context(), asOf, expensePeriod)
 	if errors.Is(err, reporting.ErrInvalidPeriod) {
 		model.FormError = messagesFor(requestLocale).CurrentOverviewInvalidDate
-		render(response, request, http.StatusBadRequest, currentOverviewPage(model))
+		handler.renderCurrentOverview(response, request, http.StatusBadRequest, model)
 		return
 	}
 	if err != nil {
-		handler.internalError(response, request, requestLocale, err)
+		handler.currentOverviewInternalError(response, request, requestLocale, err)
 		return
 	}
 	model.AsOf = asOf
 	model.Selected = expensePeriod
 	model.Report = &report
-	render(response, request, http.StatusOK, currentOverviewPage(model))
+	if _, ok := currentOverviewPartialTarget(request); ok {
+		response.Header().Set("HX-Push-Url", currentOverviewLocation(requestLocale, asOf, expensePeriod))
+	}
+	handler.renderCurrentOverview(response, request, http.StatusOK, model)
 }
 
 func (handler *Handler) selectCurrentOverview(response http.ResponseWriter, request *http.Request, requestLocale locale) {
@@ -457,7 +464,50 @@ func (handler *Handler) selectCurrentOverview(response http.ResponseWriter, requ
 	query := url.Values{
 		"as_of": {form.Get("as_of")}, "expense_start_date": {parts[0]}, "expense_end_date": {parts[1]},
 	}
+	if _, ok := currentOverviewPartialTarget(request); ok {
+		request.URL.RawQuery = query.Encode()
+		handler.currentOverview(response, request, requestLocale)
+		return
+	}
 	http.Redirect(response, request, currentOverviewHref(requestLocale)+"?"+query.Encode(), http.StatusSeeOther)
+}
+
+func (handler *Handler) renderCurrentOverview(response http.ResponseWriter, request *http.Request, status int, model currentOverviewPageModel) {
+	target, partial := currentOverviewPartialTarget(request)
+	if partial && target == currentBalancesResultID {
+		render(response, request, status, currentBalanceUpdate(model))
+		return
+	}
+	render(response, request, status, currentOverviewPage(model))
+}
+
+func (handler *Handler) currentOverviewInternalError(response http.ResponseWriter, request *http.Request, requestLocale locale, err error) {
+	target, partial := currentOverviewPartialTarget(request)
+	if !partial {
+		handler.internalError(response, request, requestLocale, err)
+		return
+	}
+	detail := ""
+	if handler.development {
+		detail = err.Error()
+	}
+	msg := messagesFor(requestLocale)
+	render(response, request, http.StatusInternalServerError, currentOverviewResultError(target, msg, detail))
+}
+
+func currentOverviewPartialTarget(request *http.Request) (string, bool) {
+	if !isHXRequest(request) {
+		return "", false
+	}
+	target := request.Header.Get("HX-Target")
+	return target, target == currentBalancesResultID
+}
+
+func currentOverviewLocation(requestLocale locale, asOf string, expensePeriod reporting.Period) string {
+	query := url.Values{
+		"as_of": {asOf}, "expense_start_date": {expensePeriod.StartDate}, "expense_end_date": {expensePeriod.EndDate},
+	}
+	return currentOverviewHref(requestLocale) + "?" + query.Encode()
 }
 
 func currentOverviewQuery(query url.Values, fallbackAsOf string, fallbackExpense reporting.Period) (string, reporting.Period, bool) {

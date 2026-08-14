@@ -579,7 +579,8 @@ func TestEmbeddedAssetsArePinnedAndPrivate(t *testing.T) {
 	}
 	app := serve(handler, http.MethodGet, "/assets/app.js")
 	if app.Code != http.StatusOK || !strings.Contains(app.Body.String(), "tabInsertsSpaces") ||
-		!strings.Contains(app.Body.String(), "data-add-row") || app.Header().Get("Content-Type") != "text/javascript; charset=utf-8" {
+		!strings.Contains(app.Body.String(), "data-add-row") || !strings.Contains(app.Body.String(), "htmx:beforeSwap") ||
+		!strings.Contains(app.Body.String(), "data-swap-error-response") || app.Header().Get("Content-Type") != "text/javascript; charset=utf-8" {
 		t.Fatalf("app.js status=%d content-type=%q body=%s", app.Code, app.Header().Get("Content-Type"), app.Body.String())
 	}
 }

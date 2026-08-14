@@ -465,6 +465,10 @@ td {
 	padding-top: 1.5rem;
 	border-top: 2px solid #d8d4ca;
 }
+.current-overview-result {
+	display: grid;
+	gap: 1rem;
+}
 .current-overview-section > h2,
 .current-overview-section > p,
 .current-overview-commodity > h3 {
