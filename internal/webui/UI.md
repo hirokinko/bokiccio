@@ -19,7 +19,7 @@ BokiccioのWeb UIは、Cloud Run direct IAPで保護された単一利用者向�
 - `GET /reports/trial-balance`: 選択した会計年度または月次期間のcommodity別試算表
 - `POST /ui/reports/trial-balance`: form bodyで選択した期間へのredirect
 - `GET /reports/current`: 参照日時点の現在残高と独立選択した月の費用
-- `POST /ui/reports/current`: form bodyで選択した参照日へのredirect
+- `POST /ui/reports/current`: form bodyで選択した参照日または費用月へのredirect
 - `GET /reports/balance-sheet`: 選択した会計年度の期首貸借対照表
 - `POST /ui/reports/balance-sheet`: form bodyで選択した会計年度へのredirect
 - `GET /reports/income-statement`: 選択した月次期間の損益計算書
@@ -41,7 +41,7 @@ BokiccioのWeb UIは、Cloud Run direct IAPで保護された単一利用者向�
 - `GET /en/reports/trial-balance`: commodity別試算表（英語UI）
 - `POST /en/ui/reports/trial-balance`: form bodyで選択した期間へのredirect（英語UI）
 - `GET /en/reports/current`: 現在残高と選択月費用（英語UI）
-- `POST /en/ui/reports/current`: form bodyで選択した参照日へのredirect（英語UI）
+- `POST /en/ui/reports/current`: form bodyで選択した参照日または費用月へのredirect（英語UI）
 - `GET /en/reports/balance-sheet`: 期首貸借対照表（英語UI）
 - `POST /en/ui/reports/balance-sheet`: form bodyで選択した会計年度へのredirect（英語UI）
 - `GET /en/reports/income-statement`: 月次損益計算書（英語UI）
@@ -87,7 +87,8 @@ reportの主要導線は現在残高・月間費用画面とし、queryなしで
 収益・費用の仮想振替やcategory間の貸借一致を表示条件にしない。このため決算書のB/Sとは明確に区別する。
 
 費用月は残高基準日と独立して設定済み月次期間から選択し、その開始日から終了日までの費用category合計とaccount内訳だけを
-表示する。一方のselectorを変更しても他方の選択は維持する。「支払予定」など資産に分類したaccountは現在残高へ残り、
+表示する。残高基準日のselectorは現在残高section、費用月のselectorは月間費用sectionに配置し、一方を変更しても他方の選択は維持する。
+「支払予定」など資産に分類したaccountは現在残高へ残り、
 費用への振替は仕訳日を含む選択月の費用集計へ反映される。commodityは混ぜず、
 資産・負債・純資産のsummary cardと費用合計をdesktop・smartphoneの両方で確認できる。試算表は全勘定の検証用として維持する。
 
