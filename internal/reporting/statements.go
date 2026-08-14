@@ -35,6 +35,22 @@ type BalanceSheet struct {
 	Commodities            []StatementCommoditySection `json:"commodities"`
 }
 
+type ClosingBalanceSheetCommodity struct {
+	Commodity       string                   `json:"commodity"`
+	Total           Balance                  `json:"total"`
+	CurrentEarnings Balance                  `json:"current_earnings"`
+	Groups          []StatementCategoryGroup `json:"groups"`
+}
+
+type ClosingBalanceSheet struct {
+	ConfigurationRevision  int                            `json:"configuration_revision"`
+	FiscalYear             Period                         `json:"fiscal_year"`
+	AsOf                   string                         `json:"as_of"`
+	ClassificationComplete bool                           `json:"classification_complete"`
+	Warnings               []Warning                      `json:"warnings"`
+	Commodities            []ClosingBalanceSheetCommodity `json:"commodities"`
+}
+
 type IncomeStatementCommodity struct {
 	StatementCommoditySection
 	NetIncome Balance `json:"net_income"`
@@ -166,6 +182,99 @@ func BuildBalanceSheet(configuration Configuration, entries []Entry, selected Pe
 		Warnings:               warnings,
 		Commodities:            commodities,
 	}, nil
+}
+
+func BuildClosingBalanceSheet(configuration Configuration, entries []Entry, selected Period) (ClosingBalanceSheet, error) {
+	years, targetIndex, validated, classifier, err := statementInputs(configuration, entries, selected, true)
+	if err != nil {
+		return ClosingBalanceSheet{}, err
+	}
+	opening, err := buildFiscalOpening(years, targetIndex, validated, entries, classifier)
+	if err != nil {
+		return ClosingBalanceSheet{}, err
+	}
+	if !amountsBalanced(opening) {
+		return ClosingBalanceSheet{}, ErrOpeningUnbalanced
+	}
+	year := years[targetIndex]
+	closing := cloneAmounts(opening)
+	if err := addMovements(closing, entries, year.StartDate, year.EndDate, year.OpeningEntryIDs, classifier); err != nil {
+		return ClosingBalanceSheet{}, err
+	}
+	commodities, warnings, complete, err := assembleClosingBalanceSheetCommodities(closing)
+	if err != nil {
+		return ClosingBalanceSheet{}, err
+	}
+	return ClosingBalanceSheet{
+		ConfigurationRevision:  configuration.Revision,
+		FiscalYear:             selected,
+		AsOf:                   selected.EndDate,
+		ClassificationComplete: complete,
+		Warnings:               warnings,
+		Commodities:            commodities,
+	}, nil
+}
+
+func assembleClosingBalanceSheetCommodities(amounts amountMap) ([]ClosingBalanceSheetCommodity, []Warning, bool, error) {
+	sections, warnings, complete, err := assembleStatementCommodities(
+		filterAmounts(amounts, CategoryAsset, CategoryLiability, CategoryEquity, CategoryUnknown),
+	)
+	if err != nil {
+		return nil, nil, false, err
+	}
+	currentEarnings := categoryTotalsByCommodity(amounts, CategoryRevenue, CategoryExpense)
+	sectionByCommodity := make(map[string]StatementCommoditySection, len(sections))
+	commoditySet := make(map[string]struct{}, len(sections)+len(currentEarnings))
+	for _, section := range sections {
+		sectionByCommodity[section.Commodity] = section
+		commoditySet[section.Commodity] = struct{}{}
+	}
+	for commodity := range currentEarnings {
+		commoditySet[commodity] = struct{}{}
+	}
+	commodityNames := make([]string, 0, len(commoditySet))
+	for commodity := range commoditySet {
+		commodityNames = append(commodityNames, commodity)
+	}
+	sort.Strings(commodityNames)
+	result := make([]ClosingBalanceSheetCommodity, 0, len(commodityNames))
+	for _, commodity := range commodityNames {
+		section, found := sectionByCommodity[commodity]
+		if !found {
+			section = StatementCommoditySection{Commodity: commodity, Total: Balance{Debit: "0", Credit: "0"}, Groups: []StatementCategoryGroup{}}
+		}
+		earnings := currentEarnings[commodity]
+		total := parseBalance(section.Total).addAccumulator(earnings)
+		if total.sign() != 0 {
+			return nil, nil, false, ErrClosingUnbalanced
+		}
+		formattedEarnings, err := formatBalance(earnings)
+		if err != nil {
+			return nil, nil, false, err
+		}
+		formattedTotal, err := formatBalance(total)
+		if err != nil {
+			return nil, nil, false, err
+		}
+		result = append(result, ClosingBalanceSheetCommodity{
+			Commodity: commodity, Total: formattedTotal, CurrentEarnings: formattedEarnings, Groups: section.Groups,
+		})
+	}
+	return result, warnings, complete, nil
+}
+
+func categoryTotalsByCommodity(amounts amountMap, categories ...Category) map[string]accumulator {
+	allowed := make(map[Category]struct{}, len(categories))
+	for _, category := range categories {
+		allowed[category] = struct{}{}
+	}
+	result := map[string]accumulator{}
+	for key, value := range amounts {
+		if _, found := allowed[key.category]; found {
+			result[key.commodity] = result[key.commodity].addAccumulator(value)
+		}
+	}
+	return result
 }
 
 func BuildIncomeStatement(configuration Configuration, entries []Entry, selected Period) (IncomeStatement, error) {

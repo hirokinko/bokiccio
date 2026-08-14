@@ -19,6 +19,7 @@ var (
 	ErrInvalidEntry         = errors.New("invalid reporting entry")
 	ErrAmountOverflow       = errors.New("reporting amount exceeds decimal range")
 	ErrOpeningUnbalanced    = errors.New("reporting opening balance is unbalanced")
+	ErrClosingUnbalanced    = errors.New("reporting closing balance is unbalanced")
 )
 
 type ConfigurationErrorCode string

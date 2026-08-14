@@ -164,6 +164,146 @@ func TestBuildBalanceSheetAutomaticCarryRequiresBalancedOpening(t *testing.T) {
 	}
 }
 
+func TestBuildClosingBalanceSheetShowsCurrentEarningsWithoutClosingEntry(t *testing.T) {
+	t.Parallel()
+	configuration := testConfiguration()
+	configuration.FiscalYears[0].OpeningMode = OpeningEntries
+	configuration.FiscalYears[0].OpeningEntryIDs = []string{"opening"}
+	entries := []Entry{
+		entry(t, "opening", "2025-04-01", []postingInput{
+			{"資産:現金", "100", "JPY", "", ""}, {"純資産:期首", "-100", "JPY", "", ""},
+		}),
+		entry(t, "sale", "2025-04-02", []postingInput{
+			{"資産:現金", "300", "JPY", "", ""}, {"収益:売上", "", "", "", ""},
+		}),
+		entry(t, "expense", "2026-03-31", []postingInput{
+			{"費用:食費", "120", "JPY", "", ""}, {"資産:現金", "-120", "JPY", "", ""},
+		}),
+		entry(t, "future", "2026-04-01", []postingInput{
+			{"費用:食費", "50", "JPY", "", ""}, {"資産:現金", "-50", "JPY", "", ""},
+		}),
+	}
+	selected := Period{StartDate: "2025-04-01", EndDate: "2026-03-31"}
+	report, err := BuildClosingBalanceSheet(configuration, entries, selected)
+	if err != nil {
+		t.Fatalf("BuildClosingBalanceSheet() error = %v", err)
+	}
+	if report.AsOf != selected.EndDate || report.FiscalYear != selected || report.ConfigurationRevision != 1 || !report.ClassificationComplete {
+		t.Fatalf("closing balance sheet metadata = %+v", report)
+	}
+	commodity := findClosingBalanceSheetCommodity(t, report, "JPY")
+	if commodity.CurrentEarnings.Credit != "180" || commodity.Total.Debit != "0" || commodity.Total.Credit != "0" {
+		t.Fatalf("closing balance sheet commodity = %+v", commodity)
+	}
+	sections := []StatementCommoditySection{{Commodity: commodity.Commodity, Groups: commodity.Groups}}
+	cash := findStatementRow(t, sections, "JPY", CategoryAsset, "資産:現金")
+	equity := findStatementCategory(sections, "JPY", CategoryEquity)
+	if cash.Subtotal.Debit != "280" || equity == nil || equity.Total.Credit != "100" {
+		t.Fatalf("closing balance sheet cash=%+v equity=%+v", cash, equity)
+	}
+	if findStatementCategory(sections, "JPY", CategoryRevenue) != nil || findStatementCategory(sections, "JPY", CategoryExpense) != nil {
+		t.Fatalf("temporary categories leaked into closing balance sheet: %+v", commodity.Groups)
+	}
+	if _, err := BuildClosingBalanceSheet(configuration, entries, Period{StartDate: "2025-04-01", EndDate: "2025-04-30"}); !errors.Is(err, ErrInvalidPeriod) {
+		t.Fatalf("BuildClosingBalanceSheet(month) error = %v, want ErrInvalidPeriod", err)
+	}
+}
+
+func TestBuildClosingBalanceSheetHandlesLossUnknownCommodityAndClosingEntry(t *testing.T) {
+	t.Parallel()
+	configuration := testConfiguration()
+	configuration.FiscalYears[0].OpeningMode = OpeningEntries
+	configuration.FiscalYears[0].OpeningEntryIDs = []string{"opening"}
+	entries := []Entry{
+		entry(t, "opening", "2025-04-01", []postingInput{
+			{"資産:現金", "100", "JPY", "", ""}, {"純資産:期首", "-100", "JPY", "", ""},
+		}),
+		entry(t, "loss", "2025-04-02", []postingInput{
+			{"費用:食費", "120", "JPY", "", ""}, {"資産:現金", "-120", "JPY", "", ""},
+		}),
+		entry(t, "unknown", "2025-04-03", []postingInput{
+			{"確認:仮勘定", "2", "JPY", "", ""}, {"資産:現金", "-2", "JPY", "", ""},
+		}),
+		entry(t, "usd-sale", "2025-04-04", []postingInput{
+			{"資産:投資", "2", "UNIT", "5", "USD"}, {"収益:売上", "-5", "USD", "", ""},
+		}),
+	}
+	selected := Period{StartDate: "2025-04-01", EndDate: "2026-03-31"}
+	report, err := BuildClosingBalanceSheet(configuration, entries, selected)
+	if err != nil {
+		t.Fatalf("BuildClosingBalanceSheet() error = %v", err)
+	}
+	hasUnclassifiedWarning := false
+	for _, warning := range report.Warnings {
+		hasUnclassifiedWarning = hasUnclassifiedWarning || warning.Code == "unclassified_account"
+	}
+	if report.ClassificationComplete || !hasUnclassifiedWarning {
+		t.Fatalf("closing balance sheet warnings=%+v complete=%v", report.Warnings, report.ClassificationComplete)
+	}
+	jpy := findClosingBalanceSheetCommodity(t, report, "JPY")
+	usd := findClosingBalanceSheetCommodity(t, report, "USD")
+	if jpy.CurrentEarnings.Debit != "120" || usd.CurrentEarnings.Credit != "5" ||
+		jpy.Total != (Balance{Debit: "0", Credit: "0"}) || usd.Total != (Balance{Debit: "0", Credit: "0"}) {
+		t.Fatalf("closing balance sheet JPY=%+v USD=%+v", jpy, usd)
+	}
+	unknown := findStatementCategory([]StatementCommoditySection{{Commodity: "JPY", Groups: jpy.Groups}}, "JPY", CategoryUnknown)
+	if unknown == nil || unknown.Total.Debit != "2" {
+		t.Fatalf("closing balance sheet unknown = %+v", unknown)
+	}
+
+	closedEntries := append(entries[:1],
+		entry(t, "sale", "2025-04-02", []postingInput{
+			{"資産:現金", "20", "JPY", "", ""}, {"収益:売上", "-20", "JPY", "", ""},
+		}),
+		entry(t, "close", "2026-03-31", []postingInput{
+			{"収益:売上", "20", "JPY", "", ""}, {"純資産:繰越", "-20", "JPY", "", ""},
+		}),
+	)
+	closed, err := BuildClosingBalanceSheet(configuration, closedEntries, selected)
+	if err != nil {
+		t.Fatalf("BuildClosingBalanceSheet(closed) error = %v", err)
+	}
+	closedJPY := findClosingBalanceSheetCommodity(t, closed, "JPY")
+	if closedJPY.CurrentEarnings != (Balance{Debit: "0", Credit: "0"}) {
+		t.Fatalf("closing entry current earnings = %+v", closedJPY.CurrentEarnings)
+	}
+}
+
+func TestBuildClosingBalanceSheetRejectsUnbalancedAutomaticOpening(t *testing.T) {
+	t.Parallel()
+	configuration := twoYearConfiguration()
+	entries := []Entry{
+		entry(t, "opening", "2024-04-01", []postingInput{
+			{"資産:現金", "100", "JPY", "", ""}, {"純資産:期首", "-100", "JPY", "", ""},
+		}),
+		entry(t, "expense", "2024-05-01", []postingInput{
+			{"費用:食費", "20", "JPY", "", ""}, {"資産:現金", "-20", "JPY", "", ""},
+		}),
+	}
+	_, err := BuildClosingBalanceSheet(configuration, entries, Period{StartDate: "2025-04-01", EndDate: "2026-03-31"})
+	if !errors.Is(err, ErrOpeningUnbalanced) {
+		t.Fatalf("BuildClosingBalanceSheet() error = %v, want ErrOpeningUnbalanced", err)
+	}
+}
+
+func TestBuildClosingBalanceSheetReportsAggregateOverflow(t *testing.T) {
+	t.Parallel()
+	configuration := testConfiguration()
+	entries := []Entry{
+		entry(t, "maximum", "2025-04-01", []postingInput{
+			{"資産:現金", "79228162514264337593543950335", "JPY", "", ""},
+			{"収益:売上", "-79228162514264337593543950335", "JPY", "", ""},
+		}),
+		entry(t, "overflow", "2025-04-02", []postingInput{
+			{"資産:現金", "1", "JPY", "", ""}, {"収益:売上", "-1", "JPY", "", ""},
+		}),
+	}
+	_, err := BuildClosingBalanceSheet(configuration, entries, Period{StartDate: "2025-04-01", EndDate: "2026-03-31"})
+	if !errors.Is(err, ErrAmountOverflow) {
+		t.Fatalf("BuildClosingBalanceSheet() error = %v, want ErrAmountOverflow", err)
+	}
+}
+
 func TestBuildIncomeStatementUsesOnlySelectedMonthAndKeepsUnknown(t *testing.T) {
 	t.Parallel()
 	configuration := testConfiguration()
@@ -326,4 +466,15 @@ func findStatementCategory(sections []StatementCommoditySection, commodity strin
 		}
 	}
 	return nil
+}
+
+func findClosingBalanceSheetCommodity(t *testing.T, report ClosingBalanceSheet, commodity string) ClosingBalanceSheetCommodity {
+	t.Helper()
+	for _, section := range report.Commodities {
+		if section.Commodity == commodity {
+			return section
+		}
+	}
+	t.Fatalf("closing balance sheet commodity %s not found", commodity)
+	return ClosingBalanceSheetCommodity{}
 }
