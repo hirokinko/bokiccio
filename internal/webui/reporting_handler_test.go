@@ -366,7 +366,8 @@ func TestCurrentOverviewUISelectsBalanceDateAndExpenseMonthIndependently(t *test
 	assertContainsAll(t, en.Body.String(), []string{
 		"Current balance and expenses", "Balance date: 2025-04-20", "Current balances", "Monthly expenses", "Expense month",
 		"ScheduledPayment", "Expense total", `action="/en/ui/reports/current"`, "Verification trial balance",
-		`hx-post="/en/ui/reports/current"`, `hx-target="#current-balances-result"`, `data-swap-error-response`,
+		`hx-post="/en/ui/reports/current"`, `hx-target="#current-balances-result"`, `hx-target="#current-expenses-result"`,
+		`data-swap-error-response`,
 	})
 	jaBody := ja.Body.String()
 	balancesHeading := strings.Index(jaBody, `id="current-balances-heading"`)
@@ -414,6 +415,26 @@ func TestCurrentOverviewUISelectsBalanceDateAndExpenseMonthIndependently(t *test
 	if expenseSelected.Code != http.StatusSeeOther || expenseSelected.Header().Get("Location") != "/reports/current?as_of=2025-04-20&expense_end_date=2025-05-31&expense_start_date=2025-05-01" {
 		t.Fatalf("select expense month status=%d location=%q", expenseSelected.Code, expenseSelected.Header().Get("Location"))
 	}
+	htmxExpense := serveForm(handler, "/ui/reports/current", url.Values{
+		"as_of": {"2025-04-20"}, "expense_period": {"2025-05-01/2025-05-31"},
+	}, map[string]string{"HX-Request": "true", "HX-Target": "current-expenses-result"})
+	assertHTMLResponse(t, htmxExpense, http.StatusOK)
+	assertContainsAll(t, htmxExpense.Body.String(), []string{
+		`id="current-expenses-result"`, "2025-05-01 – 2025-05-31", "この期間に計上された費用はありません",
+		`id="current-balances-expense-period"`, `value="2025-05-01/2025-05-31"`, `hx-swap-oob="outerHTML"`,
+	})
+	assertNotContainsAny(t, htmxExpense.Body.String(), []string{"<!doctype html>", `id="current-balances-heading"`, "現在残高"})
+	if got := htmxExpense.Header().Get("HX-Push-Url"); got != "/reports/current?as_of=2025-04-20&expense_end_date=2025-05-31&expense_start_date=2025-05-01" {
+		t.Fatalf("HX-Push-Url = %q", got)
+	}
+	htmxInvalidExpense := serveForm(handler, "/en/ui/reports/current", url.Values{
+		"as_of": {"2025-04-20"}, "expense_period": {"private"},
+	}, map[string]string{"HX-Request": "true", "HX-Target": "current-expenses-result"})
+	assertHTMLResponse(t, htmxInvalidExpense, http.StatusBadRequest)
+	assertContainsAll(t, htmxInvalidExpense.Body.String(), []string{
+		`id="current-expenses-result"`, `data-swap-error-response`, "Select a balance date and expense month within the configured fiscal years.",
+	})
+	assertNotContainsAny(t, htmxInvalidExpense.Body.String(), []string{"private", "<!doctype html>", `id="current-balances-heading"`})
 	may := serve(handler, http.MethodGet, expenseSelected.Header().Get("Location"))
 	assertHTMLResponse(t, may, http.StatusOK)
 	assertContainsAll(t, may.Body.String(), []string{"残高基準日: 2025-04-20", "2025-05-01 – 2025-05-31", "この期間に計上された費用はありません"})

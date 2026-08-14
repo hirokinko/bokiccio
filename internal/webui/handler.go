@@ -474,8 +474,13 @@ func (handler *Handler) selectCurrentOverview(response http.ResponseWriter, requ
 
 func (handler *Handler) renderCurrentOverview(response http.ResponseWriter, request *http.Request, status int, model currentOverviewPageModel) {
 	target, partial := currentOverviewPartialTarget(request)
-	if partial && target == currentBalancesResultID {
-		render(response, request, status, currentBalanceUpdate(model))
+	if partial {
+		switch target {
+		case currentBalancesResultID:
+			render(response, request, status, currentBalanceUpdate(model))
+		case currentExpensesResultID:
+			render(response, request, status, currentExpenseUpdate(model))
+		}
 		return
 	}
 	render(response, request, status, currentOverviewPage(model))
@@ -500,7 +505,7 @@ func currentOverviewPartialTarget(request *http.Request) (string, bool) {
 		return "", false
 	}
 	target := request.Header.Get("HX-Target")
-	return target, target == currentBalancesResultID
+	return target, target == currentBalancesResultID || target == currentExpensesResultID
 }
 
 func currentOverviewLocation(requestLocale locale, asOf string, expensePeriod reporting.Period) string {

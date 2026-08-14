@@ -268,7 +268,7 @@ templ currentOverviewPage(model currentOverviewPageModel) {
 					<section class="current-overview-section" aria-labelledby="current-expenses-heading">
 						<h2 id="current-expenses-heading">{ model.Page.Messages.CurrentExpenseHeading }</h2>
 						<p>{ model.Page.Messages.CurrentExpenseHelp }</p>
-						<form class="period-form" method="post" action={ model.FormAction }>
+						<form class="period-form" method="post" action={ model.FormAction } hx-post={ model.FormAction } hx-target={ "#" + currentExpensesResultID } hx-swap="outerHTML">
 							<input id="current-expenses-as-of" type="hidden" name="as_of" value={ model.AsOf }/>
 							<label>{ model.Page.Messages.CurrentOverviewExpenseMonthLabel }<select name="expense_period">
 								for _, option := range model.Periods {
@@ -281,16 +281,7 @@ templ currentOverviewPage(model currentOverviewPageModel) {
 							</select></label>
 							<button type="submit">{ model.Page.Messages.CurrentOverviewShowExpenses }</button>
 						</form>
-						if model.Report != nil {
-							<p>{ model.Page.Messages.CurrentExpensePeriod }: { model.Report.ExpensePeriod.StartDate } – { model.Report.ExpensePeriod.EndDate }</p>
-							if len(model.Report.Expenses) == 0 {
-								<section class="empty-state"><p>{ model.Page.Messages.CurrentOverviewEmptyExpenses }</p></section>
-							} else {
-								for _, commodity := range model.Report.Expenses {
-									@currentExpenseCommodity(model.Page.Messages, commodity)
-								}
-							}
-						}
+						@currentExpenseResults(model, "")
 					</section>
 				}
 			</main>
@@ -338,6 +329,31 @@ templ currentBalanceUpdate(model currentOverviewPageModel) {
 	if model.Report != nil {
 		@currentOverviewMetadataOOB(model)
 		<input id="current-expenses-as-of" type="hidden" name="as_of" value={ model.AsOf } hx-swap-oob="outerHTML"/>
+	}
+}
+
+templ currentExpenseResults(model currentOverviewPageModel, formError string) {
+	<div id={ currentExpensesResultID } class="current-overview-result" aria-live="polite" data-swap-error-response>
+		if formError != "" {
+			<section class="form-error" role="alert"><h3>{ model.Page.Messages.FormErrorTitle }</h3><p>{ formError }</p></section>
+		}
+		if model.Report != nil {
+			<p>{ model.Page.Messages.CurrentExpensePeriod }: { model.Report.ExpensePeriod.StartDate } – { model.Report.ExpensePeriod.EndDate }</p>
+			if len(model.Report.Expenses) == 0 {
+				<section class="empty-state"><p>{ model.Page.Messages.CurrentOverviewEmptyExpenses }</p></section>
+			} else {
+				for _, commodity := range model.Report.Expenses {
+					@currentExpenseCommodity(model.Page.Messages, commodity)
+				}
+			}
+		}
+	</div>
+}
+
+templ currentExpenseUpdate(model currentOverviewPageModel) {
+	@currentExpenseResults(model, model.FormError)
+	if model.Report != nil {
+		<input id="current-balances-expense-period" type="hidden" name="expense_period" value={ model.Selected.StartDate + "/" + model.Selected.EndDate } hx-swap-oob="outerHTML"/>
 	}
 }
 
