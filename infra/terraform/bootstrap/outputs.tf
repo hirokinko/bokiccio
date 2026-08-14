@@ -13,6 +13,11 @@ output "deployment_service_account_email" {
   value       = google_service_account.deployment.email
 }
 
+output "turso_secret_id" {
+  description = "Secret Manager secret ID whose payload is populated outside Terraform."
+  value       = google_secret_manager_secret.turso.secret_id
+}
+
 output "enabled_services" {
   description = "Google Cloud APIs retained when the bootstrap stack is destroyed."
   value       = sort(tolist(local.required_services))

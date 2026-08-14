@@ -1,0 +1,7 @@
+organization_name = "replace-with-turso-organization"
+
+# Set only when an existing non-default group is required.
+# group = "replace-with-turso-group"
+
+# Optional capacity guardrail accepted by the Turso API.
+size_limit = "256mb"

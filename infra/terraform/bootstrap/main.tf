@@ -1,5 +1,7 @@
 locals {
   deployment_service_account_id = "bokiccio-${var.environment_id}-deploy"
+  turso_secret_id               = "bokiccio-${var.environment_id}-turso-token"
+  secret_iam_manager_role_id    = "bokiccio_${replace(var.environment_id, "-", "_")}_secretIamManager"
   deployment_project_roles = toset([
     "roles/iam.serviceAccountAdmin",
     "roles/iap.admin",
@@ -59,7 +61,13 @@ resource "google_artifact_registry_repository" "containers" {
   repository_id = var.artifact_repository_id
   description   = "Bokiccio immutable container images"
   format        = "DOCKER"
-  labels        = var.labels
+  labels = merge(var.labels, {
+    environment = "shared"
+  })
+
+  lifecycle {
+    prevent_destroy = true
+  }
 
   depends_on = [google_project_service.required["artifactregistry.googleapis.com"]]
 }
@@ -105,16 +113,42 @@ resource "google_artifact_registry_repository_iam_member" "deployment_writer" {
   member     = "serviceAccount:${google_service_account.deployment.email}"
 }
 
-data "google_secret_manager_secret" "turso" {
-  project   = var.project_id
-  secret_id = var.turso_secret_id
+resource "google_secret_manager_secret" "turso" {
+  project             = var.project_id
+  secret_id           = local.turso_secret_id
+  deletion_protection = true
+  labels              = var.labels
+
+  replication {
+    auto {}
+  }
 
   depends_on = [google_project_service.required["secretmanager.googleapis.com"]]
 }
 
-resource "google_secret_manager_secret_iam_member" "deployment_secret_admin" {
+resource "google_project_iam_custom_role" "deployment_secret_iam_manager" {
+  project     = var.project_id
+  role_id     = local.secret_iam_manager_role_id
+  title       = "Bokiccio ${var.environment_id} secret IAM manager"
+  description = "Manages IAM policy only for the Bokiccio ${var.environment_id} Turso secret."
+  permissions = [
+    "secretmanager.secrets.getIamPolicy",
+    "secretmanager.secrets.setIamPolicy",
+  ]
+
+  depends_on = [google_project_service.required["iam.googleapis.com"]]
+}
+
+resource "google_secret_manager_secret_iam_member" "deployment_secret_accessor" {
   project   = var.project_id
-  secret_id = data.google_secret_manager_secret.turso.secret_id
-  role      = "roles/secretmanager.admin"
+  secret_id = google_secret_manager_secret.turso.secret_id
+  role      = "roles/secretmanager.secretAccessor"
+  member    = "serviceAccount:${google_service_account.deployment.email}"
+}
+
+resource "google_secret_manager_secret_iam_member" "deployment_secret_iam_manager" {
+  project   = var.project_id
+  secret_id = google_secret_manager_secret.turso.secret_id
+  role      = google_project_iam_custom_role.deployment_secret_iam_manager.name
   member    = "serviceAccount:${google_service_account.deployment.email}"
 }

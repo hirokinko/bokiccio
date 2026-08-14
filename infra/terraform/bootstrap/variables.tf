@@ -58,16 +58,6 @@ variable "artifact_repository_id" {
   }
 }
 
-variable "turso_secret_id" {
-  description = "Existing Secret Manager secret ID containing the environment-specific Turso token."
-  type        = string
-
-  validation {
-    condition     = can(regex("^[A-Za-z0-9_-]{1,255}$", var.turso_secret_id))
-    error_message = "turso_secret_id must be a Secret Manager secret ID, not a secret payload or resource URL."
-  }
-}
-
 variable "labels" {
   description = "Non-secret labels applied to bootstrap resources."
   type        = map(string)

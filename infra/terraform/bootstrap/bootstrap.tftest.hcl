@@ -5,11 +5,6 @@ mock_provider "google" {
     }
   }
 
-  mock_data "google_secret_manager_secret" {
-    defaults = {
-      secret_id = "bokiccio-demo-turso-token"
-    }
-  }
 }
 
 run "bootstrap_security_contract" {
@@ -22,7 +17,6 @@ run "bootstrap_security_contract" {
     state_bucket_name      = "bokiccio-example-terraform-state"
     state_bucket_location  = "ASIA"
     artifact_repository_id = "bokiccio"
-    turso_secret_id        = "bokiccio-demo-turso-token"
     labels = {
       application = "bokiccio"
       environment = "demo"
@@ -42,18 +36,35 @@ run "bootstrap_security_contract" {
   assert {
     condition = (
       google_artifact_registry_repository.containers.format == "DOCKER" &&
+      google_artifact_registry_repository.containers.labels["environment"] == "shared" &&
       google_artifact_registry_repository_iam_member.deployment_writer.role == "roles/artifactregistry.writer"
     )
-    error_message = "The deployment identity must only receive repository-scoped image writer access."
+    error_message = "The shared repository must be labeled independently from one environment, and deployment access must be repository-scoped."
   }
 
   assert {
     condition = (
       google_service_account.deployment.account_id == "bokiccio-demo-deploy" &&
       google_storage_bucket_iam_member.deployment_state.role == "roles/storage.objectAdmin" &&
-      google_secret_manager_secret_iam_member.deployment_secret_admin.secret_id == "bokiccio-demo-turso-token"
+      google_secret_manager_secret.turso.secret_id == "bokiccio-demo-turso-token" &&
+      google_secret_manager_secret.turso.deletion_protection &&
+      output.turso_secret_id == "bokiccio-demo-turso-token"
     )
     error_message = "Deployment access must be tied to the stable environment identity and named resources."
+  }
+
+  assert {
+    condition = (
+      google_secret_manager_secret_iam_member.deployment_secret_accessor.role == "roles/secretmanager.secretAccessor" &&
+      google_secret_manager_secret_iam_member.deployment_secret_accessor.secret_id == "bokiccio-demo-turso-token" &&
+      google_secret_manager_secret_iam_member.deployment_secret_iam_manager.secret_id == "bokiccio-demo-turso-token" &&
+      google_project_iam_custom_role.deployment_secret_iam_manager.role_id == "bokiccio_demo_secretIamManager" &&
+      toset(google_project_iam_custom_role.deployment_secret_iam_manager.permissions) == toset([
+        "secretmanager.secrets.getIamPolicy",
+        "secretmanager.secrets.setIamPolicy",
+      ])
+    )
+    error_message = "Deployment may access the selected secret and manage only that secret's IAM policy, without Secret Manager Admin."
   }
 
   assert {
