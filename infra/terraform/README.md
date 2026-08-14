@@ -31,3 +31,13 @@ terraform -chdir=infra/terraform/bootstrap apply bootstrap.tfplan
 
 Application Default Credentialsまたはservice account impersonationを使用し、credential key fileをrepositoryへ置かない。
 secret payload、Turso token、個人Google Accountはbootstrap variableへ渡さない。
+
+## Environment module
+
+`modules/bokiccio_environment`は1 environment分のruntime service account、Cloud Run v2 service、対象secret access、
+IAP service agentだけを持つauthoritative invoker binding、利用者のauthoritative IAP bindingを管理する。
+containerはsha256 digest、secretは数値versionだけを受け付け、Turso token payloadはTerraformへ渡さない。
+
+`environment_id`はruntime identity、`service_name`はendpoint・IAP audience・originへ使う。service名を変更してもruntime identityと
+secret参照は変わらない。`deletion_protection`はenvironment rootが明示し、有効なserviceをrenameまたは削除する場合は、先に
+別applyで無効化してから置換planを確認する。
