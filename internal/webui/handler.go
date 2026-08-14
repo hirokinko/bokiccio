@@ -151,7 +151,7 @@ func (handler *Handler) ServeHTTP(response http.ResponseWriter, request *http.Re
 			handler.methodNotAllowed(response, request, requestLocale, localPath, "POST")
 			return
 		}
-		handler.selectCurrentOverviewDate(response, request, requestLocale)
+		handler.selectCurrentOverview(response, request, requestLocale)
 	case localPath == "/ui/reports/trial-balance":
 		if request.Method != http.MethodPost {
 			handler.methodNotAllowed(response, request, requestLocale, localPath, "POST")
@@ -407,23 +407,30 @@ func (handler *Handler) selectTrialBalance(response http.ResponseWriter, request
 }
 
 func (handler *Handler) currentOverview(response http.ResponseWriter, request *http.Request, requestLocale locale) {
-	asOf, ok := currentOverviewDateQuery(request.URL.Query(), handler.now().In(time.FixedZone("JST", 9*60*60)).Format(time.DateOnly))
-	model := currentOverviewPageModel{
-		Page: newPageContext(requestLocale, "/reports/current"), Configured: true,
-		SetupHref: reportingSettingsHref(requestLocale), FormAction: currentOverviewMutationHref(requestLocale), AsOf: asOf,
+	defaultAsOf := handler.now().In(time.FixedZone("JST", 9*60*60)).Format(time.DateOnly)
+	detail, err := handler.repository.GetCurrentReportingConfiguration(request.Context())
+	if errors.Is(err, webapp.ErrReportingNotConfigured) {
+		render(response, request, http.StatusOK, currentOverviewPage(currentOverviewPageModel{
+			Page: newPageContext(requestLocale, "/reports/current"), SetupHref: reportingSettingsHref(requestLocale), AsOf: defaultAsOf,
+		}))
+		return
 	}
+	if err != nil {
+		handler.internalError(response, request, requestLocale, err)
+		return
+	}
+	model, err := newCurrentOverviewPageModel(requestLocale, detail, defaultAsOf)
+	if err != nil {
+		handler.internalError(response, request, requestLocale, err)
+		return
+	}
+	asOf, expensePeriod, ok := currentOverviewQuery(request.URL.Query(), model.AsOf, model.Selected)
 	if !ok {
 		model.FormError = messagesFor(requestLocale).CurrentOverviewInvalidDate
 		render(response, request, http.StatusBadRequest, currentOverviewPage(model))
 		return
 	}
-	report, err := handler.repository.GetCurrentOverview(request.Context(), asOf)
-	if errors.Is(err, webapp.ErrReportingNotConfigured) {
-		model.Configured = false
-		model.Report = nil
-		render(response, request, http.StatusOK, currentOverviewPage(model))
-		return
-	}
+	report, err := handler.repository.GetCurrentOverview(request.Context(), asOf, expensePeriod)
 	if errors.Is(err, reporting.ErrInvalidPeriod) {
 		model.FormError = messagesFor(requestLocale).CurrentOverviewInvalidDate
 		render(response, request, http.StatusBadRequest, currentOverviewPage(model))
@@ -433,34 +440,48 @@ func (handler *Handler) currentOverview(response http.ResponseWriter, request *h
 		handler.internalError(response, request, requestLocale, err)
 		return
 	}
+	model.AsOf = asOf
+	model.Selected = expensePeriod
 	model.Report = &report
 	render(response, request, http.StatusOK, currentOverviewPage(model))
 }
 
-func (handler *Handler) selectCurrentOverviewDate(response http.ResponseWriter, request *http.Request, requestLocale locale) {
-	form, ok := decodeStrictForm(response, request, maxSearchFormBody, map[string]bool{"as_of": false})
-	if !ok || form.Get("as_of") == "" {
+func (handler *Handler) selectCurrentOverview(response http.ResponseWriter, request *http.Request, requestLocale locale) {
+	form, ok := decodeStrictForm(response, request, maxSearchFormBody, map[string]bool{"as_of": false, "expense_period": false})
+	parts := strings.Split(form.Get("expense_period"), "/")
+	if !ok || form.Get("as_of") == "" || len(parts) != 2 || parts[0] == "" || parts[1] == "" {
 		request.URL.RawQuery = "invalid_date=1"
 		handler.currentOverview(response, request, requestLocale)
 		return
 	}
-	query := url.Values{"as_of": {form.Get("as_of")}}
+	query := url.Values{
+		"as_of": {form.Get("as_of")}, "expense_start_date": {parts[0]}, "expense_end_date": {parts[1]},
+	}
 	http.Redirect(response, request, currentOverviewHref(requestLocale)+"?"+query.Encode(), http.StatusSeeOther)
 }
 
-func currentOverviewDateQuery(query url.Values, fallback string) (string, bool) {
+func currentOverviewQuery(query url.Values, fallbackAsOf string, fallbackExpense reporting.Period) (string, reporting.Period, bool) {
 	if len(query) == 0 {
-		return fallback, true
+		return fallbackAsOf, fallbackExpense, true
 	}
-	if len(query) != 1 || len(query["as_of"]) != 1 || query.Get("as_of") == "" {
-		return fallback, false
+	if len(query) != 3 || len(query["as_of"]) != 1 || len(query["expense_start_date"]) != 1 ||
+		len(query["expense_end_date"]) != 1 || query.Get("as_of") == "" || query.Get("expense_start_date") == "" ||
+		query.Get("expense_end_date") == "" {
+		return fallbackAsOf, fallbackExpense, false
 	}
 	asOf := query.Get("as_of")
 	parsed, err := time.Parse(time.DateOnly, asOf)
 	if err != nil || parsed.Format(time.DateOnly) != asOf {
-		return fallback, false
+		return fallbackAsOf, fallbackExpense, false
 	}
-	return asOf, true
+	expensePeriod := reporting.Period{StartDate: query.Get("expense_start_date"), EndDate: query.Get("expense_end_date")}
+	start, startErr := time.Parse(time.DateOnly, expensePeriod.StartDate)
+	end, endErr := time.Parse(time.DateOnly, expensePeriod.EndDate)
+	if startErr != nil || endErr != nil || start.Format(time.DateOnly) != expensePeriod.StartDate ||
+		end.Format(time.DateOnly) != expensePeriod.EndDate {
+		return fallbackAsOf, fallbackExpense, false
+	}
+	return asOf, expensePeriod, true
 }
 
 func (handler *Handler) balanceSheet(response http.ResponseWriter, request *http.Request, requestLocale locale) {
@@ -1099,6 +1120,38 @@ func newTrialBalancePageModel(requestLocale locale, detail webapp.ReportingConfi
 			model.Periods = append(model.Periods, trialBalancePeriodOption{Period: period.Period, Label: label})
 		}
 		model.Selected = periods[0].Period
+	}
+	return model, nil
+}
+
+func newCurrentOverviewPageModel(requestLocale locale, detail webapp.ReportingConfigurationDetail, asOf string) (currentOverviewPageModel, error) {
+	model := currentOverviewPageModel{
+		Page: newPageContext(requestLocale, "/reports/current"), Configured: true,
+		SetupHref: reportingSettingsHref(requestLocale), FormAction: currentOverviewMutationHref(requestLocale),
+		AsOf: asOf, Periods: []trialBalancePeriodOption{},
+	}
+	selected := false
+	for _, year := range detail.FiscalYears {
+		periods, err := reporting.FiscalPeriods(reporting.FiscalYear{
+			StartDate: year.StartDate, EndDate: year.EndDate, OpeningMode: year.OpeningMode,
+			OpeningEntryIDs: year.OpeningEntryIDs,
+		}, detail.StartMonth)
+		if err != nil {
+			return currentOverviewPageModel{}, err
+		}
+		for _, period := range periods[1:] {
+			model.Periods = append(model.Periods, trialBalancePeriodOption{
+				Period: period.Period,
+				Label:  messagesFor(requestLocale).MonthlyPeriodLabel(period.Month, period.StartDate, period.EndDate),
+			})
+			if !selected {
+				model.Selected = period.Period
+			}
+			if asOf >= period.StartDate && asOf <= period.EndDate {
+				model.Selected = period.Period
+				selected = true
+			}
+		}
 	}
 	return model, nil
 }

@@ -140,6 +140,8 @@ type currentOverviewPageModel struct {
 	SetupHref  string
 	FormAction string
 	AsOf       string
+	Periods    []trialBalancePeriodOption
+	Selected   reporting.Period
 	Report     *webapp.CurrentOverviewDetail
 	FormError  string
 }

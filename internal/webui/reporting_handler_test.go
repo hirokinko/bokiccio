@@ -287,7 +287,7 @@ func TestBalanceSheetUIExplainsUnbalancedAutomaticOpening(t *testing.T) {
 	})
 }
 
-func TestCurrentOverviewUIPrioritizesBalancesAndMonthToDateExpenses(t *testing.T) {
+func TestCurrentOverviewUISelectsBalanceDateAndExpenseMonthIndependently(t *testing.T) {
 	database := openUIDatabase(t)
 	store := webstore.New(database)
 	now := func() time.Time { return time.Date(2025, 4, 20, 12, 0, 0, 0, time.UTC) }
@@ -296,7 +296,7 @@ func TestCurrentOverviewUIPrioritizesBalancesAndMonthToDateExpenses(t *testing.T
 	notConfigured := serve(handler, http.MethodGet, "/reports/current")
 	assertHTMLResponse(t, notConfigured, http.StatusOK)
 	assertContainsAll(t, notConfigured.Body.String(), []string{
-		"現在残高・当月費用", "先にレポート設定を保存", `href="/settings/reporting"`,
+		"現在残高・月間費用", "先にレポート設定を保存", `href="/settings/reporting"`,
 	})
 
 	input := []byte(`{"schema_version":1,"records":[{"source":{"namespace":"ui-current","display":"anonymous"},"occurred_at":"2025-04-01","description":"anonymous opening fixture","postings":[{"account":"Assets:Cash","amount":"100","commodity":"JPY"},{"account":"Equity:Opening","amount":"-100","commodity":"JPY"}]},{"source":{"namespace":"ui-current","display":"anonymous"},"occurred_at":"2025-04-02","description":"anonymous reservation fixture","postings":[{"account":"Assets:ScheduledPayment","amount":"30","commodity":"JPY"},{"account":"Assets:Cash","amount":"-30","commodity":"JPY"}]},{"source":{"namespace":"ui-current","display":"anonymous"},"occurred_at":"2025-04-20","description":"anonymous expense fixture","postings":[{"account":"Expenses:Communication","amount":"10","commodity":"JPY"},{"account":"Assets:ScheduledPayment","amount":"-10","commodity":"JPY"}]},{"source":{"namespace":"ui-current","display":"anonymous"},"occurred_at":"2025-04-21","description":"anonymous future fixture","postings":[{"account":"Expenses:Communication","amount":"20","commodity":"JPY"},{"account":"Assets:ScheduledPayment","amount":"-20","commodity":"JPY"}]}]}`)
@@ -334,23 +334,35 @@ func TestCurrentOverviewUIPrioritizesBalancesAndMonthToDateExpenses(t *testing.T
 	}
 
 	ja := serve(handler, http.MethodGet, "/reports/current")
-	en := serve(handler, http.MethodGet, "/en/reports/current?as_of=2025-04-20")
+	en := serve(handler, http.MethodGet, "/en/reports/current?as_of=2025-04-20&expense_start_date=2025-04-01&expense_end_date=2025-04-30")
 	assertHTMLResponse(t, ja, http.StatusOK)
 	assertHTMLResponse(t, en, http.StatusOK)
 	assertContainsAll(t, ja.Body.String(), []string{
-		"現在残高・当月費用", "残高基準日: 2025-04-20", "現在残高", "当月費用", "資産", "負債", "純資産", "Assets", "ScheduledPayment",
-		"費用合計", "10", "2025-04-01 – 2025-04-20", `class="current-summary-grid"`,
+		"現在残高・月間費用", "残高基準日: 2025-04-20", "現在残高", "月間費用", "費用月", "資産", "負債", "純資産", "Assets", "ScheduledPayment",
+		"費用合計", "30", "2025-04-01 – 2025-04-30", `class="current-summary-grid"`,
 		`class="current-summary-card expense-summary-card"`, `href="/reports/current"`, "検証用試算表",
 	})
 	assertContainsAll(t, en.Body.String(), []string{
-		"Current balance and expenses", "Balance date: 2025-04-20", "Current balances", "Month-to-date expenses",
+		"Current balance and expenses", "Balance date: 2025-04-20", "Current balances", "Monthly expenses", "Expense month",
 		"ScheduledPayment", "Expense total", `action="/en/ui/reports/current"`, "Verification trial balance",
 	})
-	selected := serveForm(handler, "/en/ui/reports/current", url.Values{"as_of": {"2025-04-19"}}, nil)
-	if selected.Code != http.StatusSeeOther || selected.Header().Get("Location") != "/en/reports/current?as_of=2025-04-19" {
+	selected := serveForm(handler, "/en/ui/reports/current", url.Values{
+		"as_of": {"2025-04-19"}, "expense_period": {"2025-04-01/2025-04-30"},
+	}, nil)
+	if selected.Code != http.StatusSeeOther || selected.Header().Get("Location") != "/en/reports/current?as_of=2025-04-19&expense_end_date=2025-04-30&expense_start_date=2025-04-01" {
 		t.Fatalf("select current date status=%d location=%q", selected.Code, selected.Header().Get("Location"))
 	}
-	invalid := serve(handler, http.MethodGet, "/reports/current?as_of=private")
+	expenseSelected := serveForm(handler, "/ui/reports/current", url.Values{
+		"as_of": {"2025-04-20"}, "expense_period": {"2025-05-01/2025-05-31"},
+	}, nil)
+	if expenseSelected.Code != http.StatusSeeOther || expenseSelected.Header().Get("Location") != "/reports/current?as_of=2025-04-20&expense_end_date=2025-05-31&expense_start_date=2025-05-01" {
+		t.Fatalf("select expense month status=%d location=%q", expenseSelected.Code, expenseSelected.Header().Get("Location"))
+	}
+	may := serve(handler, http.MethodGet, expenseSelected.Header().Get("Location"))
+	assertHTMLResponse(t, may, http.StatusOK)
+	assertContainsAll(t, may.Body.String(), []string{"残高基準日: 2025-04-20", "2025-05-01 – 2025-05-31", "この期間に計上された費用はありません"})
+
+	invalid := serve(handler, http.MethodGet, "/reports/current?as_of=private&expense_start_date=2025-04-01&expense_end_date=2025-04-30")
 	assertHTMLResponse(t, invalid, http.StatusBadRequest)
 	if strings.Contains(invalid.Body.String(), "private") {
 		t.Fatalf("invalid current date reflected private input: %s", invalid.Body.String())
