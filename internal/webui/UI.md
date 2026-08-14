@@ -19,7 +19,7 @@ BokiccioのWeb UIは、Cloud Run direct IAPで保護された単一利用者向�
 - `GET /reports/trial-balance`: 選択した会計年度または月次期間のcommodity別試算表
 - `POST /ui/reports/trial-balance`: form bodyで選択した期間へのredirect
 - `GET /reports/current`: 参照日時点の現在残高と独立選択した月の費用
-- `POST /ui/reports/current`: form bodyで選択した参照日または費用月へのredirect
+- `POST /ui/reports/current`: 選択した参照日または費用月のhtmx fragment、または非htmx redirect
 - `GET /reports/balance-sheet`: 選択した会計年度の期首貸借対照表
 - `POST /ui/reports/balance-sheet`: form bodyで選択した会計年度へのredirect
 - `GET /reports/income-statement`: 選択した月次期間の損益計算書
@@ -41,7 +41,7 @@ BokiccioのWeb UIは、Cloud Run direct IAPで保護された単一利用者向�
 - `GET /en/reports/trial-balance`: commodity別試算表（英語UI）
 - `POST /en/ui/reports/trial-balance`: form bodyで選択した期間へのredirect（英語UI）
 - `GET /en/reports/current`: 現在残高と選択月費用（英語UI）
-- `POST /en/ui/reports/current`: form bodyで選択した参照日または費用月へのredirect（英語UI）
+- `POST /en/ui/reports/current`: 選択した参照日または費用月のhtmx fragment、または非htmx redirect（英語UI）
 - `GET /en/reports/balance-sheet`: 期首貸借対照表（英語UI）
 - `POST /en/ui/reports/balance-sheet`: form bodyで選択した会計年度へのredirect（英語UI）
 - `GET /en/reports/income-statement`: 月次損益計算書（英語UI）
@@ -91,6 +91,11 @@ reportの主要導線は現在残高・月間費用画面とし、queryなしで
 「支払予定」など資産に分類したaccountは現在残高へ残り、
 費用への振替は仕訳日を含む選択月の費用集計へ反映される。commodityは混ぜず、
 資産・負債・純資産のsummary cardと費用合計をdesktop・smartphoneの両方で確認できる。試算表は全勘定の検証用として維持する。
+
+htmx requestでは、残高基準日の変更は`#current-balances-result`、費用月の変更は
+`#current-expenses-result`だけを差し替える。responseの`HX-Push-Url`でcanonical query付きURLを履歴へ反映し、
+out-of-band swapでもう一方のformのhidden値を同期する。400と500は対応するresult内へ表示し、500の内部詳細は
+開発環境だけに含める。htmxを利用しないPOSTは従来どおり303 redirectし、GETで同じ画面を表示する。
 
 期首貸借対照表は設定済み会計年度と完全一致する期間だけを受け付け、その年度の期首残高方式から資産・負債・純資産を
 requestごとに再構成する。月次損益計算書はreporting calendarが生成した単月だけを対象に、収益・費用と月次損益を表示する。
