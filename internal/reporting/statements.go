@@ -2,6 +2,7 @@ package reporting
 
 import (
 	"sort"
+	"time"
 )
 
 type StatementAccountRow struct {
@@ -60,6 +61,93 @@ type BalanceTrend struct {
 	ClassificationComplete bool                `json:"classification_complete"`
 	Warnings               []Warning           `json:"warnings"`
 	Points                 []BalanceTrendPoint `json:"points"`
+}
+
+type CurrentOverview struct {
+	ConfigurationRevision  int                         `json:"configuration_revision"`
+	AsOf                   string                      `json:"as_of"`
+	FiscalYear             Period                      `json:"fiscal_year"`
+	ExpensePeriod          Period                      `json:"expense_period"`
+	ClassificationComplete bool                        `json:"classification_complete"`
+	Warnings               []Warning                   `json:"warnings"`
+	Balances               []StatementCommoditySection `json:"balances"`
+	Expenses               []StatementCommoditySection `json:"expenses"`
+}
+
+func BuildCurrentOverview(configuration Configuration, entries []Entry, asOf string) (CurrentOverview, error) {
+	if err := ValidateConfiguration(configuration); err != nil {
+		return CurrentOverview{}, err
+	}
+	parsed, err := time.Parse(time.DateOnly, asOf)
+	if err != nil || parsed.Format(time.DateOnly) != asOf {
+		return CurrentOverview{}, ErrInvalidPeriod
+	}
+	years := sortedFiscalYears(configuration.FiscalYears)
+	targetIndex := -1
+	for index, year := range years {
+		if asOf >= year.StartDate && asOf <= year.EndDate {
+			targetIndex = index
+			break
+		}
+	}
+	if targetIndex < 0 {
+		return CurrentOverview{}, ErrInvalidPeriod
+	}
+	validated, err := validateEntries(entries)
+	if err != nil {
+		return CurrentOverview{}, err
+	}
+	classifier := newClassifier(configuration.Classifications)
+	opening, err := buildFiscalOpening(years, targetIndex, validated, entries, classifier)
+	if err != nil {
+		return CurrentOverview{}, err
+	}
+	year := years[targetIndex]
+	current := cloneAmounts(opening)
+	if err := addMovements(current, entries, year.StartDate, asOf, year.OpeningEntryIDs, classifier); err != nil {
+		return CurrentOverview{}, err
+	}
+	balances, balanceWarnings, balanceComplete, err := assembleStatementCommodities(
+		filterAmounts(current, CategoryAsset, CategoryLiability, CategoryEquity, CategoryUnknown),
+	)
+	if err != nil {
+		return CurrentOverview{}, err
+	}
+	periods, err := FiscalPeriods(year, configuration.StartMonth)
+	if err != nil {
+		return CurrentOverview{}, err
+	}
+	expenseStart := ""
+	for _, period := range periods[1:] {
+		if asOf >= period.StartDate && asOf <= period.EndDate {
+			expenseStart = period.StartDate
+			break
+		}
+	}
+	if expenseStart == "" {
+		return CurrentOverview{}, ErrInvalidPeriod
+	}
+	movement, err := collectMovements(entries, expenseStart, asOf, year.OpeningEntryIDs, classifier)
+	if err != nil {
+		return CurrentOverview{}, err
+	}
+	expenses, expenseWarnings, expenseComplete, err := assembleStatementCommodities(
+		filterAmounts(netMovements(movement), CategoryExpense),
+	)
+	if err != nil {
+		return CurrentOverview{}, err
+	}
+	warnings := append(balanceWarnings, expenseWarnings...)
+	return CurrentOverview{
+		ConfigurationRevision:  configuration.Revision,
+		AsOf:                   asOf,
+		FiscalYear:             Period{StartDate: year.StartDate, EndDate: year.EndDate},
+		ExpensePeriod:          Period{StartDate: expenseStart, EndDate: asOf},
+		ClassificationComplete: balanceComplete && expenseComplete,
+		Warnings:               warnings,
+		Balances:               balances,
+		Expenses:               expenses,
+	}, nil
 }
 
 func BuildBalanceSheet(configuration Configuration, entries []Entry, selected Period) (BalanceSheet, error) {
