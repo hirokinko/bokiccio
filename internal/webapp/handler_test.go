@@ -80,6 +80,26 @@ func TestReadOnlyImportVerticalSlice(t *testing.T) {
 	}
 }
 
+func TestImportReturnsForbiddenWhenUploadIsDisabled(t *testing.T) {
+	database := openDatabase(t)
+	store := webstore.New(database)
+	if err := store.SetFileUploadEnabled(context.Background(), false); err != nil {
+		t.Fatalf("SetFileUploadEnabled(false) error=%v", err)
+	}
+	handler := webapp.NewHandler(store)
+	response := request(t, handler, http.MethodPost, "/api/v1/imports", []byte("not-json"), "text/plain")
+	if response.Code != http.StatusForbidden {
+		t.Fatalf("POST status=%d body=%s", response.Code, response.Body.String())
+	}
+	if !strings.Contains(response.Body.String(), `"code":"upload_disabled"`) {
+		t.Fatalf("POST body=%s", response.Body.String())
+	}
+	var runs int
+	if err := database.QueryRow(`SELECT count(*) FROM import_runs`).Scan(&runs); err != nil || runs != 0 {
+		t.Fatalf("import_runs=%d error=%v, want 0", runs, err)
+	}
+}
+
 func TestDecimalBoundaryAndZeroRoundtrip(t *testing.T) {
 	database := openDatabase(t)
 	store := webstore.New(database)
@@ -607,6 +627,7 @@ func TestMigrationPreservesV1Entries(t *testing.T) {
 		t.Fatalf("Import() error = %v", err)
 	}
 	for _, statement := range []string{
+		`DROP TABLE application_settings`,
 		`DROP TABLE reporting_opening_entries`,
 		`DROP TABLE reporting_fiscal_years`,
 		`DROP TABLE reporting_classifications`,
@@ -627,6 +648,10 @@ func TestMigrationPreservesV1Entries(t *testing.T) {
 	}
 	if err := webstore.Migrate(context.Background(), database); err != nil {
 		t.Fatalf("Migrate(v1 to current) error = %v", err)
+	}
+	settings, err := store.GetApplicationSettings(context.Background())
+	if err != nil || !settings.FileUploadEnabled {
+		t.Fatalf("GetApplicationSettings() settings=%+v error=%v", settings, err)
 	}
 	run, err := store.GetRun(context.Background(), result.RunIdentity)
 	if err != nil || len(run.Outcomes) == 0 {

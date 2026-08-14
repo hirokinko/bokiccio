@@ -50,7 +50,9 @@ templ indexPage(model indexPageModel) {
 						<h1>{ model.Page.Messages.IndexTitle }</h1>
 					</div>
 				</header>
-				@uploadForm(model)
+				if model.UploadEnabled {
+					@uploadForm(model)
+				}
 				@searchForm(model)
 				@entryResults(model)
 			</main>

@@ -282,6 +282,15 @@ func (handler *Handler) entryResource(response http.ResponseWriter, request *htt
 }
 
 func (handler *Handler) importRecords(response http.ResponseWriter, request *http.Request) {
+	settings, err := handler.repository.GetApplicationSettings(request.Context())
+	if err != nil {
+		handler.writeRepositoryError(response, err)
+		return
+	}
+	if !settings.FileUploadEnabled {
+		handler.writeRepositoryError(response, ErrUploadDisabled)
+		return
+	}
 	mediaType, _, err := mime.ParseMediaType(request.Header.Get("Content-Type"))
 	if err != nil || mediaType != "application/json" {
 		writeError(response, http.StatusUnsupportedMediaType, "unsupported_media_type", "Content-Type must be application/json")
@@ -478,6 +487,8 @@ func decodeJSONRequest(response http.ResponseWriter, request *http.Request, limi
 
 func (handler *Handler) writeRepositoryError(response http.ResponseWriter, err error) {
 	switch {
+	case errors.Is(err, ErrUploadDisabled):
+		writeError(response, http.StatusForbidden, "upload_disabled", "file upload is disabled")
 	case errors.Is(err, ingest.ErrInvalidInput):
 		writeError(response, http.StatusBadRequest, "invalid_import", "normalized import is invalid")
 	case errors.Is(err, ErrNotFound):

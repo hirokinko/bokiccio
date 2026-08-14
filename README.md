@@ -165,9 +165,20 @@ go run ./cmd/bokiccio serve
 
 route、JSON、認証境界、remote integration testは[Web API v1](internal/webapp/API.md)、画面routeとassetの構成は[Web UI](internal/webui/UI.md)を参照してください。
 
+file upload可否はdatabaseのtyped settingとして管理し、operator CLIだけで変更します。無効化すると日本語・英語UIの
+normalized JSONとTackler `.txn`のupload formが非表示になり、UI/APIのdirect importも`403`で拒否されます。
+
+```sh
+TURSO_DATABASE_URL=libsql://database-name.turso.io \
+TURSO_AUTH_TOKEN='secret-manager-injected-token' \
+go run ./cmd/bokiccio settings set --file-upload-enabled=false
+```
+
+成功時は新しいboolean値だけを出力します。Web UI、JSON API、Terraformからこの設定は変更できません。
+
 ## Turso backupとrestore
 
-backupは仕訳、source、diagnostic、revision、approval、reporting設定履歴を含む暗号化されていないprivate dataである。
+backupは仕訳、source、diagnostic、revision、approval、reporting設定履歴、file upload設定を含む暗号化されていないprivate dataである。
 既存fileを上書きせず、permission `0600`のlogical JSONとして作成する。
 
 ```sh

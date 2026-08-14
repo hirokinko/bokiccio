@@ -165,8 +165,9 @@ func TestWebCommandsRequireProductionConfiguration(t *testing.T) {
 	}
 	commands := map[string][]string{
 		"migrate": {"migrate"}, "serve": {"serve"},
-		"backup":  {"backup", "--output", filepath.Join(t.TempDir(), "backup.json")},
-		"restore": {"restore", "--input", filepath.Join(t.TempDir(), "backup.json")},
+		"backup":   {"backup", "--output", filepath.Join(t.TempDir(), "backup.json")},
+		"restore":  {"restore", "--input", filepath.Join(t.TempDir(), "backup.json")},
+		"settings": {"settings", "set", "--file-upload-enabled=false"},
 	}
 	for command, args := range commands {
 		var stderr bytes.Buffer
@@ -180,13 +181,42 @@ func TestWebCommandsRequireProductionConfiguration(t *testing.T) {
 }
 
 func TestWebCommandHelpDoesNotRequireConfiguration(t *testing.T) {
-	for _, command := range []string{"migrate", "backup", "restore", "serve"} {
+	for _, command := range []string{"migrate", "backup", "restore", "settings", "serve"} {
 		var stderr bytes.Buffer
 		if got := run([]string{command, "--help"}, &stderr); got != exitSuccess {
 			t.Fatalf("run(%s --help) = %d, stderr=%q", command, got, stderr.String())
 		}
 		if !strings.Contains(stderr.String(), "usage: bokiccio "+command) {
 			t.Fatalf("run(%s --help) stderr=%q", command, stderr.String())
+		}
+	}
+}
+
+func TestSettingsSetRequiresExplicitBoolean(t *testing.T) {
+	for _, args := range [][]string{
+		{"settings", "set"},
+		{"settings", "set", "--file-upload-enabled=yes"},
+		{"settings", "unknown"},
+	} {
+		var stderr bytes.Buffer
+		if got := run(args, &stderr); got != exitRunLevelFailure {
+			t.Fatalf("run(%v) = %d, stderr=%q", args, got, stderr.String())
+		}
+		if !strings.Contains(stderr.String(), "usage: bokiccio settings") {
+			t.Fatalf("run(%v) stderr=%q", args, stderr.String())
+		}
+	}
+}
+
+func TestWriteFileUploadEnabledOutputsOnlyBoolean(t *testing.T) {
+	for _, test := range []struct {
+		enabled bool
+		want    string
+	}{{enabled: true, want: "true\n"}, {enabled: false, want: "false\n"}} {
+		var output bytes.Buffer
+		writeFileUploadEnabled(&output, test.enabled)
+		if output.String() != test.want {
+			t.Fatalf("writeFileUploadEnabled(%t)=%q, want %q", test.enabled, output.String(), test.want)
 		}
 	}
 }

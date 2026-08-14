@@ -34,6 +34,13 @@ func (store *Store) Import(ctx context.Context, input []byte) (_ webapp.ImportRe
 			_ = transaction.Rollback()
 		}
 	}()
+	settings, err := getApplicationSettings(ctx, transaction)
+	if err != nil {
+		return webapp.ImportResult{}, err
+	}
+	if !settings.FileUploadEnabled {
+		return webapp.ImportResult{}, webapp.ErrUploadDisabled
+	}
 	state, err := loadState(ctx, transaction)
 	if err != nil {
 		return webapp.ImportResult{}, err

@@ -16,6 +16,7 @@ var (
 	ErrInvalidRequest         = errors.New("invalid web request")
 	ErrInvalidRevision        = errors.New("invalid entry revision")
 	ErrReportingNotConfigured = errors.New("financial reporting is not configured")
+	ErrUploadDisabled         = errors.New("file upload is disabled")
 )
 
 type ReportingConfigurationErrorCode string
@@ -40,6 +41,7 @@ func (err *ReportingConfigurationError) Unwrap() error {
 
 type Repository interface {
 	Import(context.Context, []byte) (ImportResult, error)
+	GetApplicationSettings(context.Context) (ApplicationSettings, error)
 	GetRun(context.Context, string) (RunDetail, error)
 	ListEntries(context.Context, EntryQuery) (EntryPage, error)
 	GetEntry(context.Context, string) (EntryDetail, error)
@@ -55,6 +57,10 @@ type Repository interface {
 	GetIncomeStatement(context.Context, reporting.Period) (IncomeStatementDetail, error)
 	GetBalanceTrend(context.Context, reporting.Period) (BalanceTrendDetail, error)
 	GetCurrentOverview(context.Context, string, reporting.Period) (CurrentOverviewDetail, error)
+}
+
+type ApplicationSettings struct {
+	FileUploadEnabled bool
 }
 
 type ImportResult struct {

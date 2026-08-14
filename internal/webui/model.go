@@ -10,6 +10,7 @@ import (
 
 type indexPageModel struct {
 	Page          pageContext
+	UploadEnabled bool
 	Upload        uploadFormModel
 	TacklerUpload uploadFormModel
 	Search        searchFormModel

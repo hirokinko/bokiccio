@@ -238,12 +238,17 @@ func (handler *Handler) ServeHTTP(response http.ResponseWriter, request *http.Re
 }
 
 func (handler *Handler) index(response http.ResponseWriter, request *http.Request, requestLocale locale) {
+	settings, err := handler.repository.GetApplicationSettings(request.Context())
+	if err != nil {
+		handler.internalError(response, request, requestLocale, err)
+		return
+	}
 	page, err := handler.repository.ListEntries(request.Context(), webapp.EntryQuery{Limit: defaultPageSize})
 	if err != nil {
 		handler.internalError(response, request, requestLocale, err)
 		return
 	}
-	model := newIndexPageModel(requestLocale, webapp.EntryFilter{}, page, false)
+	model := newIndexPageModel(requestLocale, webapp.EntryFilter{}, page, false, settings.FileUploadEnabled)
 	render(response, request, http.StatusOK, indexPage(model))
 }
 
@@ -770,21 +775,34 @@ func (handler *Handler) searchEntries(response http.ResponseWriter, request *htt
 		handler.internalError(response, request, requestLocale)
 		return
 	}
-	model := newIndexPageModel(requestLocale, filter, page, true)
+	model := newIndexPageModel(requestLocale, filter, page, true, false)
 	if isHXRequest(request) {
 		render(response, request, http.StatusOK, entryResults(model))
 		return
 	}
+	settings, err := handler.repository.GetApplicationSettings(request.Context())
+	if err != nil {
+		handler.internalError(response, request, requestLocale, err)
+		return
+	}
+	model.UploadEnabled = settings.FileUploadEnabled
 	render(response, request, http.StatusOK, indexPage(model))
 }
 
 func (handler *Handler) importRecords(response http.ResponseWriter, request *http.Request, requestLocale locale) {
+	if !handler.uploadAllowed(response, request, requestLocale) {
+		return
+	}
 	body, uploadStatus, ok := decodeImportUpload(response, request)
 	if !ok {
 		handler.invalidUpload(response, request, requestLocale, uploadStatus)
 		return
 	}
 	result, err := handler.repository.Import(request.Context(), body)
+	if errors.Is(err, webapp.ErrUploadDisabled) {
+		handler.uploadDisabled(response, request, requestLocale)
+		return
+	}
 	if errors.Is(err, ingest.ErrInvalidInput) || errors.Is(err, webapp.ErrInvalidRequest) {
 		handler.invalidUpload(response, request, requestLocale, http.StatusBadRequest)
 		return
@@ -797,6 +815,9 @@ func (handler *Handler) importRecords(response http.ResponseWriter, request *htt
 }
 
 func (handler *Handler) importTackler(response http.ResponseWriter, request *http.Request, requestLocale locale) {
+	if !handler.uploadAllowed(response, request, requestLocale) {
+		return
+	}
 	body, uploadStatus, ok := decodeImportUpload(response, request)
 	if !ok {
 		handler.invalidUpload(response, request, requestLocale, uploadStatus)
@@ -813,6 +834,10 @@ func (handler *Handler) importTackler(response http.ResponseWriter, request *htt
 		return
 	}
 	result, err := handler.repository.Import(request.Context(), input)
+	if errors.Is(err, webapp.ErrUploadDisabled) {
+		handler.uploadDisabled(response, request, requestLocale)
+		return
+	}
 	if errors.Is(err, ingest.ErrInvalidInput) || errors.Is(err, webapp.ErrInvalidRequest) {
 		handler.invalidUpload(response, request, requestLocale, http.StatusBadRequest)
 		return
@@ -1133,9 +1158,31 @@ func (handler *Handler) uploadFailed(response http.ResponseWriter, request *http
 	}))
 }
 
-func newIndexPageModel(requestLocale locale, filter webapp.EntryFilter, page webapp.EntryPage, searchApplied bool) indexPageModel {
+func (handler *Handler) uploadAllowed(response http.ResponseWriter, request *http.Request, requestLocale locale) bool {
+	settings, err := handler.repository.GetApplicationSettings(request.Context())
+	if err != nil {
+		handler.internalError(response, request, requestLocale, err)
+		return false
+	}
+	if settings.FileUploadEnabled {
+		return true
+	}
+	handler.uploadDisabled(response, request, requestLocale)
+	return false
+}
+
+func (handler *Handler) uploadDisabled(response http.ResponseWriter, request *http.Request, requestLocale locale) {
+	msg := messagesFor(requestLocale)
+	render(response, request, http.StatusForbidden, errorPage(errorPageModel{
+		Page: newPageContext(requestLocale, "/"), Status: http.StatusForbidden,
+		Title: msg.UploadDisabledTitle, Message: msg.UploadDisabledMessage,
+	}))
+}
+
+func newIndexPageModel(requestLocale locale, filter webapp.EntryFilter, page webapp.EntryPage, searchApplied, uploadEnabled bool) indexPageModel {
 	model := indexPageModel{
 		Page:          newPageContext(requestLocale, "/"),
+		UploadEnabled: uploadEnabled,
 		Upload:        uploadFormModel{Action: importHref(requestLocale)},
 		TacklerUpload: uploadFormModel{Action: tacklerImportHref(requestLocale)},
 		Search:        searchFormModel{Action: searchHref(requestLocale), ResetHref: localizedPath(requestLocale, "/"), Filter: filter},

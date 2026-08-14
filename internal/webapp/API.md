@@ -84,6 +84,10 @@ and `entries: []`, respectively.
 
 Errors contain only a stable code and safe message. Request bodies, accounting
 values, SQL details, paths, and credentials are not reflected in error bodies.
+When the operator-managed file upload setting is disabled, `POST
+/api/v1/imports` returns `403 Forbidden` with code `upload_disabled` before
+parsing the upload and does not create an import run. Existing read, review,
+approval, export, and reporting routes remain available.
 `reporting_not_configured` indicates that only reporting setup is missing;
 existing import, review, approval, and export routes remain available.
 `opening_balance_unbalanced` indicates that automatic carry-forward did not
@@ -96,7 +100,7 @@ sheet remains unbalanced after applying `current_earnings`; both errors use
 
 ## Storage
 
-`webstore` uses `database/sql` and schema version `4`. A single import commits
+`webstore` uses `database/sql` and schema version `5`. A single import commits
 the run, outcomes, diagnostics, entries, postings, accepted identities, and
 workflow generation in one transaction. Decimal text and scale, date versus
 timestamp precision, comment order, and posting omission are preserved.
@@ -112,6 +116,10 @@ classifications, fiscal-year date ranges, opening-balance modes, and retained
 opening-entry references. Trial balances read the latest configuration and all
 currently approved entry snapshots in one database transaction. Decimal values
 remain canonical strings and commodities are never implicitly converted.
+Schema v5 adds the typed singleton `application_settings` row. Its checked
+`file_upload_enabled` value defaults to enabled during migration and is read
+inside every import transaction; a missing, invalid, or unreadable setting is
+an error rather than an enabled fallback.
 Opening and period-end balance sheets, monthly income statements, and balance
 trends use the same transactional reporting snapshot and do not add stored
 report tables.
@@ -157,6 +165,11 @@ Both commands read the Turso token from the environment and do not print it.
 HTTP routes. They use a checksummed logical JSON envelope. Restore requires an
 already-migrated empty database and never merges or replaces existing data.
 See [logical backup format v1](../webstore/BACKUP.md).
+
+`bokiccio settings set --file-upload-enabled=<true|false>` is the only write
+interface for the upload capability. It uses the existing Turso environment
+variables, updates the singleton in a transaction, and prints only the new
+boolean value. No Web UI or JSON API setting-write route is provided.
 
 The optional remote integration test writes an anonymous balanced entry to a
 dedicated test database when both `BOKICCIO_TEST_TURSO_DATABASE_URL` and

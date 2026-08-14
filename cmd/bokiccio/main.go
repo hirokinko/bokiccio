@@ -40,6 +40,8 @@ func run(args []string, stderr io.Writer) int {
 		return runBackup(args[1:], stderr)
 	case "restore":
 		return runRestore(args[1:], stderr)
+	case "settings":
+		return runSettings(args[1:], stderr)
 	case "serve":
 		return runServe(args[1:], stderr)
 	default:
@@ -117,6 +119,7 @@ func printUsage(destination io.Writer) {
 	fmt.Fprintln(destination, "  migrate  apply database migrations to Turso")
 	fmt.Fprintln(destination, "  backup   write a logical backup of Turso application data")
 	fmt.Fprintln(destination, "  restore  restore a logical backup into an empty Turso database")
+	fmt.Fprintln(destination, "  settings change operator-managed application settings")
 	fmt.Fprintln(destination, "  serve    serve the IAP-protected Web API")
 }
 

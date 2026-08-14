@@ -343,6 +343,47 @@ func TestUIImportUploadRedirectsToRunPage(t *testing.T) {
 	}
 }
 
+func TestUIHidesAndRejectsImportsWhenUploadIsDisabled(t *testing.T) {
+	database := openUIDatabase(t)
+	store := webstore.New(database)
+	result, err := store.Import(context.Background(), []byte(`{"schema_version":1,"records":[{"source":{"namespace":"demo","display":"sample.json","external_id":"existing"},"occurred_at":"2026-08-14","description":"Existing demo entry","postings":[{"account":"資産:現金","amount":"1","commodity":"JPY"},{"account":"純資産:開始残高","amount":"-1","commodity":"JPY"}]}]}`))
+	if err != nil {
+		t.Fatalf("Import(existing) error=%v", err)
+	}
+	if err := store.SetFileUploadEnabled(context.Background(), false); err != nil {
+		t.Fatalf("SetFileUploadEnabled(false) error=%v", err)
+	}
+	handler := webui.NewHandler(store)
+	for _, path := range []string{"/", "/en/"} {
+		response := serve(handler, http.MethodGet, path)
+		assertHTMLResponse(t, response, http.StatusOK)
+		if strings.Contains(response.Body.String(), `/ui/imports`) || strings.Contains(response.Body.String(), `type="file"`) {
+			t.Fatalf("GET %s exposes upload forms: %s", path, response.Body.String())
+		}
+		if !strings.Contains(response.Body.String(), "Existing demo entry") {
+			t.Fatalf("GET %s does not show existing data: %s", path, response.Body.String())
+		}
+	}
+	for _, test := range []struct {
+		path, message string
+	}{
+		{path: "/ui/imports", message: "現在、この環境ではファイルの取込は無効です。"},
+		{path: "/ui/imports/tackler", message: "現在、この環境ではファイルの取込は無効です。"},
+		{path: "/en/ui/imports", message: "File imports are currently disabled in this environment."},
+		{path: "/en/ui/imports/tackler", message: "File imports are currently disabled in this environment."},
+	} {
+		response := serveRawForm(handler, test.path, "text/plain", "invalid private upload", nil)
+		assertHTMLResponse(t, response, http.StatusForbidden)
+		if !strings.Contains(response.Body.String(), test.message) || strings.Contains(response.Body.String(), "invalid private upload") {
+			t.Fatalf("POST %s body=%s", test.path, response.Body.String())
+		}
+	}
+	var runs int
+	if err := database.QueryRow(`SELECT count(*) FROM import_runs`).Scan(&runs); err != nil || runs != 1 {
+		t.Fatalf("import_runs=%d error=%v, want 1 (%s)", runs, err, result.RunIdentity)
+	}
+}
+
 func TestUITacklerImportUploadRedirectsToRunPage(t *testing.T) {
 	database := openUIDatabase(t)
 	store := webstore.New(database)

@@ -184,6 +184,26 @@ func TestBackupRestoreReportingConfiguration(t *testing.T) {
 	}
 }
 
+func TestBackupRestoreApplicationSettings(t *testing.T) {
+	ctx := context.Background()
+	source := New(openBackupTestDatabase(t))
+	if err := source.SetFileUploadEnabled(ctx, false); err != nil {
+		t.Fatalf("SetFileUploadEnabled(false) error=%v", err)
+	}
+	backup, err := source.Backup(ctx)
+	if err != nil {
+		t.Fatalf("Backup() error=%v", err)
+	}
+	target := New(openBackupTestDatabase(t))
+	if err := target.Restore(ctx, backup); err != nil {
+		t.Fatalf("Restore() error=%v", err)
+	}
+	settings, err := target.GetApplicationSettings(ctx)
+	if err != nil || settings.FileUploadEnabled {
+		t.Fatalf("restored settings=%+v error=%v", settings, err)
+	}
+}
+
 func TestRestoreAcceptsLegacyBackups(t *testing.T) {
 	ctx := context.Background()
 	source := New(openBackupTestDatabase(t))
@@ -195,7 +215,7 @@ func TestRestoreAcceptsLegacyBackups(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Backup() error = %v", err)
 	}
-	for _, schemaVersion := range []int{2, 3} {
+	for _, schemaVersion := range []int{2, 3, 4} {
 		t.Run(fmt.Sprintf("schema-v%d", schemaVersion), func(t *testing.T) {
 			target := New(openBackupTestDatabase(t))
 			if err := target.Restore(ctx, legacyBackup(t, backup, schemaVersion)); err != nil {
@@ -203,6 +223,10 @@ func TestRestoreAcceptsLegacyBackups(t *testing.T) {
 			}
 			if _, err := target.GetCurrentReportingConfiguration(ctx); !errors.Is(err, webapp.ErrReportingNotConfigured) {
 				t.Fatalf("GetCurrentReportingConfiguration() error = %v", err)
+			}
+			settings, err := target.GetApplicationSettings(ctx)
+			if err != nil || !settings.FileUploadEnabled {
+				t.Fatalf("GetApplicationSettings() settings=%+v error=%v", settings, err)
 			}
 		})
 	}
@@ -377,14 +401,20 @@ func legacyBackup(t *testing.T, current []byte, schemaVersion int) []byte {
 		t.Fatalf("Unmarshal() error = %v", err)
 	}
 	envelope.SchemaVersion = schemaVersion
-	envelope.Payload.ReportingConfigurations = nil
-	envelope.Payload.ReportingClassifications = nil
-	envelope.Payload.ReportingFiscalYears = nil
-	envelope.Payload.ReportingOpeningEntries = nil
-	delete(envelope.RowCounts, "reporting_configurations")
-	delete(envelope.RowCounts, "reporting_classifications")
-	delete(envelope.RowCounts, "reporting_fiscal_years")
-	delete(envelope.RowCounts, "reporting_opening_entries")
+	if schemaVersion < 4 {
+		envelope.Payload.ReportingConfigurations = nil
+		envelope.Payload.ReportingClassifications = nil
+		envelope.Payload.ReportingFiscalYears = nil
+		envelope.Payload.ReportingOpeningEntries = nil
+	}
+	envelope.Payload.ApplicationSettings = nil
+	if schemaVersion < 4 {
+		delete(envelope.RowCounts, "reporting_configurations")
+		delete(envelope.RowCounts, "reporting_classifications")
+		delete(envelope.RowCounts, "reporting_fiscal_years")
+		delete(envelope.RowCounts, "reporting_opening_entries")
+	}
+	delete(envelope.RowCounts, "application_settings")
 	payloadBytes, err := marshalBackupPayload(envelope.Payload, schemaVersion)
 	if err != nil {
 		t.Fatalf("Marshal(payload) error = %v", err)

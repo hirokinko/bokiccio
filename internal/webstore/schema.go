@@ -7,7 +7,7 @@ import (
 	"fmt"
 )
 
-const SchemaVersion = 4
+const SchemaVersion = 5
 
 var ErrUnsupportedSchema = errors.New("unsupported web storage schema")
 
@@ -204,6 +204,14 @@ var migrationV4 = []string{
 )`,
 }
 
+var migrationV5 = []string{
+	`CREATE TABLE application_settings (
+    singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+    file_upload_enabled INTEGER NOT NULL CHECK (file_upload_enabled IN (0, 1))
+)`,
+	`INSERT INTO application_settings (singleton, file_upload_enabled) VALUES (1, 1)`,
+}
+
 func Migrate(ctx context.Context, database *sql.DB) (resultErr error) {
 	transaction, err := database.BeginTx(ctx, nil)
 	if err != nil {
@@ -271,6 +279,17 @@ func Migrate(ctx context.Context, database *sql.DB) (resultErr error) {
 		}
 		if _, err := transaction.ExecContext(ctx, `UPDATE schema_metadata SET version = 4 WHERE singleton = 1 AND version = 3`); err != nil {
 			return fmt.Errorf("commit schema version 4: %w", err)
+		}
+		version = 4
+	}
+	if version == 4 {
+		for index, statement := range migrationV5 {
+			if _, err := transaction.ExecContext(ctx, statement); err != nil {
+				return fmt.Errorf("apply schema v5 statement %d: %w", index+1, err)
+			}
+		}
+		if _, err := transaction.ExecContext(ctx, `UPDATE schema_metadata SET version = 5 WHERE singleton = 1 AND version = 4`); err != nil {
+			return fmt.Errorf("commit schema version 5: %w", err)
 		}
 	}
 	if err := transaction.Commit(); err != nil {

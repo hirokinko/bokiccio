@@ -58,6 +58,8 @@ type messages struct {
 	UnsupportedUploadMessage                   string
 	UploadFailedTitle                          string
 	UploadFailedMessage                        string
+	UploadDisabledTitle                        string
+	UploadDisabledMessage                      string
 	InvalidSearchTitle                         string
 	InvalidSearchMessage                       string
 	ImportStatusLabel                          string
@@ -329,6 +331,8 @@ func japaneseMessages() messages {
 		UnsupportedUploadMessage:                   "multipart/form-dataでJSON fileを1つ送信してください。",
 		UploadFailedTitle:                          "Upload failed",
 		UploadFailedMessage:                        "取込を完了できませんでした。",
+		UploadDisabledTitle:                        "Upload disabled",
+		UploadDisabledMessage:                      "現在、この環境ではファイルの取込は無効です。",
 		InvalidSearchTitle:                         "Invalid search",
 		InvalidSearchMessage:                       "検索条件を処理できませんでした。",
 		ImportStatusLabel:                          "取込",
@@ -611,6 +615,8 @@ func englishMessages() messages {
 		UnsupportedUploadMessage:                   "Send one JSON file as multipart/form-data.",
 		UploadFailedTitle:                          "Upload failed",
 		UploadFailedMessage:                        "The import could not be completed.",
+		UploadDisabledTitle:                        "Upload disabled",
+		UploadDisabledMessage:                      "File imports are currently disabled in this environment.",
 		InvalidSearchTitle:                         "Invalid search",
 		InvalidSearchMessage:                       "The search filters could not be processed.",
 		ImportStatusLabel:                          "Import",

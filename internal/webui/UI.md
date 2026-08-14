@@ -118,6 +118,11 @@ WARNINGを付ける。初期表示は最後の設定済み会計年度を選び�
 
 normalized input uploadは`multipart/form-data`のPOST bodyで送信します。file fieldは`file`、file contentは最大10 MiB、request全体にも小さなoverhead上限を設けます。filenameとclient側Content-Typeはsource、identity、format判定には使わず、保存、log、HTML responseへの反映もしません。record単位のerrorを含んだ取込runも保存できた場合は成功uploadとして扱い、`303 See Other`で`/imports/{run-identity}`または`/en/imports/{run-identity}`へredirectします。
 
+databaseのoperator管理設定でfile uploadが無効な場合、日本語・英語indexはnormalized JSONとTackler `.txn`の
+両formをrenderしない。両UI upload routeへの直接POSTはlocale別の安全なmessageを持つ`403 Forbidden`を返し、
+request bodyを解析せず、新しいimport runを作らない。既存runの閲覧、検索、revision、approval、export、reportは維持する。
+設定の変更routeはWeb UIに設けない。設定を読めない場合はenabledへfallbackせず、通常のprivate-safeな`500`として扱う。
+
 Tackler `.txn` uploadはnormalized input uploadとは別form/routeで扱う。対応subsetは`internal/tacklerfmt/COMPATIBILITY.md`に従い、parse後のentryをnormalized input v2へ変換して既存import経路へ渡す。sourceはprivate filenameではなく`tackler: uploaded.txn`として記録する。
 parseやdomain validationに失敗した場合は、line numberまたはentry numberと原因をHTML errorとserver logへ出す。原因にはparser/domain validationが返すoffending valueを含む場合がある。filename、SQL error、request body全体は表示しない。
 

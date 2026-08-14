@@ -89,6 +89,10 @@ func insertBackupPayload(ctx context.Context, transaction *sql.Tx, payload backu
 		payload.WorkflowState[0].Generation); err != nil {
 		return restoreInsertError("workflow_state", err)
 	}
+	if _, err := transaction.ExecContext(ctx, `UPDATE application_settings SET file_upload_enabled = ? WHERE singleton = 1`,
+		payload.ApplicationSettings[0].FileUploadEnabled); err != nil {
+		return restoreInsertError("application_settings", err)
+	}
 	for _, row := range payload.CommittedIdentities {
 		if _, err := transaction.ExecContext(ctx, `INSERT INTO committed_identities (kind, algorithm_version, digest) VALUES (?, ?, ?)`, row.Kind, row.AlgorithmVersion, row.Digest); err != nil {
 			return restoreInsertError("committed_identities", err)
@@ -223,7 +227,7 @@ func restoreSequences(ctx context.Context, transaction *sql.Tx, sequences []sequ
 }
 
 func verifyRestoredCounts(ctx context.Context, transaction *sql.Tx, want map[string]int) error {
-	for _, table := range []string{"workflow_state", "committed_identities", "import_runs", "outcomes", "diagnostics", "entries", "entry_comments", "postings", "entry_revisions", "revision_comments", "revision_postings", "revision_diagnostics", "entry_approvals", "reporting_configurations", "reporting_classifications", "reporting_fiscal_years", "reporting_opening_entries"} {
+	for _, table := range []string{"workflow_state", "application_settings", "committed_identities", "import_runs", "outcomes", "diagnostics", "entries", "entry_comments", "postings", "entry_revisions", "revision_comments", "revision_postings", "revision_diagnostics", "entry_approvals", "reporting_configurations", "reporting_classifications", "reporting_fiscal_years", "reporting_opening_entries"} {
 		var count int
 		if err := transaction.QueryRowContext(ctx, `SELECT count(*) FROM `+table).Scan(&count); err != nil {
 			return fmt.Errorf("count restored table %s: %w", table, err)
@@ -243,6 +247,9 @@ func verifyRestoredCounts(ctx context.Context, transaction *sql.Tx, want map[str
 }
 
 func validateDatabaseContents(ctx context.Context, source rowQueryer) error {
+	if _, err := getApplicationSettings(ctx, source); err != nil {
+		return err
+	}
 	if transaction, ok := source.(*sql.Tx); ok {
 		if _, err := loadState(ctx, transaction); err != nil {
 			return err
