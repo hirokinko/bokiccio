@@ -120,7 +120,7 @@ func TestTrialBalanceUsesOnlyCurrentApprovedSnapshots(t *testing.T) {
 		len(balanceTrend.Points[0].Commodities) != 1 {
 		t.Fatalf("GetBalanceTrend() = %+v, error = %v", balanceTrend, err)
 	}
-	current, err := store.GetCurrentOverview(ctx, "2025-04-10")
+	current, err := store.GetCurrentOverview(ctx, "2025-04-10", reporting.Period{StartDate: "2025-04-01", EndDate: "2025-04-30"})
 	if err != nil || current.SchemaVersion != webapp.APISchemaVersion || current.AsOf != "2025-04-10" ||
 		len(current.Balances) != 1 || len(current.Expenses) != 1 {
 		t.Fatalf("GetCurrentOverview() = %+v, error = %v", current, err)
@@ -151,7 +151,7 @@ func TestTrialBalanceRequiresReportingConfiguration(t *testing.T) {
 	if _, err := store.GetBalanceTrend(ctx, period); !errors.Is(err, webapp.ErrReportingNotConfigured) {
 		t.Fatalf("GetBalanceTrend() error = %v, want ErrReportingNotConfigured", err)
 	}
-	if _, err := store.GetCurrentOverview(ctx, "2025-04-01"); !errors.Is(err, webapp.ErrReportingNotConfigured) {
+	if _, err := store.GetCurrentOverview(ctx, "2025-04-01", period); !errors.Is(err, webapp.ErrReportingNotConfigured) {
 		t.Fatalf("GetCurrentOverview() error = %v, want ErrReportingNotConfigured", err)
 	}
 }

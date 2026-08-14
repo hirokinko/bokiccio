@@ -8,7 +8,7 @@ import (
 	"github.com/hirokinko/bokiccio/internal/webapp"
 )
 
-func (store *Store) GetCurrentOverview(ctx context.Context, asOf string) (_ webapp.CurrentOverviewDetail, resultErr error) {
+func (store *Store) GetCurrentOverview(ctx context.Context, asOf string, expensePeriod reporting.Period) (_ webapp.CurrentOverviewDetail, resultErr error) {
 	transaction, configuration, entries, err := store.reportingSnapshot(ctx, "current overview")
 	if err != nil {
 		return webapp.CurrentOverviewDetail{}, err
@@ -18,7 +18,7 @@ func (store *Store) GetCurrentOverview(ctx context.Context, asOf string) (_ weba
 			_ = transaction.Rollback()
 		}
 	}()
-	report, err := reporting.BuildCurrentOverview(configuration, entries, asOf)
+	report, err := reporting.BuildCurrentOverview(configuration, entries, asOf, expensePeriod)
 	if err != nil {
 		return webapp.CurrentOverviewDetail{}, err
 	}

@@ -74,7 +74,7 @@ type CurrentOverview struct {
 	Expenses               []StatementCommoditySection `json:"expenses"`
 }
 
-func BuildCurrentOverview(configuration Configuration, entries []Entry, asOf string) (CurrentOverview, error) {
+func BuildCurrentOverview(configuration Configuration, entries []Entry, asOf string, expensePeriod Period) (CurrentOverview, error) {
 	if err := ValidateConfiguration(configuration); err != nil {
 		return CurrentOverview{}, err
 	}
@@ -113,21 +113,12 @@ func BuildCurrentOverview(configuration Configuration, entries []Entry, asOf str
 	if err != nil {
 		return CurrentOverview{}, err
 	}
-	periods, err := FiscalPeriods(year, configuration.StartMonth)
-	if err != nil {
-		return CurrentOverview{}, err
-	}
-	expenseStart := ""
-	for _, period := range periods[1:] {
-		if asOf >= period.StartDate && asOf <= period.EndDate {
-			expenseStart = period.StartDate
-			break
-		}
-	}
-	if expenseStart == "" {
+	expenseFiscalPeriod, expenseYearIndex, err := selectPeriod(configuration.StartMonth, years, expensePeriod)
+	if err != nil || expenseFiscalPeriod.Month == 0 {
 		return CurrentOverview{}, ErrInvalidPeriod
 	}
-	movement, err := collectMovements(entries, expenseStart, asOf, year.OpeningEntryIDs, classifier)
+	movement, err := collectMovements(entries, expensePeriod.StartDate, expensePeriod.EndDate,
+		years[expenseYearIndex].OpeningEntryIDs, classifier)
 	if err != nil {
 		return CurrentOverview{}, err
 	}
@@ -142,7 +133,7 @@ func BuildCurrentOverview(configuration Configuration, entries []Entry, asOf str
 		ConfigurationRevision:  configuration.Revision,
 		AsOf:                   asOf,
 		FiscalYear:             Period{StartDate: year.StartDate, EndDate: year.EndDate},
-		ExpensePeriod:          Period{StartDate: expenseStart, EndDate: asOf},
+		ExpensePeriod:          expensePeriod,
 		ClassificationComplete: balanceComplete && expenseComplete,
 		Warnings:               warnings,
 		Balances:               balances,

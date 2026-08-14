@@ -156,7 +156,7 @@ func TestTrialBalanceAPIEmptyAndMultipleCommodities(t *testing.T) {
 	}
 
 	currentResponse := request(t, handler, http.MethodGet,
-		"/api/v1/reports/current-overview?as_of=2025-04-15", nil, "")
+		"/api/v1/reports/current-overview?as_of=2025-04-15&expense_start_date=2025-04-01&expense_end_date=2025-04-30", nil, "")
 	var current webapp.CurrentOverviewDetail
 	decodeJSON(t, currentResponse.Body.Bytes(), &current)
 	if currentResponse.Code != http.StatusOK || current.SchemaVersion != webapp.APISchemaVersion || current.AsOf != "2025-04-15" ||
@@ -179,13 +179,16 @@ func TestTrialBalanceAPIEmptyAndMultipleCommodities(t *testing.T) {
 		"/api/v1/reports/balance-trend?start_date=2025-04-01&end_date=2026-03-31", []byte(`{}`), "application/json"),
 		http.StatusMethodNotAllowed, "method_not_allowed")
 	assertProblem(t, request(t, handler, http.MethodGet,
-		"/api/v1/reports/current-overview?as_of=2025-04-15&extra=private", nil, ""),
+		"/api/v1/reports/current-overview?as_of=2025-04-15&expense_start_date=2025-04-01&expense_end_date=2025-04-30&extra=private", nil, ""),
 		http.StatusBadRequest, "invalid_period")
 	assertProblem(t, request(t, handler, http.MethodGet,
-		"/api/v1/reports/current-overview?as_of=2026-04-01", nil, ""),
+		"/api/v1/reports/current-overview?as_of=2026-04-01&expense_start_date=2025-04-01&expense_end_date=2025-04-30", nil, ""),
+		http.StatusBadRequest, "invalid_period")
+	assertProblem(t, request(t, handler, http.MethodGet,
+		"/api/v1/reports/current-overview?as_of=2025-04-15&expense_start_date=2025-04-01&expense_end_date=2025-04-29", nil, ""),
 		http.StatusBadRequest, "invalid_period")
 	assertProblem(t, request(t, handler, http.MethodPost,
-		"/api/v1/reports/current-overview?as_of=2025-04-15", []byte(`{}`), "application/json"),
+		"/api/v1/reports/current-overview?as_of=2025-04-15&expense_start_date=2025-04-01&expense_end_date=2025-04-30", []byte(`{}`), "application/json"),
 		http.StatusMethodNotAllowed, "method_not_allowed")
 }
 
@@ -236,7 +239,7 @@ func TestFinancialReportAPIOpeningBalanceUnbalanced(t *testing.T) {
 		t.Fatalf("income statement after unbalanced opening status=%d body=%s", income.Code, income.Body.String())
 	}
 	current := request(t, handler, http.MethodGet,
-		"/api/v1/reports/current-overview?as_of=2025-04-01", nil, "")
+		"/api/v1/reports/current-overview?as_of=2025-04-01&expense_start_date=2024-05-01&expense_end_date=2024-05-31", nil, "")
 	if current.Code != http.StatusOK {
 		t.Fatalf("current overview after unbalanced opening status=%d body=%s", current.Code, current.Body.String())
 	}
@@ -248,6 +251,6 @@ func TestTrialBalanceAPINotConfigured(t *testing.T) {
 		"/api/v1/reports/trial-balance?start_date=2025-04-01&end_date=2025-04-30", nil, "")
 	assertProblem(t, response, http.StatusConflict, "reporting_not_configured")
 	current := request(t, handler, http.MethodGet,
-		"/api/v1/reports/current-overview?as_of=2025-04-01", nil, "")
+		"/api/v1/reports/current-overview?as_of=2025-04-01&expense_start_date=2025-04-01&expense_end_date=2025-04-30", nil, "")
 	assertProblem(t, current, http.StatusConflict, "reporting_not_configured")
 }

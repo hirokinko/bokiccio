@@ -24,18 +24,18 @@ func TestBuildCurrentOverviewSeparatesBalancesAndMonthToDateExpenses(t *testing.
 			{"費用:通信費", "20", "JPY", "", ""}, {"資産:支払予定", "-20", "JPY", "", ""},
 		}),
 	}
-	report, err := BuildCurrentOverview(configuration, entries, "2025-04-20")
+	report, err := BuildCurrentOverview(configuration, entries, "2025-04-20", Period{StartDate: "2025-04-01", EndDate: "2025-04-30"})
 	if err != nil {
 		t.Fatalf("BuildCurrentOverview() error = %v", err)
 	}
 	if report.AsOf != "2025-04-20" || report.FiscalYear != (Period{StartDate: "2025-04-01", EndDate: "2026-03-31"}) ||
-		report.ExpensePeriod != (Period{StartDate: "2025-04-01", EndDate: "2025-04-20"}) || !report.ClassificationComplete {
+		report.ExpensePeriod != (Period{StartDate: "2025-04-01", EndDate: "2025-04-30"}) || !report.ClassificationComplete {
 		t.Fatalf("current overview metadata = %+v", report)
 	}
 	cash := findStatementRow(t, report.Balances, "JPY", CategoryAsset, "資産:普通預金")
 	reserved := findStatementRow(t, report.Balances, "JPY", CategoryAsset, "資産:支払予定")
 	expense := findStatementRow(t, report.Expenses, "JPY", CategoryExpense, "費用:通信費")
-	if cash.Subtotal.Debit != "70" || reserved.Subtotal.Debit != "20" || expense.Subtotal.Debit != "10" {
+	if cash.Subtotal.Debit != "70" || reserved.Subtotal.Debit != "20" || expense.Subtotal.Debit != "30" {
 		t.Fatalf("current overview cash=%+v reserved=%+v expense=%+v", cash, reserved, expense)
 	}
 	if findStatementCategory(report.Balances, "JPY", CategoryExpense) != nil ||
@@ -55,7 +55,7 @@ func TestBuildCurrentOverviewKeepsOppositeExpenseAndUnclassifiedWarning(t *testi
 			{"確認:仮勘定", "2", "JPY", "", ""}, {"資産:現金", "-2", "JPY", "", ""},
 		}),
 	}
-	report, err := BuildCurrentOverview(configuration, entries, "2025-04-03")
+	report, err := BuildCurrentOverview(configuration, entries, "2025-04-03", Period{StartDate: "2025-04-01", EndDate: "2025-04-30"})
 	if err != nil {
 		t.Fatalf("BuildCurrentOverview() error = %v", err)
 	}
@@ -80,7 +80,7 @@ func TestBuildCurrentOverviewAllowsUnbalancedAutomaticOpening(t *testing.T) {
 			{"費用:食費", "20", "JPY", "", ""}, {"資産:現金", "-20", "JPY", "", ""},
 		}),
 	}
-	report, err := BuildCurrentOverview(configuration, entries, "2025-04-01")
+	report, err := BuildCurrentOverview(configuration, entries, "2025-04-01", Period{StartDate: "2024-05-01", EndDate: "2024-05-31"})
 	if err != nil {
 		t.Fatalf("BuildCurrentOverview() error = %v", err)
 	}
@@ -89,11 +89,17 @@ func TestBuildCurrentOverviewAllowsUnbalancedAutomaticOpening(t *testing.T) {
 	if cash.Subtotal.Debit != "80" || equity == nil || equity.Total.Credit != "100" {
 		t.Fatalf("unbalanced automatic current overview = %+v", report.Balances)
 	}
-	if _, err := BuildCurrentOverview(configuration, entries, "2026-04-01"); !errors.Is(err, ErrInvalidPeriod) {
+	if len(report.Expenses) != 1 {
+		t.Fatalf("independent prior-year expense period = %+v", report.Expenses)
+	}
+	if _, err := BuildCurrentOverview(configuration, entries, "2026-04-01", Period{StartDate: "2024-05-01", EndDate: "2024-05-31"}); !errors.Is(err, ErrInvalidPeriod) {
 		t.Fatalf("BuildCurrentOverview(outside configuration) error = %v, want ErrInvalidPeriod", err)
 	}
-	if _, err := BuildCurrentOverview(configuration, entries, "2025-4-1"); !errors.Is(err, ErrInvalidPeriod) {
+	if _, err := BuildCurrentOverview(configuration, entries, "2025-4-1", Period{StartDate: "2024-05-01", EndDate: "2024-05-31"}); !errors.Is(err, ErrInvalidPeriod) {
 		t.Fatalf("BuildCurrentOverview(invalid date) error = %v, want ErrInvalidPeriod", err)
+	}
+	if _, err := BuildCurrentOverview(configuration, entries, "2025-04-01", Period{StartDate: "2024-05-01", EndDate: "2024-05-30"}); !errors.Is(err, ErrInvalidPeriod) {
+		t.Fatalf("BuildCurrentOverview(partial expense month) error = %v, want ErrInvalidPeriod", err)
 	}
 }
 

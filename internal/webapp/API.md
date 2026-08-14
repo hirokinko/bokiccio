@@ -38,10 +38,12 @@ Cloud and an IAP-protected server command.
 - `GET /api/v1/reports/trial-balance?start_date=YYYY-MM-DD&end_date=YYYY-MM-DD`
   returns a commodity-separated trial balance for an exact configured fiscal
   year or monthly period. Arbitrary date ranges are rejected.
-- `GET /api/v1/reports/current-overview?as_of=YYYY-MM-DD` returns asset,
+- `GET /api/v1/reports/current-overview?as_of=YYYY-MM-DD&expense_start_date=YYYY-MM-DD&expense_end_date=YYYY-MM-DD` returns asset,
   liability, and equity balances at the requested configured date, separately
-  from month-to-date expense totals and account details. Entries after `as_of`
-  are excluded. This is an operational balance overview, not a balanced B/S.
+  from expense totals and account details for an independently selected exact
+  configured month. Entries after `as_of` are excluded from balances; the
+  selected expense month is not truncated by `as_of`. This is an operational
+  balance overview, not a balanced B/S.
 - `GET /api/v1/reports/balance-sheet?start_date=YYYY-MM-DD&end_date=YYYY-MM-DD`
   returns the opening balance sheet for an exact configured fiscal year. It
   uses that year's opening-entry or automatic-carry mode and excludes ordinary

@@ -161,11 +161,15 @@ func (handler *Handler) getTrialBalance(response http.ResponseWriter, request *h
 
 func (handler *Handler) getCurrentOverview(response http.ResponseWriter, request *http.Request) {
 	query := request.URL.Query()
-	if len(query) != 1 || len(query["as_of"]) != 1 || query.Get("as_of") == "" {
+	if len(query) != 3 || len(query["as_of"]) != 1 || len(query["expense_start_date"]) != 1 ||
+		len(query["expense_end_date"]) != 1 || query.Get("as_of") == "" || query.Get("expense_start_date") == "" ||
+		query.Get("expense_end_date") == "" {
 		writeError(response, http.StatusBadRequest, "invalid_period", "reporting period is invalid")
 		return
 	}
-	detail, err := handler.repository.GetCurrentOverview(request.Context(), query.Get("as_of"))
+	detail, err := handler.repository.GetCurrentOverview(request.Context(), query.Get("as_of"), reporting.Period{
+		StartDate: query.Get("expense_start_date"), EndDate: query.Get("expense_end_date"),
+	})
 	if err != nil {
 		handler.writeRepositoryError(response, err)
 		return

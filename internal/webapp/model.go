@@ -53,7 +53,7 @@ type Repository interface {
 	GetBalanceSheet(context.Context, reporting.Period) (BalanceSheetDetail, error)
 	GetIncomeStatement(context.Context, reporting.Period) (IncomeStatementDetail, error)
 	GetBalanceTrend(context.Context, reporting.Period) (BalanceTrendDetail, error)
-	GetCurrentOverview(context.Context, string) (CurrentOverviewDetail, error)
+	GetCurrentOverview(context.Context, string, reporting.Period) (CurrentOverviewDetail, error)
 }
 
 type ImportResult struct {
