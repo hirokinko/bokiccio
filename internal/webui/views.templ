@@ -233,6 +233,7 @@ templ reportNavigation(page pageContext) {
 		<a href={ currentOverviewHref(page.Locale) }>{ page.Messages.ReportNavigationCurrent }</a>
 		<a href={ trialBalanceHref(page.Locale) }>{ page.Messages.ReportNavigationTrialBalance }</a>
 		<a href={ balanceSheetHref(page.Locale) }>{ page.Messages.ReportNavigationBalanceSheet }</a>
+		<a href={ closingBalanceSheetHref(page.Locale) }>{ page.Messages.ReportNavigationClosingBalanceSheet }</a>
 		<a href={ incomeStatementHref(page.Locale) }>{ page.Messages.ReportNavigationIncomeStatement }</a>
 		<a href={ balanceTrendHref(page.Locale) }>{ page.Messages.ReportNavigationBalanceTrend }</a>
 	</nav>
@@ -446,6 +447,66 @@ templ balanceSheetPage(model balanceSheetPageModel) {
 			</main>
 		</body>
 	</html>
+}
+
+templ closingBalanceSheetPage(model closingBalanceSheetPageModel) {
+	<!DOCTYPE html>
+	<html lang={ model.Page.Locale.lang() }>
+		@documentHead(model.Page.Messages.ClosingBalanceSheetTitle)
+		<body>
+			@siteHeader(model.Page)
+			<main id="main-content" class="page detail-page statement-page">
+				@reportNavigation(model.Page)
+				<header class="page-heading"><div><p class="eyebrow">{ model.Page.Messages.ClosingBalanceSheetEyebrow }</p><h1>{ model.Page.Messages.ClosingBalanceSheetTitle }</h1></div></header>
+				<p>{ model.Page.Messages.ClosingBalanceSheetIntro }</p>
+				if !model.Configured {
+					<section class="empty-state"><p>{ model.Page.Messages.StatementNotConfigured }</p><a href={ model.SetupHref }>{ model.Page.Messages.StatementSetupLink }</a></section>
+				} else {
+					if model.FormError != "" {
+						<section class="form-error" role="alert"><h2>{ model.Page.Messages.FormErrorTitle }</h2><p>{ model.FormError }</p><a href={ model.SetupHref }>{ model.Page.Messages.StatementSetupLink }</a></section>
+					}
+					@statementPeriodForm(model.Page.Messages, model.FormAction, model.Periods, model.Selected, model.Page.Messages.StatementFiscalYearLabel)
+					if model.Report != nil {
+						<p>{ model.Page.Messages.StatementConfigurationRevision }: { model.Report.ConfigurationRevision } · { model.Page.Messages.ClosingBalanceSheetAsOf }: { model.Report.AsOf }</p>
+						@statementStatus(model.Page.Messages, model.SetupHref, model.Report.ClassificationComplete)
+						if len(model.Report.Commodities) == 0 {
+							<section class="empty-state"><p>{ model.Page.Messages.StatementEmpty }</p></section>
+						} else {
+							for _, commodity := range model.Report.Commodities {
+								@closingBalanceSheetCommodity(model.Page.Messages, commodity)
+							}
+						}
+					}
+				}
+			</main>
+		</body>
+	</html>
+}
+
+templ closingBalanceSheetCommodity(msg messages, commodity reporting.ClosingBalanceSheetCommodity) {
+	<section class="commodity-section statement-commodity closing-balance-sheet-commodity">
+		<h2>{ msg.StatementCommodity }: { commodity.Commodity }</h2>
+		<div class="current-summary-grid closing-summary-grid">
+			for _, group := range currentBalanceSummaryGroups(closingBalanceSheetStatementCommodity(commodity)) {
+				<article class="current-summary-card">
+					<h3>{ reportingCategoryLabel(msg, group.Category) }</h3>
+					<strong>{ statementAmount(group.Category, group.Total) }</strong>
+					<span>{ msg.StatementActualSide }: { statementActualSide(msg, group.Total) }</span>
+				</article>
+			}
+			<article class="current-summary-card closing-adjustment-card">
+				<h3>{ msg.ClosingBalanceSheetCurrentEarnings }</h3>
+				<strong>{ statementAmount(reporting.CategoryEquity, commodity.CurrentEarnings) }</strong>
+				<span>{ msg.StatementActualSide }: { statementActualSide(msg, commodity.CurrentEarnings) }</span>
+			</article>
+			<article class="current-summary-card closing-total-card">
+				<h3>{ msg.ClosingBalanceSheetBalanceDifference }</h3>
+				<strong>{ statementAmount(reporting.CategoryAsset, commodity.Total) }</strong>
+				<span>{ msg.StatementActualSide }: { statementActualSide(msg, commodity.Total) }</span>
+			</article>
+		</div>
+		@statementTable(msg, closingBalanceSheetStatementCommodity(commodity), "")
+	</section>
 }
 
 templ incomeStatementPage(model incomeStatementPageModel) {

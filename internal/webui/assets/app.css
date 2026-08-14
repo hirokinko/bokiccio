@@ -489,6 +489,7 @@ td {
 	background: #f4f2ec;
 	font-variant-numeric: tabular-nums;
 }
+.current-summary-card h3,
 .current-summary-card h4 {
 	margin: 0;
 }
@@ -504,6 +505,14 @@ td {
 	margin-bottom: 1rem;
 	border-color: #99b8a6;
 	background: #eef6f1;
+}
+.closing-adjustment-card {
+	border-color: #99b8a6;
+	background: #eef6f1;
+}
+.closing-total-card {
+	border-color: #c7b889;
+	background: #fff9e8;
 }
 .balance-trend-grid {
 	display: grid;

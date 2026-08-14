@@ -90,6 +90,14 @@ func balanceSheetMutationHref(l locale) string {
 	return localizedPath(l, "/ui/reports/balance-sheet")
 }
 
+func closingBalanceSheetHref(l locale) string {
+	return localizedPath(l, "/reports/closing-balance-sheet")
+}
+
+func closingBalanceSheetMutationHref(l locale) string {
+	return localizedPath(l, "/ui/reports/closing-balance-sheet")
+}
+
 func incomeStatementHref(l locale) string {
 	return localizedPath(l, "/reports/income-statement")
 }

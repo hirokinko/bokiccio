@@ -188,6 +188,7 @@ type messages struct {
 	ReportNavigationCurrent                    string
 	ReportNavigationTrialBalance               string
 	ReportNavigationBalanceSheet               string
+	ReportNavigationClosingBalanceSheet        string
 	ReportNavigationIncomeStatement            string
 	ReportNavigationBalanceTrend               string
 	StatementNotConfigured                     string
@@ -197,6 +198,7 @@ type messages struct {
 	StatementShow                              string
 	StatementInvalidPeriodMessage              string
 	StatementOpeningUnbalancedMessage          string
+	StatementClosingUnbalancedMessage          string
 	StatementClassificationWarning             string
 	StatementConfigurationRevision             string
 	StatementCommodity                         string
@@ -210,6 +212,13 @@ type messages struct {
 	BalanceSheetTitle                          string
 	BalanceSheetEyebrow                        string
 	BalanceSheetAsOf                           string
+	ClosingBalanceSheetTitle                   string
+	ClosingBalanceSheetEyebrow                 string
+	ClosingBalanceSheetIntro                   string
+	ClosingBalanceSheetAsOf                    string
+	ClosingBalanceSheetCurrentEarnings         string
+	ClosingBalanceSheetBalanceDifference       string
+	ClosingBalanceSheetOpeningUnbalanced       string
 	IncomeStatementTitle                       string
 	IncomeStatementEyebrow                     string
 	IncomeStatementNetIncome                   string
@@ -450,6 +459,7 @@ func japaneseMessages() messages {
 		ReportNavigationCurrent:                    "現在残高・月間費用",
 		ReportNavigationTrialBalance:               "検証用試算表",
 		ReportNavigationBalanceSheet:               "期首B/S",
+		ReportNavigationClosingBalanceSheet:        "期末B/S",
 		ReportNavigationIncomeStatement:            "月次P/L",
 		ReportNavigationBalanceTrend:               "残高推移",
 		StatementNotConfigured:                     "レポートを表示するには、先にレポート設定を保存してください。",
@@ -459,6 +469,7 @@ func japaneseMessages() messages {
 		StatementShow:                              "レポートを表示",
 		StatementInvalidPeriodMessage:              "設定された対象期間を選択してください。",
 		StatementOpeningUnbalancedMessage:          "自動繰越で作成した期首残高の貸借が一致しません。レポート設定と前年度の残高を確認してください。",
+		StatementClosingUnbalancedMessage:          "当期損益の表示補正後も期末残高の貸借が一致しません。レポート設定と仕訳を確認してください。",
 		StatementClassificationWarning:             "未分類の勘定科目があります。金額には含まれていますが、分類設定を確認してください。",
 		StatementConfigurationRevision:             "Configuration revision",
 		StatementCommodity:                         "Commodity",
@@ -472,6 +483,13 @@ func japaneseMessages() messages {
 		BalanceSheetTitle:                          "期首貸借対照表",
 		BalanceSheetEyebrow:                        "Opening balance sheet",
 		BalanceSheetAsOf:                           "期首日",
+		ClosingBalanceSheetTitle:                   "期末貸借対照表",
+		ClosingBalanceSheetEyebrow:                 "Period-end balance sheet",
+		ClosingBalanceSheetIntro:                   "選択した会計年度の期末日時点を、現在承認済みの仕訳から再集計します。保存済み・締め済みの値ではありません。当期損益は仕訳や勘定科目を作らず、純資産側への表示補正として示します。",
+		ClosingBalanceSheetAsOf:                    "期末日",
+		ClosingBalanceSheetCurrentEarnings:         "当期損益（表示補正）",
+		ClosingBalanceSheetBalanceDifference:       "貸借差額",
+		ClosingBalanceSheetOpeningUnbalanced:       "期首残高の貸借が一致しません。レポート設定と期首残高を確認してください。",
 		IncomeStatementTitle:                       "月次損益計算書",
 		IncomeStatementEyebrow:                     "Monthly income statement",
 		IncomeStatementNetIncome:                   "当月損益",
@@ -723,6 +741,7 @@ func englishMessages() messages {
 		ReportNavigationCurrent:                    "Current balance & expenses",
 		ReportNavigationTrialBalance:               "Verification trial balance",
 		ReportNavigationBalanceSheet:               "Opening B/S",
+		ReportNavigationClosingBalanceSheet:        "Period-end B/S",
 		ReportNavigationIncomeStatement:            "Monthly P/L",
 		ReportNavigationBalanceTrend:               "Balance trend",
 		StatementNotConfigured:                     "Save reporting settings before viewing a report.",
@@ -732,6 +751,7 @@ func englishMessages() messages {
 		StatementShow:                              "Show report",
 		StatementInvalidPeriodMessage:              "Select a configured reporting period.",
 		StatementOpeningUnbalancedMessage:          "The opening balance created by automatic carry-forward is not balanced. Review the reporting settings and the prior-year balances.",
+		StatementClosingUnbalancedMessage:          "The period-end balance remains unbalanced after the current-earnings presentation adjustment. Review the reporting settings and entries.",
 		StatementClassificationWarning:             "Some accounts are unclassified. Their amounts are included; review the classification settings.",
 		StatementConfigurationRevision:             "Configuration revision",
 		StatementCommodity:                         "Commodity",
@@ -745,6 +765,13 @@ func englishMessages() messages {
 		BalanceSheetTitle:                          "Opening balance sheet",
 		BalanceSheetEyebrow:                        "Opening balance sheet",
 		BalanceSheetAsOf:                           "Opening date",
+		ClosingBalanceSheetTitle:                   "Period-end balance sheet",
+		ClosingBalanceSheetEyebrow:                 "Period-end balance sheet",
+		ClosingBalanceSheetIntro:                   "Recalculates the selected fiscal year end from the currently approved entries. This is not a saved or closed snapshot. Current earnings are shown as a presentation adjustment to equity without creating an entry or account.",
+		ClosingBalanceSheetAsOf:                    "Fiscal year end",
+		ClosingBalanceSheetCurrentEarnings:         "Current earnings (presentation adjustment)",
+		ClosingBalanceSheetBalanceDifference:       "Balance difference",
+		ClosingBalanceSheetOpeningUnbalanced:       "The opening balance is not balanced. Review the reporting settings and opening balances.",
 		IncomeStatementTitle:                       "Monthly income statement",
 		IncomeStatementEyebrow:                     "Monthly income statement",
 		IncomeStatementNetIncome:                   "Net income for the month",

@@ -3,6 +3,7 @@ package webui
 import (
 	"strings"
 
+	"github.com/hirokinko/bokiccio/internal/ledger"
 	"github.com/hirokinko/bokiccio/internal/reporting"
 	"github.com/hirokinko/bokiccio/internal/webapp"
 )
@@ -157,6 +158,17 @@ type balanceSheetPageModel struct {
 	FormError  string
 }
 
+type closingBalanceSheetPageModel struct {
+	Page       pageContext
+	Configured bool
+	SetupHref  string
+	FormAction string
+	Periods    []trialBalancePeriodOption
+	Selected   reporting.Period
+	Report     *webapp.ClosingBalanceSheetDetail
+	FormError  string
+}
+
 type incomeStatementPageModel struct {
 	Page       pageContext
 	Configured bool
@@ -228,13 +240,19 @@ func hasDistinctStatementDirect(row reporting.StatementAccountRow) bool {
 }
 
 func statementAmount(category reporting.Category, balance reporting.Balance) string {
-	if balance.Credit != "0" {
+	if decimalTextNonZero(balance.Credit) {
 		if category == reporting.CategoryLiability || category == reporting.CategoryEquity || category == reporting.CategoryRevenue {
 			return balance.Credit
 		}
 		return "-" + balance.Credit
 	}
-	if balance.Debit == "0" {
+	if !decimalTextNonZero(balance.Debit) {
+		if balance.Debit != "0" {
+			return balance.Debit
+		}
+		if balance.Credit != "0" {
+			return balance.Credit
+		}
 		return "0"
 	}
 	if category == reporting.CategoryLiability || category == reporting.CategoryEquity || category == reporting.CategoryRevenue {
@@ -244,13 +262,18 @@ func statementAmount(category reporting.Category, balance reporting.Balance) str
 }
 
 func statementActualSide(msg messages, balance reporting.Balance) string {
-	if balance.Credit != "0" {
+	if decimalTextNonZero(balance.Credit) {
 		return msg.StatementCreditSide
 	}
-	if balance.Debit != "0" {
+	if decimalTextNonZero(balance.Debit) {
 		return msg.StatementDebitSide
 	}
 	return "—"
+}
+
+func decimalTextNonZero(value string) bool {
+	decimal, err := ledger.ParseDecimal(value)
+	return err != nil || decimal.Sign() != 0
 }
 
 func warningSideLabel(msg messages, side string) string {
@@ -286,4 +309,12 @@ func currentBalanceSummaryGroups(section reporting.StatementCommoditySection) []
 		}
 	}
 	return result
+}
+
+func closingBalanceSheetStatementCommodity(commodity reporting.ClosingBalanceSheetCommodity) reporting.StatementCommoditySection {
+	return reporting.StatementCommoditySection{
+		Commodity: commodity.Commodity,
+		Total:     commodity.Total,
+		Groups:    commodity.Groups,
+	}
 }

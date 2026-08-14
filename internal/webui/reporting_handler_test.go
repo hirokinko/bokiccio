@@ -198,14 +198,19 @@ func TestFinancialStatementUIShowsSignedBalancesAndResponsiveTrend(t *testing.T)
 	notConfigured := serve(handler, http.MethodGet, "/reports/balance-sheet")
 	assertHTMLResponse(t, notConfigured, http.StatusOK)
 	assertContainsAll(t, notConfigured.Body.String(), []string{"先にレポート設定を保存", `href="/settings/reporting"`})
+	closingNotConfigured := serve(handler, http.MethodGet, "/en/reports/closing-balance-sheet")
+	assertHTMLResponse(t, closingNotConfigured, http.StatusOK)
+	assertContainsAll(t, closingNotConfigured.Body.String(), []string{
+		"Period-end balance sheet", "Save reporting settings", `href="/en/settings/reporting"`,
+	})
 
-	input := []byte(`{"schema_version":1,"records":[{"source":{"namespace":"ui-statements","display":"anonymous"},"occurred_at":"2025-04-01","description":"anonymous opening fixture","postings":[{"account":"Assets:Cash","amount":"100.00","commodity":"JPY"},{"account":"Equity:Opening","amount":"-100.00","commodity":"JPY"}]},{"source":{"namespace":"ui-statements","display":"anonymous"},"occurred_at":"2025-04-15","description":"anonymous expense fixture","postings":[{"account":"Expenses:Fees","amount":"20.00","commodity":"JPY"},{"account":"Assets:Cash","amount":"-20.00","commodity":"JPY"}]},{"source":{"namespace":"ui-statements","display":"anonymous"},"occurred_at":"2025-04-20","description":"anonymous opposite balance fixture","postings":[{"account":"Revenue:Refund","amount":"5.00","commodity":"JPY"},{"account":"Assets:Cash","amount":"-5.00","commodity":"JPY"}]}]}`)
+	input := []byte(`{"schema_version":1,"records":[{"source":{"namespace":"ui-statements","display":"anonymous"},"occurred_at":"2025-04-01","description":"anonymous opening fixture","postings":[{"account":"Assets:Cash","amount":"100.00","commodity":"JPY"},{"account":"Equity:Opening","amount":"-100.00","commodity":"JPY"}]},{"source":{"namespace":"ui-statements","display":"anonymous"},"occurred_at":"2025-04-15","description":"anonymous expense fixture","postings":[{"account":"Expenses:Fees","amount":"20.00","commodity":"JPY"},{"account":"Assets:Cash","amount":"-20.00","commodity":"JPY"}]},{"source":{"namespace":"ui-statements","display":"anonymous"},"occurred_at":"2025-04-20","description":"anonymous opposite balance fixture","postings":[{"account":"Revenue:Refund","amount":"5.00","commodity":"JPY"},{"account":"Assets:Cash","amount":"-5.00","commodity":"JPY"}]},{"source":{"namespace":"ui-statements","display":"anonymous"},"occurred_at":"2025-04-25","description":"anonymous unclassified fixture","postings":[{"account":"Review:Suspense","amount":"2.00","commodity":"JPY"},{"account":"Assets:Cash","amount":"-2.00","commodity":"JPY"}]}]}`)
 	result, err := store.Import(context.Background(), input)
 	if err != nil {
 		t.Fatalf("Import() error = %v", err)
 	}
 	run, err := store.GetRun(context.Background(), result.RunIdentity)
-	if err != nil || len(run.Outcomes) != 3 {
+	if err != nil || len(run.Outcomes) != 4 {
 		t.Fatalf("GetRun() error=%v run=%+v", err, run)
 	}
 	zero := 0
@@ -235,7 +240,26 @@ func TestFinancialStatementUIShowsSignedBalancesAndResponsiveTrend(t *testing.T)
 	assertHTMLResponse(t, bs, http.StatusOK)
 	assertContainsAll(t, bs.Body.String(), []string{
 		"期首貸借対照表", "期首日: 2025-04-01", "Assets", "Cash", "100.00", "借方", "Equity", "Opening", "貸方",
-		`class="report-navigation"`, `href="/reports/income-statement"`, `class="statement-table"`,
+		`class="report-navigation"`, `href="/reports/closing-balance-sheet"`, `href="/reports/income-statement"`, `class="statement-table"`,
+	})
+
+	closingJA := serve(handler, http.MethodGet, "/reports/closing-balance-sheet?start_date=2025-04-01&end_date=2026-03-31")
+	assertHTMLResponse(t, closingJA, http.StatusOK)
+	assertContainsAll(t, closingJA.Body.String(), []string{
+		"期末貸借対照表", "期末日: 2026-03-31", "保存済み・締め済みの値ではありません",
+		"資産", "73.00", "純資産", "100.00", "当期損益（表示補正）", "-25.00", "借方", "貸借差額", "0.00",
+		"未分類", "Review", "Suspense", "unclassified_account", "未分類の勘定科目があります",
+		`class="current-summary-grid closing-summary-grid"`, `class="current-summary-card closing-adjustment-card"`,
+		`class="current-summary-card closing-total-card"`, `class="statement-table"`,
+		`action="/ui/reports/closing-balance-sheet"`,
+		`<h3>貸借差額</h3><strong>0.00</strong> <span>実際の残高側: —</span>`,
+	})
+	closingEN := serve(handler, http.MethodGet, "/en/reports/closing-balance-sheet?start_date=2025-04-01&end_date=2026-03-31")
+	assertHTMLResponse(t, closingEN, http.StatusOK)
+	assertContainsAll(t, closingEN.Body.String(), []string{
+		"Period-end balance sheet", "Fiscal year end: 2026-03-31", "not a saved or closed snapshot",
+		"Current earnings (presentation adjustment)", "-25.00", "Debit", "Balance difference",
+		`action="/en/ui/reports/closing-balance-sheet"`, `href="/en/reports/balance-sheet"`,
 	})
 
 	pl := serve(handler, http.MethodGet, "/en/reports/income-statement?start_date=2025-04-01&end_date=2025-04-30")
@@ -262,11 +286,46 @@ func TestFinancialStatementUIShowsSignedBalancesAndResponsiveTrend(t *testing.T)
 	if selected.Code != http.StatusSeeOther || selected.Header().Get("Location") != "/reports/balance-sheet?end_date=2026-03-31&start_date=2025-04-01" {
 		t.Fatalf("select statement period status=%d location=%q", selected.Code, selected.Header().Get("Location"))
 	}
+	selectedClosing := serveForm(handler, "/en/ui/reports/closing-balance-sheet", url.Values{
+		"period": {"2025-04-01/2026-03-31"},
+	}, nil)
+	if selectedClosing.Code != http.StatusSeeOther || selectedClosing.Header().Get("Location") != "/en/reports/closing-balance-sheet?end_date=2026-03-31&start_date=2025-04-01" {
+		t.Fatalf("select closing period status=%d location=%q", selectedClosing.Code, selectedClosing.Header().Get("Location"))
+	}
 	invalid := serve(handler, http.MethodGet, "/reports/income-statement?start_date=private&end_date=2025-04-30")
 	assertHTMLResponse(t, invalid, http.StatusBadRequest)
 	if strings.Contains(invalid.Body.String(), "private") {
 		t.Fatalf("invalid statement period reflected private input: %s", invalid.Body.String())
 	}
+	invalidClosing := serve(handler, http.MethodGet, "/reports/closing-balance-sheet?start_date=private&end_date=2026-03-31")
+	assertHTMLResponse(t, invalidClosing, http.StatusBadRequest)
+	if strings.Contains(invalidClosing.Body.String(), "private") {
+		t.Fatalf("invalid closing period reflected private input: %s", invalidClosing.Body.String())
+	}
+	method := serve(handler, http.MethodGet, "/ui/reports/closing-balance-sheet")
+	assertHTMLResponse(t, method, http.StatusMethodNotAllowed)
+}
+
+func TestClosingBalanceSheetUIDefaultsToLastFiscalYear(t *testing.T) {
+	store := webstore.New(openUIDatabase(t))
+	handler := webui.NewHandler(store)
+	zero := 0
+	if _, err := store.CreateReportingConfiguration(context.Background(), webapp.ReportingConfigurationRequest{
+		BaseRevision: &zero,
+		StartMonth:   4,
+		FiscalYears: []webapp.ReportingFiscalYear{
+			{StartDate: "2025-04-01", EndDate: "2026-03-31", OpeningMode: reporting.OpeningAutomatic},
+			{StartDate: "2026-04-01", EndDate: "2027-03-31", OpeningMode: reporting.OpeningAutomatic},
+		},
+	}); err != nil {
+		t.Fatalf("CreateReportingConfiguration() error = %v", err)
+	}
+
+	response := serve(handler, http.MethodGet, "/reports/closing-balance-sheet")
+	assertHTMLResponse(t, response, http.StatusOK)
+	assertContainsAll(t, response.Body.String(), []string{
+		"期末日: 2027-03-31", `option value="2026-04-01/2027-03-31" selected`,
+	})
 }
 
 func TestBalanceSheetUIExplainsUnbalancedAutomaticOpening(t *testing.T) {
@@ -305,6 +364,11 @@ func TestBalanceSheetUIExplainsUnbalancedAutomaticOpening(t *testing.T) {
 	assertHTMLResponse(t, response, http.StatusUnprocessableEntity)
 	assertContainsAll(t, response.Body.String(), []string{
 		"自動繰越で作成した期首残高の貸借が一致しません", `href="/settings/reporting"`,
+	})
+	closing := serve(handler, http.MethodGet, "/reports/closing-balance-sheet?start_date=2026-04-01&end_date=2027-03-31")
+	assertHTMLResponse(t, closing, http.StatusUnprocessableEntity)
+	assertContainsAll(t, closing.Body.String(), []string{
+		"期首残高の貸借が一致しません", `href="/settings/reporting"`,
 	})
 }
 

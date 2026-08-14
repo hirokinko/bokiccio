@@ -172,6 +172,18 @@ func (handler *Handler) ServeHTTP(response http.ResponseWriter, request *http.Re
 			return
 		}
 		handler.selectStatementPeriod(response, request, requestLocale, balanceSheetHref(requestLocale))
+	case localPath == "/reports/closing-balance-sheet":
+		if request.Method != http.MethodGet && request.Method != http.MethodHead {
+			handler.methodNotAllowed(response, request, requestLocale, localPath, "GET, HEAD")
+			return
+		}
+		handler.closingBalanceSheet(response, request, requestLocale)
+	case localPath == "/ui/reports/closing-balance-sheet":
+		if request.Method != http.MethodPost {
+			handler.methodNotAllowed(response, request, requestLocale, localPath, "POST")
+			return
+		}
+		handler.selectStatementPeriod(response, request, requestLocale, closingBalanceSheetHref(requestLocale))
 	case localPath == "/reports/income-statement":
 		if request.Method != http.MethodGet && request.Method != http.MethodHead {
 			handler.methodNotAllowed(response, request, requestLocale, localPath, "GET, HEAD")
@@ -584,6 +596,56 @@ func (handler *Handler) balanceSheet(response http.ResponseWriter, request *http
 	render(response, request, http.StatusOK, balanceSheetPage(model))
 }
 
+func (handler *Handler) closingBalanceSheet(response http.ResponseWriter, request *http.Request, requestLocale locale) {
+	detail, err := handler.repository.GetCurrentReportingConfiguration(request.Context())
+	if errors.Is(err, webapp.ErrReportingNotConfigured) {
+		render(response, request, http.StatusOK, closingBalanceSheetPage(closingBalanceSheetPageModel{
+			Page: newPageContext(requestLocale, "/reports/closing-balance-sheet"), SetupHref: reportingSettingsHref(requestLocale),
+		}))
+		return
+	}
+	if err != nil {
+		handler.internalError(response, request, requestLocale, err)
+		return
+	}
+	model, err := newClosingBalanceSheetPageModel(requestLocale, detail)
+	if err != nil {
+		handler.internalError(response, request, requestLocale, err)
+		return
+	}
+	period, explicit, ok := trialBalancePeriodQuery(request.URL.Query(), model.Selected)
+	if !ok {
+		model.FormError = messagesFor(requestLocale).StatementInvalidPeriodMessage
+		render(response, request, http.StatusBadRequest, closingBalanceSheetPage(model))
+		return
+	}
+	if explicit {
+		model.Selected = period
+	}
+	report, err := handler.repository.GetClosingBalanceSheet(request.Context(), model.Selected)
+	if errors.Is(err, reporting.ErrInvalidPeriod) {
+		model.FormError = messagesFor(requestLocale).StatementInvalidPeriodMessage
+		render(response, request, http.StatusBadRequest, closingBalanceSheetPage(model))
+		return
+	}
+	if errors.Is(err, reporting.ErrOpeningUnbalanced) {
+		model.FormError = messagesFor(requestLocale).ClosingBalanceSheetOpeningUnbalanced
+		render(response, request, http.StatusUnprocessableEntity, closingBalanceSheetPage(model))
+		return
+	}
+	if errors.Is(err, reporting.ErrClosingUnbalanced) {
+		model.FormError = messagesFor(requestLocale).StatementClosingUnbalancedMessage
+		render(response, request, http.StatusUnprocessableEntity, closingBalanceSheetPage(model))
+		return
+	}
+	if err != nil {
+		handler.internalError(response, request, requestLocale, err)
+		return
+	}
+	model.Report = &report
+	render(response, request, http.StatusOK, closingBalanceSheetPage(model))
+}
+
 func (handler *Handler) incomeStatement(response http.ResponseWriter, request *http.Request, requestLocale locale) {
 	detail, err := handler.repository.GetCurrentReportingConfiguration(request.Context())
 	if errors.Is(err, webapp.ErrReportingNotConfigured) {
@@ -677,6 +739,8 @@ func (handler *Handler) selectStatementPeriod(response http.ResponseWriter, requ
 		switch target {
 		case balanceSheetHref(requestLocale):
 			handler.balanceSheet(response, request, requestLocale)
+		case closingBalanceSheetHref(requestLocale):
+			handler.closingBalanceSheet(response, request, requestLocale)
 		case incomeStatementHref(requestLocale):
 			handler.incomeStatement(response, request, requestLocale)
 		default:
@@ -1215,6 +1279,22 @@ func newBalanceSheetPageModel(requestLocale locale, detail webapp.ReportingConfi
 	model := balanceSheetPageModel{
 		Page: newPageContext(requestLocale, "/reports/balance-sheet"), Configured: true,
 		SetupHref: reportingSettingsHref(requestLocale), FormAction: balanceSheetMutationHref(requestLocale),
+		Periods: []trialBalancePeriodOption{},
+	}
+	for _, year := range detail.FiscalYears {
+		period := reporting.Period{StartDate: year.StartDate, EndDate: year.EndDate}
+		model.Periods = append(model.Periods, trialBalancePeriodOption{
+			Period: period, Label: messagesFor(requestLocale).FiscalYearPeriodLabel(period.StartDate, period.EndDate),
+		})
+		model.Selected = period
+	}
+	return model, nil
+}
+
+func newClosingBalanceSheetPageModel(requestLocale locale, detail webapp.ReportingConfigurationDetail) (closingBalanceSheetPageModel, error) {
+	model := closingBalanceSheetPageModel{
+		Page: newPageContext(requestLocale, "/reports/closing-balance-sheet"), Configured: true,
+		SetupHref: reportingSettingsHref(requestLocale), FormAction: closingBalanceSheetMutationHref(requestLocale),
 		Periods: []trialBalancePeriodOption{},
 	}
 	for _, year := range detail.FiscalYears {
