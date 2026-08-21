@@ -181,12 +181,12 @@ func BuildIncomeStatementDrillDown(configuration Configuration, entries []Entry,
 	if err := validateDrillDownQuery(configuration, query); err != nil {
 		return IncomeStatementDrillDown{}, err
 	}
-	years, targetIndex, _, classifier, err := statementInputs(configuration, entries, query.Period, false)
+	years, targetIndex, _, classifier, err := statementInputs(configuration, entries, query.Period, statementIncomePeriod)
 	if err != nil {
 		return IncomeStatementDrillDown{}, err
 	}
 	period, _, err := selectPeriod(configuration.StartMonth, years, query.Period)
-	if err != nil || period.Month == 0 {
+	if err != nil {
 		return IncomeStatementDrillDown{}, ErrInvalidPeriod
 	}
 	collector := &provenanceCollector{}

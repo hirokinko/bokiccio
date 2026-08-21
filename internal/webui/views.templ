@@ -560,7 +560,7 @@ templ incomeStatementPage(model incomeStatementPageModel) {
 					if model.FormError != "" {
 						<section class="form-error" role="alert"><h2>{ model.Page.Messages.FormErrorTitle }</h2><p>{ model.FormError }</p></section>
 					}
-					@statementPeriodForm(model.Page.Messages, model.FormAction, model.Periods, model.Selected, model.Page.Messages.StatementMonthlyPeriodLabel)
+					@statementPeriodForm(model.Page.Messages, model.FormAction, model.Periods, model.Selected, model.Page.Messages.StatementIncomePeriodLabel)
 					if model.Report != nil {
 						<p>{ model.Page.Messages.StatementConfigurationRevision }: { model.Report.ConfigurationRevision } · { model.Report.Period.StartDate } – { model.Report.Period.EndDate }</p>
 						@statementStatus(model.Page.Messages, model.SetupHref, model.Report.ClassificationComplete)

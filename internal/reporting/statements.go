@@ -90,6 +90,13 @@ type CurrentOverview struct {
 	Expenses               []StatementCommoditySection `json:"expenses"`
 }
 
+type statementPeriodMode uint8
+
+const (
+	statementFiscalYearOnly statementPeriodMode = iota
+	statementIncomePeriod
+)
+
 func BuildCurrentOverview(configuration Configuration, entries []Entry, asOf string, expensePeriod Period) (CurrentOverview, error) {
 	if err := ValidateConfiguration(configuration); err != nil {
 		return CurrentOverview{}, err
@@ -158,7 +165,7 @@ func BuildCurrentOverview(configuration Configuration, entries []Entry, asOf str
 }
 
 func BuildBalanceSheet(configuration Configuration, entries []Entry, selected Period) (BalanceSheet, error) {
-	years, targetIndex, validated, classifier, err := statementInputs(configuration, entries, selected, true)
+	years, targetIndex, validated, classifier, err := statementInputs(configuration, entries, selected, statementFiscalYearOnly)
 	if err != nil {
 		return BalanceSheet{}, err
 	}
@@ -185,7 +192,7 @@ func BuildBalanceSheet(configuration Configuration, entries []Entry, selected Pe
 }
 
 func BuildClosingBalanceSheet(configuration Configuration, entries []Entry, selected Period) (ClosingBalanceSheet, error) {
-	years, targetIndex, validated, classifier, err := statementInputs(configuration, entries, selected, true)
+	years, targetIndex, validated, classifier, err := statementInputs(configuration, entries, selected, statementFiscalYearOnly)
 	if err != nil {
 		return ClosingBalanceSheet{}, err
 	}
@@ -278,12 +285,12 @@ func categoryTotalsByCommodity(amounts amountMap, categories ...Category) map[st
 }
 
 func BuildIncomeStatement(configuration Configuration, entries []Entry, selected Period) (IncomeStatement, error) {
-	years, targetIndex, _, classifier, err := statementInputs(configuration, entries, selected, false)
+	years, targetIndex, _, classifier, err := statementInputs(configuration, entries, selected, statementIncomePeriod)
 	if err != nil {
 		return IncomeStatement{}, err
 	}
 	period, _, err := selectPeriod(configuration.StartMonth, years, selected)
-	if err != nil || period.Month == 0 {
+	if err != nil {
 		return IncomeStatement{}, ErrInvalidPeriod
 	}
 	movement, err := collectMovements(entries, selected.StartDate, selected.EndDate, years[targetIndex].OpeningEntryIDs, classifier)
@@ -316,7 +323,7 @@ func BuildIncomeStatement(configuration Configuration, entries []Entry, selected
 }
 
 func BuildBalanceTrend(configuration Configuration, entries []Entry, selected Period) (BalanceTrend, error) {
-	years, targetIndex, validated, classifier, err := statementInputs(configuration, entries, selected, true)
+	years, targetIndex, validated, classifier, err := statementInputs(configuration, entries, selected, statementFiscalYearOnly)
 	if err != nil {
 		return BalanceTrend{}, err
 	}
@@ -363,13 +370,13 @@ func BuildBalanceTrend(configuration Configuration, entries []Entry, selected Pe
 	return report, nil
 }
 
-func statementInputs(configuration Configuration, entries []Entry, selected Period, fiscalYearOnly bool) ([]FiscalYear, int, map[string]Entry, classifier, error) {
+func statementInputs(configuration Configuration, entries []Entry, selected Period, mode statementPeriodMode) ([]FiscalYear, int, map[string]Entry, classifier, error) {
 	if err := ValidateConfiguration(configuration); err != nil {
 		return nil, 0, nil, classifier{}, err
 	}
 	years := sortedFiscalYears(configuration.FiscalYears)
 	period, targetIndex, err := selectPeriod(configuration.StartMonth, years, selected)
-	if err != nil || (fiscalYearOnly && period.Month != 0) || (!fiscalYearOnly && period.Month == 0) {
+	if err != nil || (mode == statementFiscalYearOnly && period.Month != 0) {
 		return nil, 0, nil, classifier{}, ErrInvalidPeriod
 	}
 	validated, err := validateEntries(entries)

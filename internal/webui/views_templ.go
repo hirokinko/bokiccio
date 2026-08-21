@@ -4894,7 +4894,7 @@ func incomeStatementPage(model incomeStatementPageModel) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = statementPeriodForm(model.Page.Messages, model.FormAction, model.Periods, model.Selected, model.Page.Messages.StatementMonthlyPeriodLabel).Render(ctx, templ_7745c5c3_Buffer)
+			templ_7745c5c3_Err = statementPeriodForm(model.Page.Messages, model.FormAction, model.Periods, model.Selected, model.Page.Messages.StatementIncomePeriodLabel).Render(ctx, templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}

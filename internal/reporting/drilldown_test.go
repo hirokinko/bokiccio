@@ -99,3 +99,27 @@ func TestBuildIncomeStatementDrillDownUsesSubtreeAndTotalPrice(t *testing.T) {
 		t.Fatalf("direct drill-down = %+v", direct)
 	}
 }
+
+func TestBuildIncomeStatementDrillDownExplainsFullYear(t *testing.T) {
+	t.Parallel()
+	configuration := testConfiguration()
+	entries := []Entry{
+		entry(t, "april", "2025-04-02", []postingInput{
+			{"費用:備品", "10", "JPY", "", ""}, {"資産:現金", "-10", "JPY", "", ""},
+		}),
+		entry(t, "may", "2025-05-02", []postingInput{
+			{"費用:備品:消耗品", "20", "JPY", "", ""}, {"資産:現金", "-20", "JPY", "", ""},
+		}),
+	}
+	result, err := BuildIncomeStatementDrillDown(configuration, entries, DrillDownQuery{
+		Period:    Period{StartDate: "2025-04-01", EndDate: "2026-03-31"},
+		Commodity: "JPY", Category: CategoryExpense, Account: "費用:備品", Scope: DrillDownSubtree,
+	})
+	if err != nil {
+		t.Fatalf("BuildIncomeStatementDrillDown(full year) error = %v", err)
+	}
+	if result.Period.Month != 0 || result.Balance != (Balance{Debit: "30", Credit: "0"}) ||
+		len(result.Entries) != 2 || result.Entries[0].ID != "april" || result.Entries[1].ID != "may" {
+		t.Fatalf("full-year drill-down = %+v", result)
+	}
+}

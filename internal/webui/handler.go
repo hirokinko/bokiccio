@@ -1600,6 +1600,10 @@ func newIncomeStatementPageModel(requestLocale locale, detail webapp.ReportingCo
 		if err != nil {
 			return incomeStatementPageModel{}, err
 		}
+		model.Periods = append(model.Periods, trialBalancePeriodOption{
+			Period: periods[0].Period,
+			Label:  messagesFor(requestLocale).FullYearIncomeLabel(periods[0].StartDate, periods[0].EndDate),
+		})
 		for _, period := range periods[1:] {
 			model.Periods = append(model.Periods, trialBalancePeriodOption{
 				Period: period.Period,

@@ -265,9 +265,22 @@ func TestFinancialStatementUIShowsSignedBalancesAndResponsiveTrend(t *testing.T)
 	pl := serve(handler, http.MethodGet, "/en/reports/income-statement?start_date=2025-04-01&end_date=2025-04-30")
 	assertHTMLResponse(t, pl, http.StatusOK)
 	assertContainsAll(t, pl.Body.String(), []string{
-		"Monthly income statement", "Expenses", "Fees", "20.00", "Revenue", "Refund", "-5.00",
-		"opposite_normal_balance", "Debit", "Net income for the month", "-25.00",
+		"Income statement", "Reporting period", "Full year: 2025-04-01 – 2026-03-31",
+		"Expenses", "Fees", "20.00", "Revenue", "Refund", "-5.00",
+		"opposite_normal_balance", "Debit", "Net income", "-25.00",
 		`action="/en/ui/reports/income-statement"`,
+	})
+	fullYearPL := serve(handler, http.MethodGet, "/reports/income-statement?start_date=2025-04-01&end_date=2026-03-31")
+	assertHTMLResponse(t, fullYearPL, http.StatusOK)
+	assertContainsAll(t, fullYearPL.Body.String(), []string{
+		"損益計算書", "集計期間", `option value="2025-04-01/2026-03-31" selected`,
+		"通期: 2025-04-01 – 2026-03-31", "当期損益", "-25.00",
+		`action="/ui/reports/income-statement/drill-down"`,
+	})
+	defaultPL := serve(handler, http.MethodGet, "/reports/income-statement")
+	assertHTMLResponse(t, defaultPL, http.StatusOK)
+	assertContainsAll(t, defaultPL.Body.String(), []string{
+		`option value="2025-04-01/2026-03-31"`, `option value="2026-03-01/2026-03-31" selected`,
 	})
 
 	trend := serve(handler, http.MethodGet, "/reports/balance-trend?start_date=2025-04-01&end_date=2026-03-31")
@@ -571,17 +584,19 @@ func TestReportDrillDownUIWorksForReadOnlyViewer(t *testing.T) {
 		t.Fatalf("private account leaked into URL: %s", drillDown.Body.String())
 	}
 
-	income, err := store.GetIncomeStatement(context.Background(), reporting.Period{StartDate: "2025-04-01", EndDate: "2025-04-30"})
+	income, err := store.GetIncomeStatement(context.Background(), reporting.Period{StartDate: "2025-04-01", EndDate: "2026-03-31"})
 	if err != nil {
 		t.Fatalf("GetIncomeStatement() error = %v", err)
 	}
 	form.Set("snapshot_identity", income.SnapshotIdentity)
+	form.Set("end_date", "2026-03-31")
 	form.Set("category", "revenue")
 	form.Set("account", "Revenue")
 	english := serveForm(viewer, "/en/ui/reports/income-statement/drill-down", form, nil)
 	assertHTMLResponse(t, english, http.StatusOK)
 	assertContainsAll(t, english.Body.String(), []string{
-		"Entries behind this amount", "Subtotal including descendants", "anonymous drill-down fixture", "Revenue:Fees", "-25 JPY",
+		"Entries behind this amount", "2025-04-01 – 2026-03-31", "Subtotal including descendants",
+		"anonymous drill-down fixture", "Revenue:Fees", "-25 JPY",
 	})
 
 	one := 1

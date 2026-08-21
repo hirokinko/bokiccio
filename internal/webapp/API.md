@@ -59,11 +59,11 @@ Cloud and an IAP-protected server command.
   `current_earnings` without creating an account or closing entry.
 - `GET /api/v1/reports/income-statement?start_date=YYYY-MM-DD&end_date=YYYY-MM-DD`
   returns revenue, expenses, and net income for an exact configured monthly
-  period. Fiscal-year and arbitrary ranges are rejected. The response includes
-  an opaque `snapshot_identity` for account drill-down.
+  period or fiscal year. Year-to-date and arbitrary ranges are rejected. The
+  response includes an opaque `snapshot_identity` for account drill-down.
 - `GET /api/v1/reports/income-statement/drill-down?start_date=YYYY-MM-DD&end_date=YYYY-MM-DD&snapshot_identity=...&commodity=...&category=...&account=...&scope=subtree`
   returns the approved entries and posting contributions that explain one
-  monthly income-statement account balance.
+  monthly or full-year income-statement account balance.
 - `GET /api/v1/reports/balance-trend?start_date=YYYY-MM-DD&end_date=YYYY-MM-DD`
   returns twelve month-end points for an exact configured fiscal year. Each
   point contains cumulative balances for all five categories and unclassified
@@ -84,7 +84,7 @@ amounts use total price when present and otherwise use the explicit or inferred
 posting amount, without converting commodities. Optional `limit` defaults to
 50 and ranges from 1 through 100; `next_cursor` is opaque and bound to the full
 selector and snapshot. Category, commodity, report totals, net income, and
-reports other than the trial balance and monthly income statement are not
+reports other than the trial balance and income statement are not
 drill-down targets in this version.
 
 Entry filters are combined with AND. Date bounds are inclusive and compare the
@@ -133,7 +133,8 @@ balance-trend responses use `422 Unprocessable Entity` in that state; the
 period-end balance sheet uses the same error for any unbalanced configured
 opening. `closing_balance_unbalanced` indicates that the period-end balance
 sheet remains unbalanced after applying `current_earnings`; both errors use
-`422 Unprocessable Entity`. Monthly income statements remain available.
+`422 Unprocessable Entity`. Monthly and full-year income statements remain
+available.
 
 ## Storage
 
@@ -162,9 +163,9 @@ creates an empty allowlist, normalized duplicate additions are idempotent, and
 logical backup/restore preserves its rows. Restoring a schema v2-v5 backup
 keeps this allowlist empty so every Web user remains read-only until an operator
 explicitly registers an email.
-Opening and period-end balance sheets, monthly income statements, and balance
-trends use the same transactional reporting snapshot and do not add stored
-report tables.
+Opening and period-end balance sheets, monthly and full-year income statements,
+and balance trends use the same transactional reporting snapshot and do not add
+stored report tables.
 
 The local test driver is the official CGO-free `tursogo` driver. Production
 uses `libsql-client-go` through `database/sql`; its connector receives the

@@ -341,8 +341,15 @@ func TestBuildIncomeStatementUsesOnlySelectedMonthAndKeepsUnknown(t *testing.T) 
 		unknown == nil || unknown.Total.Debit != "5" {
 		t.Fatalf("income statement groups = %+v", report.Commodities[0].Groups)
 	}
-	if _, err := BuildIncomeStatement(configuration, entries, Period{StartDate: "2025-04-01", EndDate: "2026-03-31"}); !errors.Is(err, ErrInvalidPeriod) {
-		t.Fatalf("BuildIncomeStatement(year) error = %v, want ErrInvalidPeriod", err)
+	fullYear, err := BuildIncomeStatement(configuration, entries, Period{StartDate: "2025-04-01", EndDate: "2026-03-31"})
+	if err != nil {
+		t.Fatalf("BuildIncomeStatement(full year) error = %v", err)
+	}
+	if fullYear.Period.Month != 0 || len(fullYear.Commodities) != 1 || fullYear.Commodities[0].NetIncome.Credit != "140" {
+		t.Fatalf("full-year income statement = %+v", fullYear)
+	}
+	if _, err := BuildIncomeStatement(configuration, entries, Period{StartDate: "2025-04-01", EndDate: "2025-05-31"}); !errors.Is(err, ErrInvalidPeriod) {
+		t.Fatalf("BuildIncomeStatement(year to date) error = %v, want ErrInvalidPeriod", err)
 	}
 }
 

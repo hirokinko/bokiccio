@@ -201,6 +201,7 @@ type messages struct {
 	StatementSetupLink                         string
 	StatementFiscalYearLabel                   string
 	StatementMonthlyPeriodLabel                string
+	StatementIncomePeriodLabel                 string
 	StatementShow                              string
 	StatementInvalidPeriodMessage              string
 	StatementOpeningUnbalancedMessage          string
@@ -282,6 +283,7 @@ type messages struct {
 	IdentitySummary         func(kind string, algorithmVersion int, digest string) string
 	FiscalYearPeriodLabel   func(startDate, endDate string) string
 	MonthlyPeriodLabel      func(month int, startDate, endDate string) string
+	FullYearIncomeLabel     func(startDate, endDate string) string
 }
 
 func messagesFor(l locale) messages {
@@ -487,12 +489,13 @@ func japaneseMessages() messages {
 		ReportNavigationTrialBalance:               "検証用試算表",
 		ReportNavigationBalanceSheet:               "期首B/S",
 		ReportNavigationClosingBalanceSheet:        "期末B/S",
-		ReportNavigationIncomeStatement:            "月次P/L",
+		ReportNavigationIncomeStatement:            "P/L",
 		ReportNavigationBalanceTrend:               "残高推移",
 		StatementNotConfigured:                     "レポートを表示するには、先にレポート設定を保存してください。",
 		StatementSetupLink:                         "レポート設定を開く",
 		StatementFiscalYearLabel:                   "会計年度",
 		StatementMonthlyPeriodLabel:                "月次期間",
+		StatementIncomePeriodLabel:                 "集計期間",
 		StatementShow:                              "レポートを表示",
 		StatementInvalidPeriodMessage:              "設定された対象期間を選択してください。",
 		StatementOpeningUnbalancedMessage:          "自動繰越で作成した期首残高の貸借が一致しません。レポート設定と前年度の残高を確認してください。",
@@ -517,9 +520,9 @@ func japaneseMessages() messages {
 		ClosingBalanceSheetCurrentEarnings:         "当期損益（表示補正）",
 		ClosingBalanceSheetBalanceDifference:       "貸借差額",
 		ClosingBalanceSheetOpeningUnbalanced:       "期首残高の貸借が一致しません。レポート設定と期首残高を確認してください。",
-		IncomeStatementTitle:                       "月次損益計算書",
-		IncomeStatementEyebrow:                     "Monthly income statement",
-		IncomeStatementNetIncome:                   "当月損益",
+		IncomeStatementTitle:                       "損益計算書",
+		IncomeStatementEyebrow:                     "Income statement",
+		IncomeStatementNetIncome:                   "当期損益",
 		BalanceTrendTitle:                          "勘定残高推移",
 		BalanceTrendEyebrow:                        "Balance trend",
 		BalanceTrendHelp:                           "各月末時点の全勘定残高です。収益・費用は会計年度の期首から累計しています。",
@@ -592,6 +595,9 @@ func japaneseMessages() messages {
 		},
 		MonthlyPeriodLabel: func(month int, startDate, endDate string) string {
 			return fmt.Sprintf("月次 %d: %s – %s", month, startDate, endDate)
+		},
+		FullYearIncomeLabel: func(startDate, endDate string) string {
+			return fmt.Sprintf("通期: %s – %s", startDate, endDate)
 		},
 	}
 }
@@ -790,12 +796,13 @@ func englishMessages() messages {
 		ReportNavigationTrialBalance:               "Verification trial balance",
 		ReportNavigationBalanceSheet:               "Opening B/S",
 		ReportNavigationClosingBalanceSheet:        "Period-end B/S",
-		ReportNavigationIncomeStatement:            "Monthly P/L",
+		ReportNavigationIncomeStatement:            "P/L",
 		ReportNavigationBalanceTrend:               "Balance trend",
 		StatementNotConfigured:                     "Save reporting settings before viewing a report.",
 		StatementSetupLink:                         "Open reporting settings",
 		StatementFiscalYearLabel:                   "Fiscal year",
 		StatementMonthlyPeriodLabel:                "Monthly period",
+		StatementIncomePeriodLabel:                 "Reporting period",
 		StatementShow:                              "Show report",
 		StatementInvalidPeriodMessage:              "Select a configured reporting period.",
 		StatementOpeningUnbalancedMessage:          "The opening balance created by automatic carry-forward is not balanced. Review the reporting settings and the prior-year balances.",
@@ -820,9 +827,9 @@ func englishMessages() messages {
 		ClosingBalanceSheetCurrentEarnings:         "Current earnings (presentation adjustment)",
 		ClosingBalanceSheetBalanceDifference:       "Balance difference",
 		ClosingBalanceSheetOpeningUnbalanced:       "The opening balance is not balanced. Review the reporting settings and opening balances.",
-		IncomeStatementTitle:                       "Monthly income statement",
-		IncomeStatementEyebrow:                     "Monthly income statement",
-		IncomeStatementNetIncome:                   "Net income for the month",
+		IncomeStatementTitle:                       "Income statement",
+		IncomeStatementEyebrow:                     "Income statement",
+		IncomeStatementNetIncome:                   "Net income",
 		BalanceTrendTitle:                          "Account balance trend",
 		BalanceTrendEyebrow:                        "Balance trend",
 		BalanceTrendHelp:                           "All account balances at each month end. Revenue and expenses accumulate from the start of the fiscal year.",
@@ -898,6 +905,9 @@ func englishMessages() messages {
 		},
 		MonthlyPeriodLabel: func(month int, startDate, endDate string) string {
 			return fmt.Sprintf("Month %d: %s – %s", month, startDate, endDate)
+		},
+		FullYearIncomeLabel: func(startDate, endDate string) string {
+			return fmt.Sprintf("Full year: %s – %s", startDate, endDate)
 		},
 	}
 }
