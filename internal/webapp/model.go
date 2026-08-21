@@ -19,6 +19,7 @@ var (
 	ErrUploadDisabled         = errors.New("file upload is disabled")
 	ErrUploadForbidden        = errors.New("file upload is not permitted for this user")
 	ErrWriteForbidden         = errors.New("data changes are not permitted for this user")
+	ErrReportSnapshotChanged  = errors.New("report snapshot changed")
 )
 
 type ReportingConfigurationErrorCode string
@@ -60,6 +61,8 @@ type Repository interface {
 	GetIncomeStatement(context.Context, reporting.Period) (IncomeStatementDetail, error)
 	GetBalanceTrend(context.Context, reporting.Period) (BalanceTrendDetail, error)
 	GetCurrentOverview(context.Context, string, reporting.Period) (CurrentOverviewDetail, error)
+	GetTrialBalanceDrillDown(context.Context, ReportDrillDownQuery) (TrialBalanceDrillDownDetail, error)
+	GetIncomeStatementDrillDown(context.Context, ReportDrillDownQuery) (IncomeStatementDrillDownDetail, error)
 }
 
 type ApplicationSettings struct {
@@ -270,7 +273,8 @@ type ReportingConfigurationDetail struct {
 }
 
 type TrialBalanceDetail struct {
-	SchemaVersion int `json:"schema_version"`
+	SchemaVersion    int    `json:"schema_version"`
+	SnapshotIdentity string `json:"snapshot_identity"`
 	reporting.TrialBalance
 }
 
@@ -285,7 +289,8 @@ type ClosingBalanceSheetDetail struct {
 }
 
 type IncomeStatementDetail struct {
-	SchemaVersion int `json:"schema_version"`
+	SchemaVersion    int    `json:"schema_version"`
+	SnapshotIdentity string `json:"snapshot_identity"`
 	reporting.IncomeStatement
 }
 
@@ -297,4 +302,27 @@ type BalanceTrendDetail struct {
 type CurrentOverviewDetail struct {
 	SchemaVersion int `json:"schema_version"`
 	reporting.CurrentOverview
+}
+
+type ReportDrillDownQuery struct {
+	DrillDown        reporting.DrillDownQuery
+	SnapshotIdentity string
+	Limit            int
+	Cursor           string
+}
+
+type TrialBalanceDrillDownDetail struct {
+	SchemaVersion    int    `json:"schema_version"`
+	SnapshotIdentity string `json:"snapshot_identity"`
+	TotalEntries     int    `json:"total_entries"`
+	NextCursor       string `json:"next_cursor,omitempty"`
+	reporting.TrialBalanceDrillDown
+}
+
+type IncomeStatementDrillDownDetail struct {
+	SchemaVersion    int    `json:"schema_version"`
+	SnapshotIdentity string `json:"snapshot_identity"`
+	TotalEntries     int    `json:"total_entries"`
+	NextCursor       string `json:"next_cursor,omitempty"`
+	reporting.IncomeStatementDrillDown
 }

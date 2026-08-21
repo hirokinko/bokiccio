@@ -69,7 +69,7 @@ func (store *Store) GetClosingBalanceSheet(ctx context.Context, period reporting
 }
 
 func (store *Store) GetIncomeStatement(ctx context.Context, period reporting.Period) (_ webapp.IncomeStatementDetail, resultErr error) {
-	transaction, configuration, entries, err := store.reportingSnapshot(ctx, "income statement")
+	transaction, configuration, entries, snapshotIdentity, err := store.reportingSnapshotWithIdentity(ctx, "income statement")
 	if err != nil {
 		return webapp.IncomeStatementDetail{}, err
 	}
@@ -85,7 +85,9 @@ func (store *Store) GetIncomeStatement(ctx context.Context, period reporting.Per
 	if err := transaction.Commit(); err != nil {
 		return webapp.IncomeStatementDetail{}, fmt.Errorf("commit income statement transaction: %w", err)
 	}
-	return webapp.IncomeStatementDetail{SchemaVersion: webapp.APISchemaVersion, IncomeStatement: report}, nil
+	return webapp.IncomeStatementDetail{
+		SchemaVersion: webapp.APISchemaVersion, SnapshotIdentity: snapshotIdentity, IncomeStatement: report,
+	}, nil
 }
 
 func (store *Store) GetBalanceTrend(ctx context.Context, period reporting.Period) (_ webapp.BalanceTrendDetail, resultErr error) {

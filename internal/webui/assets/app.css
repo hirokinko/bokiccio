@@ -270,6 +270,39 @@ button {
 	margin: 0;
 	font-weight: 650;
 }
+.drill-down-control {
+	display: inline;
+	margin-inline-start: 0.5rem;
+}
+.drill-down-control .link-button {
+	padding: 0;
+	background: transparent;
+	color: #215c42;
+	font-size: 0.85rem;
+	text-decoration: underline;
+	text-underline-offset: 0.2em;
+}
+.drill-down-target {
+	display: grid;
+	gap: 0.75rem;
+}
+.drill-down-entry {
+	display: grid;
+	grid-template-columns: minmax(12rem, 1fr) minmax(15rem, 2fr);
+	align-items: start;
+}
+.drill-down-entry h3,
+.drill-down-entry h4 {
+	margin: 0.2rem 0;
+}
+.drill-down-entry :where(.mobile-amount-grid),
+.drill-down-contributions {
+	grid-column: 1 / -1;
+}
+.drill-down-contributions {
+	margin: 0;
+	padding-inline-start: 1.25rem;
+}
 .empty-state,
 .detail-page section,
 .error-page {
@@ -629,6 +662,10 @@ td {
 	.entry-card {
 		align-items: stretch;
 		flex-direction: column;
+	}
+	.drill-down-entry {
+		display: grid;
+		grid-template-columns: 1fr;
 	}
 	.upload-panel {
 		display: flex;

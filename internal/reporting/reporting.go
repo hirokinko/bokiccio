@@ -279,27 +279,34 @@ func BuildTrialBalance(configuration Configuration, entries []Entry, selected Pe
 }
 
 func buildFiscalOpening(years []FiscalYear, targetIndex int, validated map[string]Entry, entries []Entry, classifier classifier) (amountMap, error) {
+	return buildFiscalOpeningCollected(years, targetIndex, validated, entries, classifier, nil)
+}
+
+func buildFiscalOpeningCollected(years []FiscalYear, targetIndex int, validated map[string]Entry, entries []Entry, classifier classifier, collector *provenanceCollector) (amountMap, error) {
 	opening := amountMap{}
 	for index := 0; index <= targetIndex; index++ {
 		year := years[index]
 		if year.OpeningMode == OpeningEntries {
 			opening = amountMap{}
+			collector.reset()
 			for _, id := range year.OpeningEntryIDs {
 				entry, found := validated[id]
 				if !found || entry.Entry.Date.String()[:10] != year.StartDate {
 					return nil, ErrInvalidConfiguration
 				}
-				if err := opening.addEntry(entry.Entry, classifier, true); err != nil {
+				if err := addEntryCollected(opening, entry, classifier, true, contributionOpening, collector); err != nil {
 					return nil, err
 				}
 			}
 		} else if index == 0 {
 			opening = amountMap{}
+			collector.reset()
 		} else {
 			opening = opening.permanentOnly()
+			collector.permanentOnly()
 		}
 		if index < targetIndex {
-			if err := addMovements(opening, entries, year.StartDate, year.EndDate, year.OpeningEntryIDs, classifier); err != nil {
+			if err := addMovementsCollected(opening, entries, year.StartDate, year.EndDate, year.OpeningEntryIDs, classifier, contributionOpening, collector); err != nil {
 				return nil, err
 			}
 		}
@@ -508,11 +515,17 @@ func (amounts amountMap) addEntry(entry ledger.JournalEntry, classifier classifi
 }
 
 func forEachEntryAmount(entry ledger.JournalEntry, classifier classifier, permanentOnly bool, add func(amountKey, ledger.Decimal)) error {
+	return forEachEntryAmountIndexed(entry, classifier, permanentOnly, func(_ int, key amountKey, value ledger.Decimal) {
+		add(key, value)
+	})
+}
+
+func forEachEntryAmountIndexed(entry ledger.JournalEntry, classifier classifier, permanentOnly bool, add func(int, amountKey, ledger.Decimal)) error {
 	inferred, err := inferredAmount(entry)
 	if err != nil {
 		return err
 	}
-	for _, posting := range entry.Postings {
+	for index, posting := range entry.Postings {
 		category := classifier.category(posting.Account)
 		if permanentOnly && category != CategoryAsset && category != CategoryLiability && category != CategoryEquity {
 			return ErrInvalidConfiguration
@@ -526,7 +539,7 @@ func forEachEntryAmount(entry ledger.JournalEntry, classifier classifier, perman
 		if amount == nil {
 			return ErrInvalidEntry
 		}
-		add(amountKey{commodity: string(amount.Commodity), category: category, account: posting.Account}, amount.Value)
+		add(index, amountKey{commodity: string(amount.Commodity), category: category, account: posting.Account}, amount.Value)
 	}
 	return nil
 }
@@ -553,6 +566,10 @@ func (amounts amountMap) permanentOnly() amountMap {
 }
 
 func addMovements(target amountMap, entries []Entry, startDate, endDate string, excluded []string, classifier classifier) error {
+	return addMovementsCollected(target, entries, startDate, endDate, excluded, classifier, contributionMovement, nil)
+}
+
+func addMovementsCollected(target amountMap, entries []Entry, startDate, endDate string, excluded []string, classifier classifier, role contributionRole, collector *provenanceCollector) error {
 	exclude := make(map[string]struct{}, len(excluded))
 	for _, id := range excluded {
 		exclude[id] = struct{}{}
@@ -565,7 +582,7 @@ func addMovements(target amountMap, entries []Entry, startDate, endDate string, 
 		if date < startDate || date > endDate {
 			continue
 		}
-		if err := target.addEntry(item.Entry, classifier, false); err != nil {
+		if err := addEntryCollected(target, item, classifier, false, role, collector); err != nil {
 			return err
 		}
 	}
@@ -600,6 +617,10 @@ func buildSelected(revision int, period FiscalPeriod, fiscalOpening amountMap, e
 }
 
 func collectMovements(entries []Entry, startDate, endDate string, excluded []string, classifier classifier) (movements, error) {
+	return collectMovementsCollected(entries, startDate, endDate, excluded, classifier, nil)
+}
+
+func collectMovementsCollected(entries []Entry, startDate, endDate string, excluded []string, classifier classifier, collector *provenanceCollector) (movements, error) {
 	result := movements{debits: amountMap{}, credits: amountMap{}}
 	exclude := make(map[string]struct{}, len(excluded))
 	for _, id := range excluded {
@@ -613,12 +634,13 @@ func collectMovements(entries []Entry, startDate, endDate string, excluded []str
 		if date < startDate || date > endDate {
 			continue
 		}
-		err := forEachEntryAmount(item.Entry, classifier, false, func(key amountKey, value ledger.Decimal) {
+		err := forEachEntryAmountIndexed(item.Entry, classifier, false, func(postingIndex int, key amountKey, value ledger.Decimal) {
 			if value.Sign() >= 0 {
 				result.debits.add(key, value)
 			} else {
 				result.credits.add(key, value)
 			}
+			collector.add(item, postingIndex, key, value, contributionMovement)
 		})
 		if err != nil {
 			return movements{}, err

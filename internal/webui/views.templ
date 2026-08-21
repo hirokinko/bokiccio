@@ -251,7 +251,10 @@ templ trialBalancePage(model trialBalancePageModel) {
 							<section class="empty-state"><p>{ model.Page.Messages.TrialBalanceEmpty }</p></section>
 						} else {
 							for _, commodity := range model.Report.Commodities {
-								@trialBalanceCommodity(model.Page.Messages, commodity)
+								@trialBalanceCommodity(model.Page.Messages, commodity, reportDrillDownContext{
+									Enabled: true, Action: trialBalanceDrillDownHref(model.Page.Locale), Period: model.Report.Period.Period,
+									SnapshotIdentity: model.Report.SnapshotIdentity, Commodity: commodity.Commodity,
+								})
 							}
 						}
 					}
@@ -412,7 +415,7 @@ templ currentBalanceCommodity(msg messages, commodity reporting.StatementCommodi
 				</article>
 			}
 		</div>
-		@statementTable(msg, commodity, "")
+		@statementTable(msg, commodity, "", reportDrillDownContext{})
 	</section>
 }
 
@@ -424,7 +427,7 @@ templ currentExpenseCommodity(msg messages, commodity reporting.StatementCommodi
 			<strong>{ statementAmount(reporting.CategoryExpense, commodity.Total) }</strong>
 			<span>{ msg.StatementActualSide }: { statementActualSide(msg, commodity.Total) }</span>
 		</article>
-		@statementTable(msg, commodity, "")
+		@statementTable(msg, commodity, "", reportDrillDownContext{})
 	</section>
 }
 
@@ -472,7 +475,7 @@ templ balanceSheetPage(model balanceSheetPageModel) {
 							<section class="empty-state"><p>{ model.Page.Messages.StatementEmpty }</p></section>
 						} else {
 							for _, commodity := range model.Report.Commodities {
-								@statementCommodity(model.Page.Messages, commodity, "")
+								@statementCommodity(model.Page.Messages, commodity, "", reportDrillDownContext{})
 							}
 						}
 					}
@@ -538,7 +541,7 @@ templ closingBalanceSheetCommodity(msg messages, commodity reporting.ClosingBala
 				<span>{ msg.StatementActualSide }: { statementActualSide(msg, commodity.Total) }</span>
 			</article>
 		</div>
-		@statementTable(msg, closingBalanceSheetStatementCommodity(commodity), "")
+		@statementTable(msg, closingBalanceSheetStatementCommodity(commodity), "", reportDrillDownContext{})
 	</section>
 }
 
@@ -565,7 +568,10 @@ templ incomeStatementPage(model incomeStatementPageModel) {
 							<section class="empty-state"><p>{ model.Page.Messages.StatementEmpty }</p></section>
 						} else {
 							for _, commodity := range model.Report.Commodities {
-								@statementCommodity(model.Page.Messages, commodity.StatementCommoditySection, statementAmount(reporting.CategoryRevenue, commodity.NetIncome))
+								@statementCommodity(model.Page.Messages, commodity.StatementCommoditySection, statementAmount(reporting.CategoryRevenue, commodity.NetIncome), reportDrillDownContext{
+									Enabled: true, Action: incomeStatementDrillDownHref(model.Page.Locale), Period: model.Report.Period.Period,
+									SnapshotIdentity: model.Report.SnapshotIdentity, Commodity: commodity.Commodity,
+								})
 							}
 						}
 					}
@@ -575,14 +581,14 @@ templ incomeStatementPage(model incomeStatementPageModel) {
 	</html>
 }
 
-templ statementCommodity(msg messages, commodity reporting.StatementCommoditySection, netIncome string) {
+templ statementCommodity(msg messages, commodity reporting.StatementCommoditySection, netIncome string, drillDown reportDrillDownContext) {
 	<section class="commodity-section statement-commodity">
 		<h2>{ msg.StatementCommodity }: { commodity.Commodity }</h2>
-		@statementTable(msg, commodity, netIncome)
+		@statementTable(msg, commodity, netIncome, drillDown)
 	</section>
 }
 
-templ statementTable(msg messages, commodity reporting.StatementCommoditySection, netIncome string) {
+templ statementTable(msg messages, commodity reporting.StatementCommoditySection, netIncome string, drillDown reportDrillDownContext) {
 	<div class="table-wrap"><table class="statement-table">
 			<thead><tr><th>{ msg.AccountColumn }</th><th>{ msg.StatementAmount }</th><th>{ msg.StatementActualSide }</th></tr></thead>
 			<tbody>
@@ -597,9 +603,16 @@ templ statementTable(msg messages, commodity reporting.StatementCommoditySection
 									}
 								</span>
 							}
+							if drillDown.Enabled && statementBalanceNonZero(account.Subtotal) {
+								@reportDrillDownControl(msg, drillDown, group.Category, account.Account, reporting.DrillDownSubtree)
+							}
 						</th><td>{ statementAmount(group.Category, account.Subtotal) }</td><td>{ statementActualSide(msg, account.Subtotal) }</td></tr>
 						if hasDistinctStatementDirect(account) {
-							<tr class="direct-detail-row"><th>{ msg.StatementDirect }</th><td>{ statementAmount(group.Category, account.Direct) }</td><td>{ statementActualSide(msg, account.Direct) }</td></tr>
+							<tr class="direct-detail-row"><th>{ msg.StatementDirect }
+								if drillDown.Enabled && statementBalanceNonZero(account.Direct) {
+									@reportDrillDownControl(msg, drillDown, group.Category, account.Account, reporting.DrillDownDirect)
+								}
+							</th><td>{ statementAmount(group.Category, account.Direct) }</td><td>{ statementActualSide(msg, account.Direct) }</td></tr>
 						}
 					}
 				}
@@ -669,7 +682,7 @@ templ trendCommodity(msg messages, commodity reporting.StatementCommoditySection
 	</section>
 }
 
-templ trialBalanceCommodity(msg messages, commodity reporting.CommoditySection) {
+templ trialBalanceCommodity(msg messages, commodity reporting.CommoditySection, drillDown reportDrillDownContext) {
 	<section class="commodity-section">
 		<h2>{ msg.TrialBalanceCommodity }: { commodity.Commodity }</h2>
 		<p class="table-help">{ msg.TrialBalanceTableHelp }</p>
@@ -683,9 +696,16 @@ templ trialBalanceCommodity(msg messages, commodity reporting.CommoditySection) 
 							for _, warning := range account.Warnings {
 								<span class="warning-code">{ warning.Code }</span>
 							}
+							if trialBalanceAmountsNonZero(account.Subtotal) {
+								@reportDrillDownControl(msg, drillDown, group.Category, account.Account, reporting.DrillDownSubtree)
+							}
 						</th>@trialBalanceAmountCells(account.Subtotal)</tr>
 						if hasDistinctDirectAmounts(account) {
-							<tr class="direct-detail-row"><th><span>{ msg.TrialBalanceDirect }</span></th>@trialBalanceAmountCells(account.Direct)</tr>
+							<tr class="direct-detail-row"><th><span>{ msg.TrialBalanceDirect }</span>
+								if trialBalanceAmountsNonZero(account.Direct) {
+									@reportDrillDownControl(msg, drillDown, group.Category, account.Account, reporting.DrillDownDirect)
+								}
+							</th>@trialBalanceAmountCells(account.Direct)</tr>
 						}
 					}
 				}
@@ -706,11 +726,17 @@ templ trialBalanceCommodity(msg messages, commodity reporting.CommoditySection) 
 							for _, warning := range account.Warnings {
 								<span class="warning-code">{ warning.Code }</span>
 							}
+							if trialBalanceAmountsNonZero(account.Subtotal) {
+								@reportDrillDownControl(msg, drillDown, group.Category, account.Account, reporting.DrillDownSubtree)
+							}
 							@trialBalanceMobileAmounts(msg, account.Subtotal)
 							if hasDistinctDirectAmounts(account) {
 								<details class="direct-amount-details">
 									<summary>{ msg.TrialBalanceDirect }</summary>
 									@trialBalanceMobileAmounts(msg, account.Direct)
+									if trialBalanceAmountsNonZero(account.Direct) {
+										@reportDrillDownControl(msg, drillDown, group.Category, account.Account, reporting.DrillDownDirect)
+									}
 								</details>
 							}
 						</article>
@@ -723,6 +749,95 @@ templ trialBalanceCommodity(msg messages, commodity reporting.CommoditySection) 
 			</section>
 		</div>
 	</section>
+}
+
+templ reportDrillDownControl(msg messages, context reportDrillDownContext, category reporting.Category, account string, scope reporting.DrillDownScope) {
+	<form class="drill-down-control" method="post" action={ context.Action }>
+		<input type="hidden" name="start_date" value={ context.Period.StartDate }/>
+		<input type="hidden" name="end_date" value={ context.Period.EndDate }/>
+		<input type="hidden" name="snapshot_identity" value={ context.SnapshotIdentity }/>
+		<input type="hidden" name="commodity" value={ context.Commodity }/>
+		<input type="hidden" name="category" value={ string(category) }/>
+		<input type="hidden" name="account" value={ account }/>
+		<input type="hidden" name="scope" value={ string(scope) }/>
+		<button type="submit" class="link-button">{ msg.DrillDownAction }</button>
+	</form>
+}
+
+templ reportDrillDownPage(model reportDrillDownPageModel) {
+	<!DOCTYPE html>
+	<html lang={ model.Page.Locale.lang() }>
+		@documentHead(model.Page.Messages.DrillDownTitle)
+		<body>
+			@siteHeader(model.Page)
+			<main id="main-content" class="page detail-page drill-down-page">
+				<header class="page-heading"><div><p class="eyebrow">{ model.Page.Messages.DrillDownEyebrow }</p><h1>{ model.Page.Messages.DrillDownTitle }</h1></div></header>
+				<p><a href={ model.BackHref }>{ model.Page.Messages.DrillDownBackToReport }</a></p>
+				<dl class="metadata-list">
+					<div><dt>{ model.ReportName }</dt><dd>{ model.Period.StartDate } – { model.Period.EndDate }</dd></div>
+					<div><dt>{ model.Page.Messages.StatementConfigurationRevision }</dt><dd>{ model.ConfigurationRevision }</dd></div>
+					<div><dt>{ model.Page.Messages.StatementCommodity }</dt><dd>{ model.Commodity }</dd></div>
+					<div><dt>{ model.Page.Messages.AccountColumn }</dt><dd>{ model.Account }</dd></div>
+					<div><dt>{ model.Page.Messages.DrillDownScopeLabel }</dt><dd>{ reportDrillDownScopeLabel(model.Page.Messages, model.Scope) }</dd></div>
+				</dl>
+				<section class="drill-down-target" aria-labelledby="drill-down-target-heading">
+					<h2 id="drill-down-target-heading">{ model.Page.Messages.StatementSubtotal }</h2>
+					if model.TrialAmounts != nil {
+						@trialBalanceMobileAmounts(model.Page.Messages, *model.TrialAmounts)
+					}
+					if model.Balance != nil {
+						<p><strong>{ statementAmount(model.Category, *model.Balance) }</strong> · { model.Page.Messages.StatementActualSide }: { statementActualSide(model.Page.Messages, *model.Balance) }</p>
+					}
+				</section>
+				<section aria-labelledby="drill-down-entries-heading">
+					<h2 id="drill-down-entries-heading">{ model.Page.Messages.SearchResultsLabel }</h2>
+					<p>{ model.Page.Messages.EntriesShown(model.TotalEntries) }</p>
+					if len(model.Entries) == 0 {
+						<p>{ model.Page.Messages.DrillDownEmpty }</p>
+					} else {
+						<div class="entry-list">
+							for _, entry := range model.Entries {
+								<article class="entry-card drill-down-entry">
+									<div><p class="entry-date">{ entry.OccurredAt }</p><h3><a href={ entry.Href }>{ entry.Description }</a></h3>
+										if entry.Role == "opening" {
+											<p class="status-badge">{ model.Page.Messages.DrillDownOpening }</p>
+										} else if entry.Role == "movement" {
+											<p class="status-badge">{ model.Page.Messages.DrillDownMovement }</p>
+										}
+									</div>
+									if entry.TrialAmounts != nil {
+										@trialBalanceMobileAmounts(model.Page.Messages, *entry.TrialAmounts)
+									}
+									if entry.Balance != nil {
+										<p><strong>{ statementAmount(model.Category, *entry.Balance) }</strong> · { model.Page.Messages.StatementActualSide }: { statementActualSide(model.Page.Messages, *entry.Balance) }</p>
+									}
+									<h4>{ model.Page.Messages.DrillDownContributions }</h4>
+									<ul class="drill-down-contributions">
+										for _, contribution := range entry.Contributions {
+											<li>#{ contribution.PostingIndex } · { contribution.Account } · { contribution.Amount } { contribution.Commodity }</li>
+										}
+									</ul>
+								</article>
+							}
+						</div>
+					}
+					if model.NextCursor != "" {
+						<form class="pagination-form" method="post" action={ model.FormAction }>
+							<input type="hidden" name="start_date" value={ model.Period.StartDate }/>
+							<input type="hidden" name="end_date" value={ model.Period.EndDate }/>
+							<input type="hidden" name="snapshot_identity" value={ model.SnapshotIdentity }/>
+							<input type="hidden" name="commodity" value={ model.Commodity }/>
+							<input type="hidden" name="category" value={ string(model.Category) }/>
+							<input type="hidden" name="account" value={ model.Account }/>
+							<input type="hidden" name="scope" value={ string(model.Scope) }/>
+							<input type="hidden" name="cursor" value={ model.NextCursor }/>
+							<button type="submit">{ model.Page.Messages.NextPage }</button>
+						</form>
+					}
+				</section>
+			</main>
+		</body>
+	</html>
 }
 
 templ trialBalanceColumnHeadings(msg messages) {

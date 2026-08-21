@@ -74,6 +74,10 @@ func trialBalanceMutationHref(l locale) string {
 	return localizedPath(l, "/ui/reports/trial-balance")
 }
 
+func trialBalanceDrillDownHref(l locale) string {
+	return localizedPath(l, "/ui/reports/trial-balance/drill-down")
+}
+
 func currentOverviewHref(l locale) string {
 	return localizedPath(l, "/reports/current")
 }
@@ -104,6 +108,10 @@ func incomeStatementHref(l locale) string {
 
 func incomeStatementMutationHref(l locale) string {
 	return localizedPath(l, "/ui/reports/income-statement")
+}
+
+func incomeStatementDrillDownHref(l locale) string {
+	return localizedPath(l, "/ui/reports/income-statement/drill-down")
 }
 
 func balanceTrendHref(l locale) string {

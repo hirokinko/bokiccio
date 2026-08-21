@@ -160,6 +160,12 @@ func (handler *Handler) ServeHTTP(response http.ResponseWriter, request *http.Re
 			return
 		}
 		handler.selectTrialBalance(response, request, requestLocale)
+	case localPath == "/ui/reports/trial-balance/drill-down":
+		if request.Method != http.MethodPost {
+			handler.methodNotAllowed(response, request, requestLocale, localPath, "POST")
+			return
+		}
+		handler.reportDrillDown(response, request, requestLocale, "trial-balance")
 	case localPath == "/reports/balance-sheet":
 		if request.Method != http.MethodGet && request.Method != http.MethodHead {
 			handler.methodNotAllowed(response, request, requestLocale, localPath, "GET, HEAD")
@@ -196,6 +202,12 @@ func (handler *Handler) ServeHTTP(response http.ResponseWriter, request *http.Re
 			return
 		}
 		handler.selectStatementPeriod(response, request, requestLocale, incomeStatementHref(requestLocale))
+	case localPath == "/ui/reports/income-statement/drill-down":
+		if request.Method != http.MethodPost {
+			handler.methodNotAllowed(response, request, requestLocale, localPath, "POST")
+			return
+		}
+		handler.reportDrillDown(response, request, requestLocale, "income-statement")
 	case localPath == "/reports/balance-trend":
 		if request.Method != http.MethodGet && request.Method != http.MethodHead {
 			handler.methodNotAllowed(response, request, requestLocale, localPath, "GET, HEAD")
@@ -435,6 +447,145 @@ func (handler *Handler) selectTrialBalance(response http.ResponseWriter, request
 	}
 	query := url.Values{"start_date": {parts[0]}, "end_date": {parts[1]}}
 	http.Redirect(response, request, trialBalanceHref(requestLocale)+"?"+query.Encode(), http.StatusSeeOther)
+}
+
+func (handler *Handler) reportDrillDown(response http.ResponseWriter, request *http.Request, requestLocale locale, reportKind string) {
+	form, ok := decodeURLEncodedForm(response, request, maxSearchFormBody)
+	allowed := map[string]bool{
+		"start_date": true, "end_date": true, "snapshot_identity": true, "commodity": true,
+		"category": true, "account": true, "scope": true, "cursor": false,
+	}
+	if ok {
+		for key := range form {
+			if _, found := allowed[key]; !found {
+				ok = false
+			}
+		}
+		for key, required := range allowed {
+			values, found := form[key]
+			if required && (!found || len(values) != 1 || values[0] == "") {
+				ok = false
+			}
+			if !required && found && (len(values) != 1 || values[0] == "") {
+				ok = false
+			}
+		}
+	}
+	category := reporting.Category(form.Get("category"))
+	scope := reporting.DrillDownScope(form.Get("scope"))
+	if !ok || ledger.ValidateAccount(form.Get("account")) != nil ||
+		(category != reporting.CategoryAsset && category != reporting.CategoryLiability &&
+			category != reporting.CategoryEquity && category != reporting.CategoryRevenue &&
+			category != reporting.CategoryExpense && category != reporting.CategoryUnknown) ||
+		(scope != reporting.DrillDownDirect && scope != reporting.DrillDownSubtree) {
+		handler.reportDrillDownError(response, request, requestLocale, reportKind, http.StatusBadRequest, false, reporting.Period{})
+		return
+	}
+	period := reporting.Period{StartDate: form.Get("start_date"), EndDate: form.Get("end_date")}
+	query := webapp.ReportDrillDownQuery{
+		DrillDown: reporting.DrillDownQuery{
+			Period: period, Commodity: form.Get("commodity"), Category: category,
+			Account: form.Get("account"), Scope: scope,
+		},
+		SnapshotIdentity: form.Get("snapshot_identity"), Limit: defaultPageSize, Cursor: form.Get("cursor"),
+	}
+	if reportKind == "trial-balance" {
+		detail, err := handler.repository.GetTrialBalanceDrillDown(request.Context(), query)
+		if err != nil {
+			handler.handleReportDrillDownError(response, request, requestLocale, reportKind, period, err)
+			return
+		}
+		render(response, request, http.StatusOK, reportDrillDownPage(trialBalanceDrillDownPageModel(requestLocale, detail)))
+		return
+	}
+	detail, err := handler.repository.GetIncomeStatementDrillDown(request.Context(), query)
+	if err != nil {
+		handler.handleReportDrillDownError(response, request, requestLocale, reportKind, period, err)
+		return
+	}
+	render(response, request, http.StatusOK, reportDrillDownPage(incomeStatementDrillDownPageModel(requestLocale, detail)))
+}
+
+func (handler *Handler) handleReportDrillDownError(response http.ResponseWriter, request *http.Request, requestLocale locale, reportKind string, period reporting.Period, err error) {
+	switch {
+	case errors.Is(err, webapp.ErrReportSnapshotChanged):
+		handler.reportDrillDownError(response, request, requestLocale, reportKind, http.StatusConflict, true, period)
+	case errors.Is(err, reporting.ErrInvalidDrillDown), errors.Is(err, reporting.ErrInvalidPeriod), errors.Is(err, webapp.ErrInvalidRequest):
+		handler.reportDrillDownError(response, request, requestLocale, reportKind, http.StatusBadRequest, false, reporting.Period{})
+	default:
+		handler.internalError(response, request, requestLocale, err)
+	}
+}
+
+func (handler *Handler) reportDrillDownError(response http.ResponseWriter, request *http.Request, requestLocale locale, reportKind string, status int, stale bool, period reporting.Period) {
+	msg := messagesFor(requestLocale)
+	title, message := msg.DrillDownInvalidTitle, msg.DrillDownInvalidMessage
+	if stale {
+		title, message = msg.DrillDownStaleTitle, msg.DrillDownStaleMessage
+	}
+	model := errorPageModel{
+		Page: newPageContext(requestLocale, reportPath(reportKind)), Status: status, Title: title, Message: message,
+	}
+	if stale {
+		model.Page.HomeHref = reportBackHref(requestLocale, reportKind, period)
+		model.Page.Messages.BackToEntries = msg.DrillDownBackToReport
+	}
+	render(response, request, status, errorPage(model))
+}
+
+func trialBalanceDrillDownPageModel(requestLocale locale, detail webapp.TrialBalanceDrillDownDetail) reportDrillDownPageModel {
+	amounts := detail.Amounts
+	model := reportDrillDownPageModel{
+		Page: newPageContext(requestLocale, "/reports/trial-balance"), ReportName: messagesFor(requestLocale).TrialBalanceTitle,
+		BackHref: reportBackHref(requestLocale, "trial-balance", detail.Period.Period), FormAction: trialBalanceDrillDownHref(requestLocale),
+		ConfigurationRevision: detail.ConfigurationRevision, Period: detail.Period.Period,
+		SnapshotIdentity: detail.SnapshotIdentity, Commodity: detail.Commodity, Category: detail.Category,
+		Account: detail.Account, Scope: detail.Scope, TotalEntries: detail.TotalEntries,
+		NextCursor: detail.NextCursor, TrialAmounts: &amounts, Entries: []reportDrillDownEntryModel{},
+	}
+	for _, item := range detail.Entries {
+		itemAmounts := item.Amounts
+		model.Entries = append(model.Entries, reportDrillDownEntryModel{
+			Href: entryHref(requestLocale, item.ID), ID: item.ID, OccurredAt: item.OccurredAt,
+			Description: item.Description, Role: item.Role, Contributions: item.Contributions, TrialAmounts: &itemAmounts,
+		})
+	}
+	return model
+}
+
+func incomeStatementDrillDownPageModel(requestLocale locale, detail webapp.IncomeStatementDrillDownDetail) reportDrillDownPageModel {
+	balance := detail.Balance
+	model := reportDrillDownPageModel{
+		Page: newPageContext(requestLocale, "/reports/income-statement"), ReportName: messagesFor(requestLocale).IncomeStatementTitle,
+		BackHref: reportBackHref(requestLocale, "income-statement", detail.Period.Period), FormAction: incomeStatementDrillDownHref(requestLocale),
+		ConfigurationRevision: detail.ConfigurationRevision, Period: detail.Period.Period,
+		SnapshotIdentity: detail.SnapshotIdentity, Commodity: detail.Commodity, Category: detail.Category,
+		Account: detail.Account, Scope: detail.Scope, TotalEntries: detail.TotalEntries,
+		NextCursor: detail.NextCursor, Balance: &balance, Entries: []reportDrillDownEntryModel{},
+	}
+	for _, item := range detail.Entries {
+		itemBalance := item.Balance
+		model.Entries = append(model.Entries, reportDrillDownEntryModel{
+			Href: entryHref(requestLocale, item.ID), ID: item.ID, OccurredAt: item.OccurredAt,
+			Description: item.Description, Contributions: item.Contributions, Balance: &itemBalance,
+		})
+	}
+	return model
+}
+
+func reportPath(reportKind string) string {
+	if reportKind == "trial-balance" {
+		return "/reports/trial-balance"
+	}
+	return "/reports/income-statement"
+}
+
+func reportBackHref(requestLocale locale, reportKind string, period reporting.Period) string {
+	query := url.Values{"start_date": {period.StartDate}, "end_date": {period.EndDate}}
+	if reportKind == "trial-balance" {
+		return trialBalanceHref(requestLocale) + "?" + query.Encode()
+	}
+	return incomeStatementHref(requestLocale) + "?" + query.Encode()
 }
 
 func (handler *Handler) currentOverview(response http.ResponseWriter, request *http.Request, requestLocale locale) {

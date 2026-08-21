@@ -2,9 +2,13 @@ package webstore
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/binary"
+	"encoding/hex"
 	"errors"
 	"fmt"
+	"strconv"
 
 	"github.com/hirokinko/bokiccio/internal/ledger"
 	"github.com/hirokinko/bokiccio/internal/reporting"
@@ -12,7 +16,7 @@ import (
 )
 
 func (store *Store) GetTrialBalance(ctx context.Context, period reporting.Period) (_ webapp.TrialBalanceDetail, resultErr error) {
-	transaction, configuration, entries, err := store.reportingSnapshot(ctx, "trial balance")
+	transaction, configuration, entries, snapshotIdentity, err := store.reportingSnapshotWithIdentity(ctx, "trial balance")
 	if err != nil {
 		return webapp.TrialBalanceDetail{}, err
 	}
@@ -28,35 +32,86 @@ func (store *Store) GetTrialBalance(ctx context.Context, period reporting.Period
 	if err := transaction.Commit(); err != nil {
 		return webapp.TrialBalanceDetail{}, fmt.Errorf("commit trial balance transaction: %w", err)
 	}
-	return webapp.TrialBalanceDetail{SchemaVersion: webapp.APISchemaVersion, TrialBalance: balance}, nil
+	return webapp.TrialBalanceDetail{
+		SchemaVersion: webapp.APISchemaVersion, SnapshotIdentity: snapshotIdentity, TrialBalance: balance,
+	}, nil
 }
 
 func (store *Store) reportingSnapshot(ctx context.Context, reportName string) (*sql.Tx, reporting.Configuration, []reporting.Entry, error) {
+	transaction, configuration, entries, _, err := store.reportingSnapshotWithIdentity(ctx, reportName)
+	return transaction, configuration, entries, err
+}
+
+func (store *Store) reportingSnapshotWithIdentity(ctx context.Context, reportName string) (*sql.Tx, reporting.Configuration, []reporting.Entry, string, error) {
 	transaction, err := store.database.BeginTx(ctx, nil)
 	if err != nil {
-		return nil, reporting.Configuration{}, nil, fmt.Errorf("begin %s transaction: %w", reportName, err)
+		return nil, reporting.Configuration{}, nil, "", fmt.Errorf("begin %s transaction: %w", reportName, err)
 	}
 	var revision int
 	if err := transaction.QueryRowContext(ctx,
 		`SELECT COALESCE(MAX(revision), 0) FROM reporting_configurations`).Scan(&revision); err != nil {
 		_ = transaction.Rollback()
-		return nil, reporting.Configuration{}, nil, fmt.Errorf("read %s configuration revision: %w", reportName, err)
+		return nil, reporting.Configuration{}, nil, "", fmt.Errorf("read %s configuration revision: %w", reportName, err)
 	}
 	if revision == 0 {
 		_ = transaction.Rollback()
-		return nil, reporting.Configuration{}, nil, webapp.ErrReportingNotConfigured
+		return nil, reporting.Configuration{}, nil, "", webapp.ErrReportingNotConfigured
 	}
 	detail, err := loadReportingConfiguration(ctx, transaction, revision)
 	if err != nil {
 		_ = transaction.Rollback()
-		return nil, reporting.Configuration{}, nil, err
+		return nil, reporting.Configuration{}, nil, "", err
 	}
 	entries, err := loadCurrentApprovedEntries(ctx, transaction)
 	if err != nil {
 		_ = transaction.Rollback()
-		return nil, reporting.Configuration{}, nil, err
+		return nil, reporting.Configuration{}, nil, "", err
 	}
-	return transaction, reportingConfigurationFromDetail(detail), entries, nil
+	configuration := reportingConfigurationFromDetail(detail)
+	return transaction, configuration, entries, reportingSnapshotIdentity(configuration, entries), nil
+}
+
+func reportingSnapshotIdentity(configuration reporting.Configuration, entries []reporting.Entry) string {
+	hash := sha256.New()
+	writeSnapshotField := func(value string) {
+		var size [8]byte
+		binary.BigEndian.PutUint64(size[:], uint64(len(value)))
+		_, _ = hash.Write(size[:])
+		_, _ = hash.Write([]byte(value))
+	}
+	writeSnapshotField("bokiccio.reporting-snapshot")
+	writeSnapshotField("v1")
+	writeSnapshotField(strconv.Itoa(configuration.Revision))
+	for _, item := range entries {
+		writeSnapshotField(item.ID)
+		writeSnapshotField(strconv.Itoa(int(item.Entry.Date.Precision())))
+		writeSnapshotField(item.Entry.Date.String())
+		writeSnapshotField(item.Entry.Description)
+		writeSnapshotField(strconv.Itoa(len(item.Entry.Comments)))
+		for _, comment := range item.Entry.Comments {
+			writeSnapshotField(comment)
+		}
+		writeSnapshotField(strconv.Itoa(len(item.Entry.Postings)))
+		for _, posting := range item.Entry.Postings {
+			writeSnapshotField(posting.Account)
+			writeSnapshotField(posting.Comment)
+			if posting.Amount == nil {
+				writeSnapshotField("no-amount")
+			} else {
+				writeSnapshotField("amount")
+				writeSnapshotField(posting.Amount.Value.String())
+				writeSnapshotField(string(posting.Amount.Commodity))
+			}
+			if posting.TotalPrice == nil {
+				writeSnapshotField("no-total-price")
+			} else {
+				writeSnapshotField("total-price")
+				writeSnapshotField(posting.TotalPrice.Value.String())
+				writeSnapshotField(string(posting.TotalPrice.Commodity))
+			}
+		}
+	}
+	return hex.EncodeToString(hash.Sum(nil))
 }
 
 type approvedEntryBuilder struct {

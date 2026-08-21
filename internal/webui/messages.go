@@ -249,6 +249,21 @@ type messages struct {
 	CurrentExpenseTotal                        string
 	CurrentOverviewEmptyBalances               string
 	CurrentOverviewEmptyExpenses               string
+	DrillDownAction                            string
+	DrillDownTitle                             string
+	DrillDownEyebrow                           string
+	DrillDownScopeLabel                        string
+	DrillDownScopeSubtree                      string
+	DrillDownScopeDirect                       string
+	DrillDownOpening                           string
+	DrillDownMovement                          string
+	DrillDownContributions                     string
+	DrillDownEmpty                             string
+	DrillDownBackToReport                      string
+	DrillDownInvalidTitle                      string
+	DrillDownInvalidMessage                    string
+	DrillDownStaleTitle                        string
+	DrillDownStaleMessage                      string
 	CategoryAsset                              string
 	CategoryLiability                          string
 	CategoryEquity                             string
@@ -526,6 +541,21 @@ func japaneseMessages() messages {
 		CurrentExpenseTotal:                        "費用合計",
 		CurrentOverviewEmptyBalances:               "この日付に表示する資産・負債・純資産残高はありません。",
 		CurrentOverviewEmptyExpenses:               "この期間に計上された費用はありません。",
+		DrillDownAction:                            "根拠の仕訳",
+		DrillDownTitle:                             "集計値の根拠",
+		DrillDownEyebrow:                           "Report drill-down",
+		DrillDownScopeLabel:                        "対象範囲",
+		DrillDownScopeSubtree:                      "配下を含む小計",
+		DrillDownScopeDirect:                       "直接計上",
+		DrillDownOpening:                           "期首への寄与",
+		DrillDownMovement:                          "期間内の発生",
+		DrillDownContributions:                     "対象posting",
+		DrillDownEmpty:                             "この集計値に寄与した仕訳はありません。",
+		DrillDownBackToReport:                      "レポートへ戻る",
+		DrillDownInvalidTitle:                      "Drill-downを表示できません",
+		DrillDownInvalidMessage:                    "集計値の指定を処理できませんでした。レポートを再表示してやり直してください。",
+		DrillDownStaleTitle:                        "レポートが更新されています",
+		DrillDownStaleMessage:                      "表示後に承認済み仕訳またはレポート設定が変わりました。レポートを再表示してください。",
 		CategoryAsset:                              "資産",
 		CategoryLiability:                          "負債",
 		CategoryEquity:                             "純資産",
@@ -814,6 +844,21 @@ func englishMessages() messages {
 		CurrentExpenseTotal:                        "Expense total",
 		CurrentOverviewEmptyBalances:               "There are no asset, liability, or equity balances to show at this date.",
 		CurrentOverviewEmptyExpenses:               "No expenses were posted in this period.",
+		DrillDownAction:                            "View entries",
+		DrillDownTitle:                             "Entries behind this amount",
+		DrillDownEyebrow:                           "Report drill-down",
+		DrillDownScopeLabel:                        "Scope",
+		DrillDownScopeSubtree:                      "Subtotal including descendants",
+		DrillDownScopeDirect:                       "Direct postings",
+		DrillDownOpening:                           "Opening contribution",
+		DrillDownMovement:                          "Period movement",
+		DrillDownContributions:                     "Matching postings",
+		DrillDownEmpty:                             "No approved entries contribute to this amount.",
+		DrillDownBackToReport:                      "Back to report",
+		DrillDownInvalidTitle:                      "Drill-down unavailable",
+		DrillDownInvalidMessage:                    "The report selection could not be processed. Reload the report and try again.",
+		DrillDownStaleTitle:                        "The report has changed",
+		DrillDownStaleMessage:                      "Approved entries or reporting settings changed after this report was displayed. Reload the report.",
 		CategoryAsset:                              "Asset",
 		CategoryLiability:                          "Liability",
 		CategoryEquity:                             "Equity",

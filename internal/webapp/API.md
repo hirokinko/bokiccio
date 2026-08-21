@@ -37,7 +37,11 @@ Cloud and an IAP-protected server command.
   read-only reporting configuration revision.
 - `GET /api/v1/reports/trial-balance?start_date=YYYY-MM-DD&end_date=YYYY-MM-DD`
   returns a commodity-separated trial balance for an exact configured fiscal
-  year or monthly period. Arbitrary date ranges are rejected.
+  year or monthly period. Arbitrary date ranges are rejected. The response
+  includes an opaque `snapshot_identity` for account drill-down.
+- `GET /api/v1/reports/trial-balance/drill-down?start_date=YYYY-MM-DD&end_date=YYYY-MM-DD&snapshot_identity=...&commodity=...&category=...&account=...&scope=subtree`
+  returns the approved entries and posting contributions that explain all six
+  opening, movement, and closing values of one trial-balance account row.
 - `GET /api/v1/reports/current-overview?as_of=YYYY-MM-DD&expense_start_date=YYYY-MM-DD&expense_end_date=YYYY-MM-DD` returns asset,
   liability, and equity balances at the requested configured date, separately
   from expense totals and account details for an independently selected exact
@@ -55,7 +59,11 @@ Cloud and an IAP-protected server command.
   `current_earnings` without creating an account or closing entry.
 - `GET /api/v1/reports/income-statement?start_date=YYYY-MM-DD&end_date=YYYY-MM-DD`
   returns revenue, expenses, and net income for an exact configured monthly
-  period. Fiscal-year and arbitrary ranges are rejected.
+  period. Fiscal-year and arbitrary ranges are rejected. The response includes
+  an opaque `snapshot_identity` for account drill-down.
+- `GET /api/v1/reports/income-statement/drill-down?start_date=YYYY-MM-DD&end_date=YYYY-MM-DD&snapshot_identity=...&commodity=...&category=...&account=...&scope=subtree`
+  returns the approved entries and posting contributions that explain one
+  monthly income-statement account balance.
 - `GET /api/v1/reports/balance-trend?start_date=YYYY-MM-DD&end_date=YYYY-MM-DD`
   returns twelve month-end points for an exact configured fiscal year. Each
   point contains cumulative balances for all five categories and unclassified
@@ -65,6 +73,19 @@ Every JSON response carries `schema_version: 1`. Amounts are decimal strings
 rather than JSON numbers. An omitted posting amount omits both `amount` and
 `commodity`. A posting with a total price includes a nested `total_price`
 object with decimal-string `amount` and `commodity`.
+
+Both drill-down routes require the exact `snapshot_identity` returned by their
+source report. `scope=subtree` explains the normal account subtotal, including
+descendants; `scope=direct` explains only postings to the exact account. The
+response preserves the report target amount, reports `total_entries`, and
+groups contribution postings by approved entry in accounting order. Trial
+balance entries are labelled `opening` or `movement`. Effective contribution
+amounts use total price when present and otherwise use the explicit or inferred
+posting amount, without converting commodities. Optional `limit` defaults to
+50 and ranges from 1 through 100; `next_cursor` is opaque and bound to the full
+selector and snapshot. Category, commodity, report totals, net income, and
+reports other than the trial balance and monthly income statement are not
+drill-down targets in this version.
 
 Entry filters are combined with AND. Date bounds are inclusive and compare the
 recorded local date. Account matching includes the exact account and its
@@ -101,6 +122,11 @@ verified claims and raw identity headers without trusted request context are
 treated as forbidden.
 `reporting_not_configured` indicates that only reporting setup is missing;
 existing import, review, approval, and export routes remain available.
+`report_snapshot_changed` uses `409 Conflict` when the reporting configuration
+or current approved entry input no longer matches the source report; clients
+must reload that report before requesting drill-down again. Invalid selectors,
+cursors, limits, or unknown and duplicate parameters return `400 Bad Request`
+with `invalid_drill_down`.
 `opening_balance_unbalanced` indicates that automatic carry-forward did not
 produce a balanced asset, liability, and equity opening. Balance-sheet and
 balance-trend responses use `422 Unprocessable Entity` in that state; the

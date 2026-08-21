@@ -516,6 +516,88 @@ func TestCurrentOverviewUISelectsBalanceDateAndExpenseMonthIndependently(t *test
 	assertHTMLResponse(t, method, http.StatusMethodNotAllowed)
 }
 
+func TestReportDrillDownUIWorksForReadOnlyViewer(t *testing.T) {
+	database := openUIDatabase(t)
+	store := webstore.New(database)
+	result, err := store.Import(context.Background(), testUIEmail, []byte(`{"schema_version":1,"records":[{"source":{"namespace":"ui-drill-down","display":"anonymous"},"occurred_at":"2025-04-02","description":"anonymous drill-down fixture","postings":[{"account":"Assets:Cash","amount":"25","commodity":"JPY"},{"account":"Revenue:Fees","amount":"-25","commodity":"JPY"}]}]}`))
+	if err != nil {
+		t.Fatalf("Import() error = %v", err)
+	}
+	run, err := store.GetRun(context.Background(), result.RunIdentity)
+	if err != nil || len(run.Outcomes) != 1 {
+		t.Fatalf("GetRun() error=%v run=%+v", err, run)
+	}
+	zero := 0
+	if _, err := store.ApproveRevision(context.Background(), testUIEmail, run.Outcomes[0].EntryID, webapp.ApprovalRequest{Revision: &zero}); err != nil {
+		t.Fatalf("ApproveRevision() error = %v", err)
+	}
+	configuration := webapp.ReportingConfigurationRequest{
+		BaseRevision: &zero, StartMonth: 4,
+		Classifications: []webapp.ReportingClassification{
+			{Account: "Assets", Category: reporting.CategoryAsset},
+			{Account: "Revenue", Category: reporting.CategoryRevenue},
+		},
+		FiscalYears: []webapp.ReportingFiscalYear{{
+			StartDate: "2025-04-01", EndDate: "2026-03-31", OpeningMode: reporting.OpeningAutomatic,
+		}},
+	}
+	if _, err := store.CreateReportingConfiguration(context.Background(), testUIEmail, configuration); err != nil {
+		t.Fatalf("CreateReportingConfiguration() error = %v", err)
+	}
+	viewer := authenticatedUIHandlerForEmail(t, webui.NewHandler(store), "viewer@example.com")
+	reportPage := serve(viewer, http.MethodGet, "/reports/trial-balance?start_date=2025-04-01&end_date=2025-04-30")
+	assertHTMLResponse(t, reportPage, http.StatusOK)
+	assertContainsAll(t, reportPage.Body.String(), []string{
+		`action="/ui/reports/trial-balance/drill-down"`, `name="account" value="Assets"`,
+		`name="scope" value="subtree"`, "根拠の仕訳",
+	})
+	report, err := store.GetTrialBalance(context.Background(), reporting.Period{StartDate: "2025-04-01", EndDate: "2025-04-30"})
+	if err != nil {
+		t.Fatalf("GetTrialBalance() error = %v", err)
+	}
+	form := url.Values{
+		"start_date": {"2025-04-01"}, "end_date": {"2025-04-30"},
+		"snapshot_identity": {report.SnapshotIdentity}, "commodity": {"JPY"}, "category": {"asset"},
+		"account": {"Assets"}, "scope": {"subtree"},
+	}
+	drillDown := serveForm(viewer, "/ui/reports/trial-balance/drill-down", form, nil)
+	assertHTMLResponse(t, drillDown, http.StatusOK)
+	assertContainsAll(t, drillDown.Body.String(), []string{
+		"集計値の根拠", "配下を含む小計", "anonymous drill-down fixture", "Assets:Cash", "25 JPY",
+		`href="/entries/` + run.Outcomes[0].EntryID + `"`,
+		`href="/reports/trial-balance?end_date=2025-04-30&amp;start_date=2025-04-01"`,
+	})
+	if strings.Contains(drillDown.Body.String(), "?account=") {
+		t.Fatalf("private account leaked into URL: %s", drillDown.Body.String())
+	}
+
+	income, err := store.GetIncomeStatement(context.Background(), reporting.Period{StartDate: "2025-04-01", EndDate: "2025-04-30"})
+	if err != nil {
+		t.Fatalf("GetIncomeStatement() error = %v", err)
+	}
+	form.Set("snapshot_identity", income.SnapshotIdentity)
+	form.Set("category", "revenue")
+	form.Set("account", "Revenue")
+	english := serveForm(viewer, "/en/ui/reports/income-statement/drill-down", form, nil)
+	assertHTMLResponse(t, english, http.StatusOK)
+	assertContainsAll(t, english.Body.String(), []string{
+		"Entries behind this amount", "Subtotal including descendants", "anonymous drill-down fixture", "Revenue:Fees", "-25 JPY",
+	})
+
+	one := 1
+	configuration.BaseRevision = &one
+	if _, err := store.CreateReportingConfiguration(context.Background(), testUIEmail, configuration); err != nil {
+		t.Fatalf("update reporting configuration error = %v", err)
+	}
+	stale := serveForm(viewer, "/ui/reports/trial-balance/drill-down", url.Values{
+		"start_date": {"2025-04-01"}, "end_date": {"2025-04-30"},
+		"snapshot_identity": {report.SnapshotIdentity}, "commodity": {"JPY"}, "category": {"asset"},
+		"account": {"Assets"}, "scope": {"subtree"},
+	}, nil)
+	assertHTMLResponse(t, stale, http.StatusConflict)
+	assertContainsAll(t, stale.Body.String(), []string{"レポートが更新されています", "レポートを再表示してください"})
+}
+
 func reportingSettingsForm(baseRevision string) url.Values {
 	return url.Values{
 		"base_revision":           {baseRevision},

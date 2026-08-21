@@ -282,3 +282,60 @@ func TestTrialBalanceAPINotConfigured(t *testing.T) {
 		"/api/v1/reports/current-overview?as_of=2025-04-01&expense_start_date=2025-04-01&expense_end_date=2025-04-30", nil, "")
 	assertProblem(t, current, http.StatusConflict, "reporting_not_configured")
 }
+
+func TestReportDrillDownAPIExplainsEntriesAndRejectsStaleSnapshot(t *testing.T) {
+	database := openDatabase(t)
+	store := webstore.New(database)
+	owner := authenticatedAPIHandler(t, store)
+	viewer := authenticatedAPIHandlerForEmail(t, store, "viewer@example.com")
+	configuration := map[string]any{
+		"base_revision": 0, "start_month": 4,
+		"classifications": []map[string]any{
+			{"account": "Assets", "category": "asset"}, {"account": "Revenue", "category": "revenue"},
+		},
+		"fiscal_years": []map[string]any{{
+			"start_date": "2025-04-01", "end_date": "2026-03-31", "opening_mode": "automatic", "opening_entry_ids": []string{},
+		}},
+	}
+	if response := requestJSON(t, owner, http.MethodPost, "/api/v1/reporting/configuration", configuration); response.Code != http.StatusCreated {
+		t.Fatalf("create reporting configuration status=%d body=%s", response.Code, response.Body.String())
+	}
+	result := postImport(t, owner, []byte(`{"schema_version":1,"records":[{"source":{"namespace":"drill-down","display":"sale"},"occurred_at":"2025-04-02","description":"anonymous sale","postings":[{"account":"Assets:Cash","amount":"20","commodity":"JPY"},{"account":"Revenue:Sales","amount":"-20","commodity":"JPY"}]}]}`))
+	runResponse := request(t, owner, http.MethodGet, result.DetailURL, nil, "")
+	var run webapp.RunDetail
+	decodeJSON(t, runResponse.Body.Bytes(), &run)
+	approveEntry(t, owner, run.Outcomes[0].EntryID, 0)
+
+	periodPath := "/api/v1/reports/trial-balance?start_date=2025-04-01&end_date=2025-04-30"
+	reportResponse := request(t, viewer, http.MethodGet, periodPath, nil, "")
+	var report webapp.TrialBalanceDetail
+	decodeJSON(t, reportResponse.Body.Bytes(), &report)
+	if reportResponse.Code != http.StatusOK || len(report.SnapshotIdentity) != 64 {
+		t.Fatalf("trial balance status=%d detail=%+v", reportResponse.Code, report)
+	}
+	query := url.Values{
+		"start_date": {"2025-04-01"}, "end_date": {"2025-04-30"},
+		"snapshot_identity": {report.SnapshotIdentity}, "commodity": {"JPY"}, "category": {"asset"},
+		"account": {"Assets"}, "scope": {"subtree"},
+	}
+	drillPath := "/api/v1/reports/trial-balance/drill-down?" + query.Encode()
+	drillResponse := request(t, viewer, http.MethodGet, drillPath, nil, "")
+	var drill webapp.TrialBalanceDrillDownDetail
+	decodeJSON(t, drillResponse.Body.Bytes(), &drill)
+	if drillResponse.Code != http.StatusOK || drill.TotalEntries != 1 || len(drill.Entries) != 1 ||
+		drill.Amounts.DebitTurnover != "20" || drill.Entries[0].ID != run.Outcomes[0].EntryID ||
+		drill.Entries[0].Contributions[0].PostingIndex != 0 {
+		t.Fatalf("trial balance drill-down status=%d detail=%+v", drillResponse.Code, drill)
+	}
+
+	configuration["base_revision"] = 1
+	if response := requestJSON(t, owner, http.MethodPost, "/api/v1/reporting/configuration", configuration); response.Code != http.StatusCreated {
+		t.Fatalf("update reporting configuration status=%d body=%s", response.Code, response.Body.String())
+	}
+	assertProblem(t, request(t, viewer, http.MethodGet, drillPath, nil, ""), http.StatusConflict, "report_snapshot_changed")
+	query.Set("extra", "private")
+	assertProblem(t, request(t, viewer, http.MethodGet,
+		"/api/v1/reports/trial-balance/drill-down?"+query.Encode(), nil, ""), http.StatusBadRequest, "invalid_drill_down")
+	assertProblem(t, request(t, viewer, http.MethodPost, drillPath, []byte(`{}`), "application/json"),
+		http.StatusMethodNotAllowed, "method_not_allowed")
+}

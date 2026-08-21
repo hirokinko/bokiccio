@@ -18,6 +18,7 @@ BokiccioのWeb UIは、Cloud Run direct IAPで保護されたsingle-owner向け�
 - `POST /ui/settings/reporting`: reporting configuration revisionの作成
 - `GET /reports/trial-balance`: 選択した会計年度または月次期間のcommodity別試算表
 - `POST /ui/reports/trial-balance`: form bodyで選択した期間へのredirect
+- `POST /ui/reports/trial-balance/drill-down`: 試算表account行に寄与した承認済み仕訳
 - `GET /reports/current`: 参照日時点の現在残高と独立選択した月の費用
 - `POST /ui/reports/current`: 選択した参照日または費用月のhtmx fragment、または非htmx redirect
 - `GET /reports/balance-sheet`: 選択した会計年度の期首貸借対照表
@@ -26,6 +27,7 @@ BokiccioのWeb UIは、Cloud Run direct IAPで保護されたsingle-owner向け�
 - `POST /ui/reports/closing-balance-sheet`: form bodyで選択した会計年度へのredirect
 - `GET /reports/income-statement`: 選択した月次期間の損益計算書
 - `POST /ui/reports/income-statement`: form bodyで選択した月次期間へのredirect
+- `POST /ui/reports/income-statement/drill-down`: P/L account行に寄与した承認済み仕訳
 - `GET /reports/balance-trend`: 選択した会計年度の12か月の全勘定残高推移
 - `POST /ui/reports/balance-trend`: form bodyで選択した会計年度へのredirect
 - `GET /en/`: 最新50件の仕訳候補（英語UI）
@@ -42,6 +44,7 @@ BokiccioのWeb UIは、Cloud Run direct IAPで保護されたsingle-owner向け�
 - `POST /en/ui/settings/reporting`: reporting configuration revisionの作成（英語UI）
 - `GET /en/reports/trial-balance`: commodity別試算表（英語UI）
 - `POST /en/ui/reports/trial-balance`: form bodyで選択した期間へのredirect（英語UI）
+- `POST /en/ui/reports/trial-balance/drill-down`: 試算表account行のdrill-down（英語UI）
 - `GET /en/reports/current`: 現在残高と選択月費用（英語UI）
 - `POST /en/ui/reports/current`: 選択した参照日または費用月のhtmx fragment、または非htmx redirect（英語UI）
 - `GET /en/reports/balance-sheet`: 期首貸借対照表（英語UI）
@@ -50,6 +53,7 @@ BokiccioのWeb UIは、Cloud Run direct IAPで保護されたsingle-owner向け�
 - `POST /en/ui/reports/closing-balance-sheet`: form bodyで選択した会計年度へのredirect（英語UI）
 - `GET /en/reports/income-statement`: 月次損益計算書（英語UI）
 - `POST /en/ui/reports/income-statement`: form bodyで選択した月次期間へのredirect（英語UI）
+- `POST /en/ui/reports/income-statement/drill-down`: P/L account行のdrill-down（英語UI）
 - `GET /en/reports/balance-trend`: 12か月の全勘定残高推移（英語UI）
 - `POST /en/ui/reports/balance-trend`: form bodyで選択した会計年度へのredirect（英語UI）
 - `GET /assets/app.css`: 同梱した画面style
@@ -84,6 +88,17 @@ account階層、小計、期首・発生・期末の借方・貸方をcanonical 
 表示し、直接計上値が小計と異なる場合だけ補助行へ表示する。未分類accountも金額へ含め、科目欄にWARNINGと設定画面への導線を
 表示する。狭い画面では横長tableを科目別cardへ切り替え、6つの金額を2列で表示する。小計と異なる直接計上値は折りたたみ内へ
 配置し、横スクロールなしでreport全体を確認できるようにする。
+
+試算表と月次P/Lのzeroでないaccount行には、承認済み仕訳へのdrill-down controlを表示する。通常のaccount行はdescendantを
+含む`subtree`、直接計上の補助行は完全一致accountだけの`direct`を対象にする。結果pageは対象集計値、総entry数、承認済みentryの
+日付・摘要、寄与postingと実効金額、entry詳細へのlinkを表示する。試算表では期首・発生・期末の6値をまとめて説明し、entryを
+`opening`または`movement`として区別する。月次P/Lではaccount残高を説明する。category・commodity合計、月次損益、その他reportには
+このcontrolを表示しない。
+
+drill-down selector、snapshot identity、pagination cursorは`application/x-www-form-urlencoded`のPOST bodyだけで送り、UI URL、
+cookie、browser storageへ保存しない。元reportと現在のreporting configurationまたは承認済み仕訳集合が異なる場合は`409 Conflict`で
+結果を表示せず、元reportの再表示を促す。これはread-only operationであり、IAP IAMでapplication accessを許可されたuserは
+`data_write_principals`への登録に関係なく利用できる。
 
 reportの主要導線は現在残高・月間費用画面とし、queryなしでは日本標準時の当日を残高基準日、その日を含む設定済み月次期間を
 費用月にする。日付selectorは設定済み会計年度内の任意日を選択でき、残高には参照日より後の承認済み仕訳を含めない。
@@ -159,5 +174,6 @@ npm run check
 ```
 
 この段階の画面はnormalized JSON upload、Tackler `.txn` upload、検索、閲覧、revision作成、approval、承認済み仕訳のexport、
-reporting設定、現在残高・月間費用、commodity別試算表、期首B/S、期末B/S、月次P/L、全勘定残高推移に対応しています。
+reporting設定、現在残高・月間費用、commodity別試算表、期首B/S、期末B/S、月次P/L、全勘定残高推移、試算表・月次P/Lの
+account drill-downに対応しています。
 allowlist登録済みownerだけがdataを変更でき、その他のIAP userは同じdataをread-onlyで利用します。

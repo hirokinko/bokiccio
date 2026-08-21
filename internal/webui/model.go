@@ -194,6 +194,44 @@ type balanceTrendPageModel struct {
 	FormError  string
 }
 
+type reportDrillDownContext struct {
+	Enabled          bool
+	Action           string
+	Period           reporting.Period
+	SnapshotIdentity string
+	Commodity        string
+}
+
+type reportDrillDownPageModel struct {
+	Page                  pageContext
+	ReportName            string
+	BackHref              string
+	FormAction            string
+	ConfigurationRevision int
+	Period                reporting.Period
+	SnapshotIdentity      string
+	Commodity             string
+	Category              reporting.Category
+	Account               string
+	Scope                 reporting.DrillDownScope
+	TotalEntries          int
+	NextCursor            string
+	TrialAmounts          *reporting.Amounts
+	Balance               *reporting.Balance
+	Entries               []reportDrillDownEntryModel
+}
+
+type reportDrillDownEntryModel struct {
+	Href          string
+	ID            string
+	OccurredAt    string
+	Description   string
+	Role          string
+	Contributions []reporting.PostingContribution
+	TrialAmounts  *reporting.Amounts
+	Balance       *reporting.Balance
+}
+
 func reportingCategoryLabel(msg messages, category reporting.Category) string {
 	switch category {
 	case reporting.CategoryAsset:
@@ -234,12 +272,29 @@ func hasDistinctDirectAmounts(row reporting.AccountRow) bool {
 	return row.Direct != row.Subtotal
 }
 
+func trialBalanceAmountsNonZero(amounts reporting.Amounts) bool {
+	return decimalTextNonZero(amounts.Opening.Debit) || decimalTextNonZero(amounts.Opening.Credit) ||
+		decimalTextNonZero(amounts.DebitTurnover) || decimalTextNonZero(amounts.CreditTurnover) ||
+		decimalTextNonZero(amounts.Closing.Debit) || decimalTextNonZero(amounts.Closing.Credit)
+}
+
 func statementAccountLabel(row reporting.StatementAccountRow) string {
 	return strings.Repeat("— ", row.Depth) + row.Label
 }
 
 func hasDistinctStatementDirect(row reporting.StatementAccountRow) bool {
 	return row.Direct != row.Subtotal
+}
+
+func statementBalanceNonZero(balance reporting.Balance) bool {
+	return decimalTextNonZero(balance.Debit) || decimalTextNonZero(balance.Credit)
+}
+
+func reportDrillDownScopeLabel(msg messages, scope reporting.DrillDownScope) string {
+	if scope == reporting.DrillDownDirect {
+		return msg.DrillDownScopeDirect
+	}
+	return msg.DrillDownScopeSubtree
 }
 
 func statementAmount(category reporting.Category, balance reporting.Balance) string {

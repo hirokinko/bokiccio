@@ -107,6 +107,18 @@ func (handler *Handler) ServeHTTP(response http.ResponseWriter, request *http.Re
 			return
 		}
 		handler.getBalanceTrend(response, request)
+	case request.URL.Path == "/api/v1/reports/trial-balance/drill-down":
+		if request.Method != http.MethodGet {
+			handler.methodNotAllowed(response)
+			return
+		}
+		handler.getTrialBalanceDrillDown(response, request)
+	case request.URL.Path == "/api/v1/reports/income-statement/drill-down":
+		if request.Method != http.MethodGet {
+			handler.methodNotAllowed(response)
+			return
+		}
+		handler.getIncomeStatementDrillDown(response, request)
 	case strings.HasPrefix(request.URL.Path, "/api/v1/entries/"):
 		handler.entryResource(response, request, strings.TrimPrefix(request.URL.Path, "/api/v1/entries/"))
 	default:
@@ -167,6 +179,77 @@ func (handler *Handler) getTrialBalance(response http.ResponseWriter, request *h
 		return
 	}
 	writeJSON(response, http.StatusOK, detail)
+}
+
+func (handler *Handler) getTrialBalanceDrillDown(response http.ResponseWriter, request *http.Request) {
+	query, ok := reportDrillDownQuery(request)
+	if !ok {
+		writeError(response, http.StatusBadRequest, "invalid_drill_down", "report drill-down parameters are invalid")
+		return
+	}
+	detail, err := handler.repository.GetTrialBalanceDrillDown(request.Context(), query)
+	if err != nil {
+		handler.writeRepositoryError(response, err)
+		return
+	}
+	writeJSON(response, http.StatusOK, detail)
+}
+
+func (handler *Handler) getIncomeStatementDrillDown(response http.ResponseWriter, request *http.Request) {
+	query, ok := reportDrillDownQuery(request)
+	if !ok {
+		writeError(response, http.StatusBadRequest, "invalid_drill_down", "report drill-down parameters are invalid")
+		return
+	}
+	detail, err := handler.repository.GetIncomeStatementDrillDown(request.Context(), query)
+	if err != nil {
+		handler.writeRepositoryError(response, err)
+		return
+	}
+	writeJSON(response, http.StatusOK, detail)
+}
+
+func reportDrillDownQuery(request *http.Request) (ReportDrillDownQuery, bool) {
+	values := request.URL.Query()
+	allowed := map[string]bool{
+		"start_date": true, "end_date": true, "snapshot_identity": true, "commodity": true,
+		"category": true, "account": true, "scope": true, "limit": false, "cursor": false,
+	}
+	for key, items := range values {
+		_, found := allowed[key]
+		if !found || len(items) != 1 || items[0] == "" {
+			return ReportDrillDownQuery{}, false
+		}
+	}
+	for key, required := range allowed {
+		if required && len(values[key]) != 1 {
+			return ReportDrillDownQuery{}, false
+		}
+	}
+	limit := 50
+	if text := values.Get("limit"); text != "" {
+		parsed, err := strconv.Atoi(text)
+		if err != nil || parsed < 1 || parsed > 100 || strconv.Itoa(parsed) != text {
+			return ReportDrillDownQuery{}, false
+		}
+		limit = parsed
+	}
+	category := reporting.Category(values.Get("category"))
+	scope := reporting.DrillDownScope(values.Get("scope"))
+	if err := ledger.ValidateAccount(values.Get("account")); err != nil ||
+		(category != reporting.CategoryAsset && category != reporting.CategoryLiability &&
+			category != reporting.CategoryEquity && category != reporting.CategoryRevenue &&
+			category != reporting.CategoryExpense && category != reporting.CategoryUnknown) ||
+		(scope != reporting.DrillDownDirect && scope != reporting.DrillDownSubtree) {
+		return ReportDrillDownQuery{}, false
+	}
+	return ReportDrillDownQuery{
+		DrillDown: reporting.DrillDownQuery{
+			Period:    reporting.Period{StartDate: values.Get("start_date"), EndDate: values.Get("end_date")},
+			Commodity: values.Get("commodity"), Category: category, Account: values.Get("account"), Scope: scope,
+		},
+		SnapshotIdentity: values.Get("snapshot_identity"), Limit: limit, Cursor: values.Get("cursor"),
+	}, true
 }
 
 func (handler *Handler) getCurrentOverview(response http.ResponseWriter, request *http.Request) {
@@ -509,6 +592,10 @@ func (handler *Handler) writeRepositoryError(response http.ResponseWriter, err e
 		writeError(response, http.StatusForbidden, "upload_forbidden", "file upload is not permitted for this user")
 	case errors.Is(err, ErrWriteForbidden):
 		writeError(response, http.StatusForbidden, "write_forbidden", "data changes are not permitted for this user")
+	case errors.Is(err, ErrReportSnapshotChanged):
+		writeError(response, http.StatusConflict, "report_snapshot_changed", "report data changed; reload the report")
+	case errors.Is(err, reporting.ErrInvalidDrillDown):
+		writeError(response, http.StatusBadRequest, "invalid_drill_down", "report drill-down parameters are invalid")
 	case errors.Is(err, ingest.ErrInvalidInput):
 		writeError(response, http.StatusBadRequest, "invalid_import", "normalized import is invalid")
 	case errors.Is(err, ErrNotFound):
