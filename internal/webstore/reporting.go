@@ -51,7 +51,7 @@ func (store *Store) getReportingConfiguration(ctx context.Context, revision int)
 	return detail, nil
 }
 
-func (store *Store) CreateReportingConfiguration(ctx context.Context, request webapp.ReportingConfigurationRequest) (_ webapp.ReportingConfigurationDetail, resultErr error) {
+func (store *Store) CreateReportingConfiguration(ctx context.Context, actorEmail string, request webapp.ReportingConfigurationRequest) (_ webapp.ReportingConfigurationDetail, resultErr error) {
 	if request.BaseRevision == nil || *request.BaseRevision < 0 {
 		return webapp.ReportingConfigurationDetail{}, webapp.ErrInvalidRequest
 	}
@@ -70,6 +70,9 @@ func (store *Store) CreateReportingConfiguration(ctx context.Context, request we
 			_ = transaction.Rollback()
 		}
 	}()
+	if err := requireWriteAccess(ctx, transaction, actorEmail); err != nil {
+		return webapp.ReportingConfigurationDetail{}, err
+	}
 	var latest int
 	if err := transaction.QueryRowContext(ctx,
 		`SELECT COALESCE(MAX(revision), 0) FROM reporting_configurations`).Scan(&latest); err != nil {

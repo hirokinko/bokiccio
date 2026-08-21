@@ -7,7 +7,7 @@ import (
 	"fmt"
 )
 
-const SchemaVersion = 5
+const SchemaVersion = 7
 
 var ErrUnsupportedSchema = errors.New("unsupported web storage schema")
 
@@ -212,6 +212,19 @@ var migrationV5 = []string{
 	`INSERT INTO application_settings (singleton, file_upload_enabled) VALUES (1, 1)`,
 }
 
+var migrationV6 = []string{
+	`CREATE TABLE file_upload_principals (
+    email TEXT NOT NULL PRIMARY KEY CHECK (email <> '' AND email = trim(email) AND email = lower(email))
+)`,
+}
+
+var migrationV7 = []string{
+	`CREATE TABLE data_write_principals (
+    email TEXT NOT NULL PRIMARY KEY CHECK (email <> '' AND email = trim(email) AND email = lower(email))
+)`,
+	`DROP TABLE file_upload_principals`,
+}
+
 func Migrate(ctx context.Context, database *sql.DB) (resultErr error) {
 	transaction, err := database.BeginTx(ctx, nil)
 	if err != nil {
@@ -290,6 +303,28 @@ func Migrate(ctx context.Context, database *sql.DB) (resultErr error) {
 		}
 		if _, err := transaction.ExecContext(ctx, `UPDATE schema_metadata SET version = 5 WHERE singleton = 1 AND version = 4`); err != nil {
 			return fmt.Errorf("commit schema version 5: %w", err)
+		}
+		version = 5
+	}
+	if version == 5 {
+		for index, statement := range migrationV6 {
+			if _, err := transaction.ExecContext(ctx, statement); err != nil {
+				return fmt.Errorf("apply schema v6 statement %d: %w", index+1, err)
+			}
+		}
+		if _, err := transaction.ExecContext(ctx, `UPDATE schema_metadata SET version = 6 WHERE singleton = 1 AND version = 5`); err != nil {
+			return fmt.Errorf("commit schema version 6: %w", err)
+		}
+		version = 6
+	}
+	if version == 6 {
+		for index, statement := range migrationV7 {
+			if _, err := transaction.ExecContext(ctx, statement); err != nil {
+				return fmt.Errorf("apply schema v7 statement %d: %w", index+1, err)
+			}
+		}
+		if _, err := transaction.ExecContext(ctx, `UPDATE schema_metadata SET version = 7 WHERE singleton = 1 AND version = 6`); err != nil {
+			return fmt.Errorf("commit schema version 7: %w", err)
 		}
 	}
 	if err := transaction.Commit(); err != nil {

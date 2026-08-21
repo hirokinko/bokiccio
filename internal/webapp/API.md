@@ -84,10 +84,21 @@ and `entries: []`, respectively.
 
 Errors contain only a stable code and safe message. Request bodies, accounting
 values, SQL details, paths, and credentials are not reflected in error bodies.
+An IAP-authenticated user whose normalized verified email is absent from
+`data_write_principals` may use every GET route, including entry and import
+details, reporting configurations, reports, and exports. The user cannot call
+imports, entry revision creation, approvals, or reporting configuration
+creation. These non-import mutations return `403 Forbidden` with code
+`write_forbidden` before parsing the request body and create no rows.
 When the operator-managed file upload setting is disabled, `POST
 /api/v1/imports` returns `403 Forbidden` with code `upload_disabled` before
 parsing the upload and does not create an import run. Existing read, review,
 approval, export, and reporting routes remain available.
+When the setting is enabled but the normalized email from verified IAP claims
+is absent from `data_write_principals`, the same route returns `403 Forbidden`
+with code `upload_forbidden` before parsing and creates no import run. Missing
+verified claims and raw identity headers without trusted request context are
+treated as forbidden.
 `reporting_not_configured` indicates that only reporting setup is missing;
 existing import, review, approval, and export routes remain available.
 `opening_balance_unbalanced` indicates that automatic carry-forward did not
@@ -100,7 +111,7 @@ sheet remains unbalanced after applying `current_earnings`; both errors use
 
 ## Storage
 
-`webstore` uses `database/sql` and schema version `5`. A single import commits
+`webstore` uses `database/sql` and schema version `7`. A single import commits
 the run, outcomes, diagnostics, entries, postings, accepted identities, and
 workflow generation in one transaction. Decimal text and scale, date versus
 timestamp precision, comment order, and posting omission are preserved.
@@ -120,6 +131,11 @@ Schema v5 adds the typed singleton `application_settings` row. Its checked
 `file_upload_enabled` value defaults to enabled during migration and is read
 inside every import transaction; a missing, invalid, or unreadable setting is
 an error rather than an enabled fallback.
+Schema v6 adds the checked `data_write_principals` email allowlist. Migration
+creates an empty allowlist, normalized duplicate additions are idempotent, and
+logical backup/restore preserves its rows. Restoring a schema v2-v5 backup
+keeps this allowlist empty so every Web user remains read-only until an operator
+explicitly registers an email.
 Opening and period-end balance sheets, monthly income statements, and balance
 trends use the same transactional reporting snapshot and do not add stored
 report tables.
@@ -149,8 +165,11 @@ Only Google Accounts explicitly granted access by the IAP IAM policy may reach
 the application. Except for `/livez`, every
 request must have a valid ES256 `X-Goog-IAP-JWT-Assertion` with the configured
 audience, the IAP issuer, a subject, a non-empty email, and a valid lifetime.
-The application does not maintain a second email allowlist and does not trust
-unsigned identity or forwarded-host headers.
+IAP IAM controls application-wide access. Data-changing routes additionally
+normalize the verified email and require it in the database
+`data_write_principals` allowlist. Import also requires the global upload
+switch. The application does not trust unsigned identity or forwarded-host
+headers. No HTTP deletion route is provided.
 
 State-changing methods additionally require an `Origin` exactly matching one of
 the comma-separated HTTPS origins in `BOKICCIO_EXTERNAL_ORIGIN`. The application
@@ -166,10 +185,11 @@ HTTP routes. They use a checksummed logical JSON envelope. Restore requires an
 already-migrated empty database and never merges or replaces existing data.
 See [logical backup format v1](../webstore/BACKUP.md).
 
-`bokiccio settings set --file-upload-enabled=<true|false>` is the only write
-interface for the upload capability. It uses the existing Turso environment
-variables, updates the singleton in a transaction, and prints only the new
-boolean value. No Web UI or JSON API setting-write route is provided.
+`bokiccio settings set --file-upload-enabled=<true|false>` manages the global
+upload switch. It uses the existing Turso environment variables, updates the
+singleton in a transaction, and prints only the new boolean value. The data
+write allowlist is operator-managed directly in the database for now; no
+allowlist CLI, Web UI, or JSON API write route is provided.
 
 The optional remote integration test writes an anonymous balanced entry to a
 dedicated test database when both `BOKICCIO_TEST_TURSO_DATABASE_URL` and

@@ -11,6 +11,8 @@ import (
 	"fmt"
 	"io"
 	"time"
+
+	"github.com/hirokinko/bokiccio/internal/webapp"
 )
 
 const (
@@ -53,6 +55,7 @@ type backupPayload struct {
 	ReportingFiscalYears     []reportingFiscalYearRow     `json:"reporting_fiscal_years"`
 	ReportingOpeningEntries  []reportingOpeningEntryRow   `json:"reporting_opening_entries"`
 	ApplicationSettings      []applicationSettingsRow     `json:"application_settings"`
+	DataWritePrincipals      []dataWritePrincipalRow      `json:"data_write_principals"`
 }
 
 type legacyBackupPayload struct {
@@ -91,6 +94,28 @@ type reportingBackupPayload struct {
 	ReportingClassifications []reportingClassificationRow `json:"reporting_classifications"`
 	ReportingFiscalYears     []reportingFiscalYearRow     `json:"reporting_fiscal_years"`
 	ReportingOpeningEntries  []reportingOpeningEntryRow   `json:"reporting_opening_entries"`
+}
+
+type settingsBackupPayload struct {
+	WorkflowState            []workflowStateRow           `json:"workflow_state"`
+	CommittedIdentities      []committedIdentityRow       `json:"committed_identities"`
+	ImportRuns               []importRunRow               `json:"import_runs"`
+	Outcomes                 []outcomeRow                 `json:"outcomes"`
+	Diagnostics              []diagnosticRow              `json:"diagnostics"`
+	Entries                  []entryRow                   `json:"entries"`
+	EntryComments            []entryCommentRow            `json:"entry_comments"`
+	Postings                 []postingRow                 `json:"postings"`
+	EntryRevisions           []entryRevisionRow           `json:"entry_revisions"`
+	RevisionComments         []revisionCommentRow         `json:"revision_comments"`
+	RevisionPostings         []revisionPostingRow         `json:"revision_postings"`
+	RevisionDiagnostics      []revisionDiagnosticRow      `json:"revision_diagnostics"`
+	EntryApprovals           []entryApprovalRow           `json:"entry_approvals"`
+	Sequences                []sequenceRow                `json:"sequences"`
+	ReportingConfigurations  []reportingConfigurationRow  `json:"reporting_configurations"`
+	ReportingClassifications []reportingClassificationRow `json:"reporting_classifications"`
+	ReportingFiscalYears     []reportingFiscalYearRow     `json:"reporting_fiscal_years"`
+	ReportingOpeningEntries  []reportingOpeningEntryRow   `json:"reporting_opening_entries"`
+	ApplicationSettings      []applicationSettingsRow     `json:"application_settings"`
 }
 
 type workflowStateRow struct {
@@ -253,6 +278,10 @@ type applicationSettingsRow struct {
 	FileUploadEnabled int `json:"file_upload_enabled"`
 }
 
+type dataWritePrincipalRow struct {
+	Email string `json:"email"`
+}
+
 func (store *Store) Backup(ctx context.Context) (_ []byte, resultErr error) {
 	transaction, err := store.database.BeginTx(ctx, nil)
 	if err != nil {
@@ -339,6 +368,21 @@ func marshalBackupPayload(payload backupPayload, schemaVersion int) ([]byte, err
 	if schemaVersion == SchemaVersion {
 		return json.Marshal(payload)
 	}
+	if schemaVersion == 5 || schemaVersion == 6 {
+		return json.Marshal(settingsBackupPayload{
+			WorkflowState: payload.WorkflowState, CommittedIdentities: payload.CommittedIdentities,
+			ImportRuns: payload.ImportRuns, Outcomes: payload.Outcomes, Diagnostics: payload.Diagnostics,
+			Entries: payload.Entries, EntryComments: payload.EntryComments, Postings: payload.Postings,
+			EntryRevisions: payload.EntryRevisions, RevisionComments: payload.RevisionComments,
+			RevisionPostings: payload.RevisionPostings, RevisionDiagnostics: payload.RevisionDiagnostics,
+			EntryApprovals: payload.EntryApprovals, Sequences: payload.Sequences,
+			ReportingConfigurations:  payload.ReportingConfigurations,
+			ReportingClassifications: payload.ReportingClassifications,
+			ReportingFiscalYears:     payload.ReportingFiscalYears,
+			ReportingOpeningEntries:  payload.ReportingOpeningEntries,
+			ApplicationSettings:      payload.ApplicationSettings,
+		})
+	}
 	if schemaVersion == 4 {
 		return json.Marshal(reportingBackupPayload{
 			WorkflowState: payload.WorkflowState, CommittedIdentities: payload.CommittedIdentities,
@@ -364,7 +408,7 @@ func marshalBackupPayload(payload backupPayload, schemaVersion int) ([]byte, err
 }
 
 func supportedBackupSchema(version int) bool {
-	return version == 2 || version == 3 || version == 4 || version == SchemaVersion
+	return version >= 2 && version <= SchemaVersion
 }
 
 func (payload backupPayload) rowCounts() map[string]int {
@@ -381,6 +425,7 @@ func (payload backupPayload) rowCounts() map[string]int {
 		"reporting_fiscal_years":    len(payload.ReportingFiscalYears),
 		"reporting_opening_entries": len(payload.ReportingOpeningEntries),
 		"application_settings":      len(payload.ApplicationSettings),
+		"data_write_principals":     len(payload.DataWritePrincipals),
 	}
 }
 
@@ -394,6 +439,9 @@ func (payload backupPayload) rowCountsForSchema(schemaVersion int) map[string]in
 	}
 	if schemaVersion < 5 {
 		delete(counts, "application_settings")
+	}
+	if schemaVersion < 7 {
+		delete(counts, "data_write_principals")
 	}
 	return counts
 }
@@ -423,14 +471,17 @@ func (payload backupPayload) complete(schemaVersion int) bool {
 	if schemaVersion == 2 || schemaVersion == 3 {
 		return payload.ReportingConfigurations == nil && payload.ReportingClassifications == nil &&
 			payload.ReportingFiscalYears == nil && payload.ReportingOpeningEntries == nil &&
-			payload.ApplicationSettings == nil
+			payload.ApplicationSettings == nil && payload.DataWritePrincipals == nil
 	}
 	reportingComplete := payload.ReportingConfigurations != nil && payload.ReportingClassifications != nil &&
 		payload.ReportingFiscalYears != nil && payload.ReportingOpeningEntries != nil
 	if schemaVersion == 4 {
-		return reportingComplete && payload.ApplicationSettings == nil
+		return reportingComplete && payload.ApplicationSettings == nil && payload.DataWritePrincipals == nil
 	}
-	return reportingComplete && payload.ApplicationSettings != nil
+	if schemaVersion == 5 || schemaVersion == 6 {
+		return reportingComplete && payload.ApplicationSettings != nil && payload.DataWritePrincipals == nil
+	}
+	return reportingComplete && payload.ApplicationSettings != nil && payload.DataWritePrincipals != nil
 }
 
 func (payload *backupPayload) normalizeLegacy(schemaVersion int) {
@@ -443,6 +494,9 @@ func (payload *backupPayload) normalizeLegacy(schemaVersion int) {
 	if schemaVersion < 5 {
 		payload.ApplicationSettings = []applicationSettingsRow{{Singleton: 1, FileUploadEnabled: 1}}
 	}
+	if schemaVersion < 7 {
+		payload.DataWritePrincipals = []dataWritePrincipalRow{}
+	}
 }
 
 func validateBackupPayloadShape(payload backupPayload, schemaVersion int) error {
@@ -454,6 +508,16 @@ func validateBackupPayloadShape(payload backupPayload, schemaVersion int) error 
 		payload.ApplicationSettings[0].Singleton != 1 ||
 		(payload.ApplicationSettings[0].FileUploadEnabled != 0 && payload.ApplicationSettings[0].FileUploadEnabled != 1)) {
 		return ErrInvalidBackup
+	}
+	if schemaVersion >= 6 {
+		previous := ""
+		for _, row := range payload.DataWritePrincipals {
+			normalized, err := webapp.NormalizeEmail(row.Email)
+			if err != nil || normalized != row.Email || (previous != "" && row.Email <= previous) {
+				return ErrInvalidBackup
+			}
+			previous = row.Email
+		}
 	}
 	for _, row := range payload.Postings {
 		if !validOptionalAmount(row.AmountText, row.AmountScale, row.Commodity) ||
@@ -637,6 +701,13 @@ func readBackupPayload(ctx context.Context, source queryer) (backupPayload, erro
 	})
 	if err != nil {
 		return backupPayload{}, backupReadError("application_settings", err)
+	}
+	payload.DataWritePrincipals, err = readRows(ctx, source, `SELECT email
+        FROM data_write_principals ORDER BY email`, func(rows *sql.Rows, row *dataWritePrincipalRow) error {
+		return rows.Scan(&row.Email)
+	})
+	if err != nil {
+		return backupPayload{}, backupReadError("data_write_principals", err)
 	}
 	payload.Sequences, err = readRows(ctx, source, `SELECT name, seq FROM sqlite_sequence WHERE name IN ('import_runs', 'entry_approvals') ORDER BY name`,
 		func(rows *sql.Rows, row *sequenceRow) error { return rows.Scan(&row.Name, &row.Seq) })

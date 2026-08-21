@@ -19,6 +19,8 @@ func TestWriteRepositoryErrorKeepsReportFailuresPrivate(t *testing.T) {
 		wantStatus int
 		wantCode   string
 	}{
+		{name: "upload forbidden", err: ErrUploadForbidden, wantStatus: http.StatusForbidden, wantCode: "upload_forbidden"},
+		{name: "write forbidden", err: ErrWriteForbidden, wantStatus: http.StatusForbidden, wantCode: "write_forbidden"},
 		{name: "closing unbalanced", err: reporting.ErrClosingUnbalanced, wantStatus: http.StatusUnprocessableEntity, wantCode: "closing_balance_unbalanced"},
 		{name: "internal", err: errors.New("query closing balance sheet: private SQL detail"), wantStatus: http.StatusInternalServerError, wantCode: "internal_error"},
 	}

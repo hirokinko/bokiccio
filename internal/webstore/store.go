@@ -24,7 +24,7 @@ func New(database *sql.DB) *Store {
 	return &Store{database: database}
 }
 
-func (store *Store) Import(ctx context.Context, input []byte) (_ webapp.ImportResult, resultErr error) {
+func (store *Store) Import(ctx context.Context, actorEmail string, input []byte) (_ webapp.ImportResult, resultErr error) {
 	transaction, err := store.database.BeginTx(ctx, nil)
 	if err != nil {
 		return webapp.ImportResult{}, fmt.Errorf("begin import transaction: %w", err)
@@ -34,12 +34,15 @@ func (store *Store) Import(ctx context.Context, input []byte) (_ webapp.ImportRe
 			_ = transaction.Rollback()
 		}
 	}()
-	settings, err := getApplicationSettings(ctx, transaction)
+	access, err := getUserAccess(ctx, transaction, actorEmail)
 	if err != nil {
 		return webapp.ImportResult{}, err
 	}
-	if !settings.FileUploadEnabled {
+	if !access.FileUploadEnabled {
 		return webapp.ImportResult{}, webapp.ErrUploadDisabled
+	}
+	if !access.CanWrite {
+		return webapp.ImportResult{}, webapp.ErrUploadForbidden
 	}
 	state, err := loadState(ctx, transaction)
 	if err != nil {

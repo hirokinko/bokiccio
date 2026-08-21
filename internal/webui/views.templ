@@ -96,6 +96,7 @@ templ reportingSettingsPage(model reportingSettingsPageModel) {
 				if model.FormError != "" {
 					<section class="form-error" role="alert"><h2>{ model.Page.Messages.FormErrorTitle }</h2><p>{ model.FormError }</p></section>
 				}
+				if model.CanWrite {
 				<form class="reporting-form" method="post" action={ model.Form.Action }>
 					<input type="hidden" name="base_revision" value={ formInt(model.Form.BaseRevision) }/>
 					<section aria-labelledby="calendar-heading">
@@ -133,6 +134,36 @@ templ reportingSettingsPage(model reportingSettingsPageModel) {
 					</section>
 					<div class="form-actions"><button type="submit">{ model.Page.Messages.ReportingSave }</button></div>
 				</form>
+				} else if model.Configured {
+					<section aria-labelledby="calendar-heading">
+						<h2 id="calendar-heading">{ model.Page.Messages.ReportingCalendarHeading }</h2>
+						<p>{ model.Page.Messages.ReportingStartMonthLabel }: { formInt(model.Form.StartMonth) }</p>
+					</section>
+					<section aria-labelledby="classification-heading">
+						<h2 id="classification-heading">{ model.Page.Messages.ReportingClassifications }</h2>
+						<ul>
+							for _, classification := range model.Form.Classifications {
+								<li>{ classification.Account }: { reportingCategoryLabel(model.Page.Messages, classification.Category) }</li>
+							}
+						</ul>
+					</section>
+					<section aria-labelledby="fiscal-years-heading">
+						<h2 id="fiscal-years-heading">{ model.Page.Messages.ReportingFiscalYears }</h2>
+						for _, year := range model.Form.FiscalYears {
+							<article class="history-card">
+								<p>{ year.StartDate } – { year.EndDate }</p>
+								if year.OpeningMode == reporting.OpeningEntries {
+									<p>{ model.Page.Messages.ReportingOpeningEntries }</p>
+									if year.OpeningEntryIDs != "" {
+										<p>{ year.OpeningEntryIDs }</p>
+									}
+								} else {
+									<p>{ model.Page.Messages.ReportingOpeningAutomatic }</p>
+								}
+							</article>
+						}
+					</section>
+				}
 				<section aria-labelledby="unclassified-heading">
 					<h2 id="unclassified-heading">{ model.Page.Messages.ReportingUnclassifiedHeading }</h2>
 					if len(model.UnclassifiedAccounts) == 0 {
@@ -866,6 +897,7 @@ templ entryPage(model entryPageModel) {
 					@commentList(model.Current.Comments)
 				</section>
 				@entryFormError(model)
+				if model.CanWrite {
 				<section aria-labelledby="edit-heading">
 					<h2 id="edit-heading">{ model.Page.Messages.EditCandidateHeading }</h2>
 					<form class="revision-form" method="post" action={ model.RevisionForm.Action } aria-label={ model.Page.Messages.EditCandidateFormLabel }>
@@ -890,6 +922,7 @@ templ entryPage(model entryPageModel) {
 						<p class="muted">{ model.Page.Messages.CannotApproveInvalid }</p>
 					}
 				</section>
+				}
 				<section aria-labelledby="original-heading">
 					<h2 id="original-heading">{ model.Page.Messages.OriginalSnapshotHeading }</h2>
 					<p>{ model.Detail.OccurredAt } · { model.Detail.Description }</p>

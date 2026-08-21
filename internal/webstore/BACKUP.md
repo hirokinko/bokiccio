@@ -1,7 +1,8 @@
 # Logical backup format v1
 
 Bokiccioのproduction backupはTursoのdatabase fileやSQL dumpではなく、driver非依存のlogical JSONを使う。
-backupは仕訳、source、diagnostic、import report、revision、approval、reporting設定履歴、application設定を含むprivate dataであり、暗号化されていない。
+backupは仕訳、source、diagnostic、import report、revision、approval、reporting設定履歴、application設定、
+data変更許可emailを含むprivate dataであり、暗号化されていない。
 保存先のaccess controlや暗号化は運用環境で行う。
 
 ## Envelope
@@ -14,11 +15,11 @@ format version 1のtop-level fieldは次のとおりである。
 - `created_at`: RFC 3339 timestamp
 - `payload_sha256`: canonical payload JSONのlowercase SHA-256
 - `row_counts`: payload sectionごとの件数
-- `payload`: schema v2、v3、v4、v5 application data
+- `payload`: schema v2、v3、v4、v5、v6 application data
 
 payloadは全tableを依存順、各table内をprimary key順で保持する。SQL BLOBはJSONのbase64 stringとして
 losslessにencodeする。`workflow_state`と`sqlite_sequence`の対象counterも保持する。
-schema metadataそのもの、Turso credential、database URL、IAP audience、IAP principal listは含めない。
+schema metadataそのもの、Turso credential、database URL、IAP audience、IAP IAM principal listは含めない。
 
 formatは手編集を想定しない。restoreはunknown field、trailing JSON、field欠落、format/schema version不一致、
 checksum・row count不一致を拒否する。
@@ -54,11 +55,13 @@ foreign key、report metadata、identity、entry/revision domain validation、ap
 期首仕訳の整合性を検証してから
 commitする。いずれかが失敗した場合、target dataを変更しない。
 
-format version `1`はDB schema version `2`、`3`、`4`、`5`を受け付ける。schema v5はchecked singleton
+format version `1`はDB schema version `2`、`3`、`4`、`5`、`6`、`7`を受け付ける。schema v7は
+`data_write_principals`をpayload、checksum、row countへ追加し、正規化済みemail allowlistを復元する。schema v5はchecked singleton
 `application_settings`をpayload、checksum、row countへ追加し、file upload可否を復元する。schema v4は
 `reporting_configurations`、`reporting_classifications`、`reporting_fiscal_years`、
 `reporting_opening_entries`をpayload、checksum、row countへ追加し、4 sectionを必須とする。schema v3はpostingとrevision postingへ
 optionalなtotal-price amount・scale・commodityを追加する。schema v2 backupにはこれらのfieldがなく、current
 schemaへrestoreするとNULLとして保持される。schema v2/v3 backupはreporting未設定として復元する。schema v2〜v4 backupは
-従来behaviorを維持するためfile upload enabledとして復元する。これ以外のschema versionは
+従来behaviorを維持するためfile upload enabledとして復元する。schema v2〜v5 backupのdata write allowlistは空として復元し、
+operatorが明示登録するまでWeb userのdata変更を許可しない。これ以外のschema versionは
 明示的な変換pathがないため拒否する。

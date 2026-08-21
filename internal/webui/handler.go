@@ -238,7 +238,7 @@ func (handler *Handler) ServeHTTP(response http.ResponseWriter, request *http.Re
 }
 
 func (handler *Handler) index(response http.ResponseWriter, request *http.Request, requestLocale locale) {
-	settings, err := handler.repository.GetApplicationSettings(request.Context())
+	_, access, err := handler.userAccess(request)
 	if err != nil {
 		handler.internalError(response, request, requestLocale, err)
 		return
@@ -248,14 +248,19 @@ func (handler *Handler) index(response http.ResponseWriter, request *http.Reques
 		handler.internalError(response, request, requestLocale, err)
 		return
 	}
-	model := newIndexPageModel(requestLocale, webapp.EntryFilter{}, page, false, settings.FileUploadEnabled)
+	model := newIndexPageModel(requestLocale, webapp.EntryFilter{}, page, false, access.FileUploadEnabled && access.CanWrite)
 	render(response, request, http.StatusOK, indexPage(model))
 }
 
 func (handler *Handler) reportingSettings(response http.ResponseWriter, request *http.Request, requestLocale locale) {
+	_, access, err := handler.userAccess(request)
+	if err != nil {
+		handler.internalError(response, request, requestLocale, err)
+		return
+	}
 	detail, err := handler.repository.GetCurrentReportingConfiguration(request.Context())
 	if errors.Is(err, webapp.ErrReportingNotConfigured) {
-		model := newReportingSettingsPageModel(requestLocale, nil, "")
+		model := newReportingSettingsPageModel(requestLocale, nil, access.CanWrite, "")
 		render(response, request, http.StatusOK, reportingSettingsPage(model))
 		return
 	}
@@ -268,19 +273,23 @@ func (handler *Handler) reportingSettings(response http.ResponseWriter, request 
 		handler.internalError(response, request, requestLocale, err)
 		return
 	}
-	model := newReportingSettingsPageModel(requestLocale, &detail, "")
+	model := newReportingSettingsPageModel(requestLocale, &detail, access.CanWrite, "")
 	model.UnclassifiedAccounts = unclassified
 	render(response, request, http.StatusOK, reportingSettingsPage(model))
 }
 
 func (handler *Handler) updateReportingSettings(response http.ResponseWriter, request *http.Request, requestLocale locale) {
+	actorEmail, ok := handler.requireWriteActor(response, request, requestLocale)
+	if !ok {
+		return
+	}
 	input, ok := decodeReportingConfigurationForm(response, request)
 	if !ok {
 		handler.renderReportingSettingsError(response, request, requestLocale,
 			webapp.ReportingConfigurationRequest{}, http.StatusBadRequest, messagesFor(requestLocale).ReportingInvalidFormMessage)
 		return
 	}
-	if _, err := handler.repository.CreateReportingConfiguration(request.Context(), input); err != nil {
+	if _, err := handler.repository.CreateReportingConfiguration(request.Context(), actorEmail, input); err != nil {
 		status := http.StatusInternalServerError
 		message := messagesFor(requestLocale).ReportingSaveFailedMessage
 		switch {
@@ -290,6 +299,9 @@ func (handler *Handler) updateReportingSettings(response http.ResponseWriter, re
 		case errors.Is(err, webapp.ErrConflict):
 			status = http.StatusConflict
 			message = messagesFor(requestLocale).ReportingConflictMessage
+		case errors.Is(err, webapp.ErrWriteForbidden):
+			handler.writeForbidden(response, request, requestLocale)
+			return
 		}
 		if status == http.StatusInternalServerError {
 			handler.internalError(response, request, requestLocale, err)
@@ -305,7 +317,7 @@ func (handler *Handler) renderReportingSettingsError(response http.ResponseWrite
 	input webapp.ReportingConfigurationRequest, status int, message string,
 ) {
 	detail := reportingConfigurationDetailFromRequest(input)
-	model := newReportingSettingsPageModel(requestLocale, &detail, message)
+	model := newReportingSettingsPageModel(requestLocale, &detail, true, message)
 	model.Configured = input.BaseRevision != nil && *input.BaseRevision > 0
 	render(response, request, status, reportingSettingsPage(model))
 }
@@ -780,17 +792,18 @@ func (handler *Handler) searchEntries(response http.ResponseWriter, request *htt
 		render(response, request, http.StatusOK, entryResults(model))
 		return
 	}
-	settings, err := handler.repository.GetApplicationSettings(request.Context())
+	_, access, err := handler.userAccess(request)
 	if err != nil {
 		handler.internalError(response, request, requestLocale, err)
 		return
 	}
-	model.UploadEnabled = settings.FileUploadEnabled
+	model.UploadEnabled = access.FileUploadEnabled && access.CanWrite
 	render(response, request, http.StatusOK, indexPage(model))
 }
 
 func (handler *Handler) importRecords(response http.ResponseWriter, request *http.Request, requestLocale locale) {
-	if !handler.uploadAllowed(response, request, requestLocale) {
+	actorEmail, ok := handler.uploadActor(response, request, requestLocale)
+	if !ok {
 		return
 	}
 	body, uploadStatus, ok := decodeImportUpload(response, request)
@@ -798,9 +811,13 @@ func (handler *Handler) importRecords(response http.ResponseWriter, request *htt
 		handler.invalidUpload(response, request, requestLocale, uploadStatus)
 		return
 	}
-	result, err := handler.repository.Import(request.Context(), body)
+	result, err := handler.repository.Import(request.Context(), actorEmail, body)
 	if errors.Is(err, webapp.ErrUploadDisabled) {
 		handler.uploadDisabled(response, request, requestLocale)
+		return
+	}
+	if errors.Is(err, webapp.ErrUploadForbidden) {
+		handler.uploadForbidden(response, request, requestLocale)
 		return
 	}
 	if errors.Is(err, ingest.ErrInvalidInput) || errors.Is(err, webapp.ErrInvalidRequest) {
@@ -815,7 +832,8 @@ func (handler *Handler) importRecords(response http.ResponseWriter, request *htt
 }
 
 func (handler *Handler) importTackler(response http.ResponseWriter, request *http.Request, requestLocale locale) {
-	if !handler.uploadAllowed(response, request, requestLocale) {
+	actorEmail, ok := handler.uploadActor(response, request, requestLocale)
+	if !ok {
 		return
 	}
 	body, uploadStatus, ok := decodeImportUpload(response, request)
@@ -833,9 +851,13 @@ func (handler *Handler) importTackler(response http.ResponseWriter, request *htt
 		handler.invalidTacklerUpload(response, request, requestLocale, err)
 		return
 	}
-	result, err := handler.repository.Import(request.Context(), input)
+	result, err := handler.repository.Import(request.Context(), actorEmail, input)
 	if errors.Is(err, webapp.ErrUploadDisabled) {
 		handler.uploadDisabled(response, request, requestLocale)
+		return
+	}
+	if errors.Is(err, webapp.ErrUploadForbidden) {
+		handler.uploadForbidden(response, request, requestLocale)
 		return
 	}
 	if errors.Is(err, ingest.ErrInvalidInput) || errors.Is(err, webapp.ErrInvalidRequest) {
@@ -936,7 +958,12 @@ func (handler *Handler) entry(response http.ResponseWriter, request *http.Reques
 		handler.internalError(response, request, requestLocale)
 		return
 	}
-	render(response, request, http.StatusOK, entryPage(newEntryPageModel(requestLocale, id, detail, currentCandidate(detail), "")))
+	_, access, err := handler.userAccess(request)
+	if err != nil {
+		handler.internalError(response, request, requestLocale, err)
+		return
+	}
+	render(response, request, http.StatusOK, entryPage(newEntryPageModel(requestLocale, id, detail, currentCandidate(detail), access.CanWrite, "")))
 }
 
 func (handler *Handler) entryMutation(response http.ResponseWriter, request *http.Request, requestLocale locale, path string) {
@@ -961,12 +988,16 @@ func (handler *Handler) entryMutation(response http.ResponseWriter, request *htt
 }
 
 func (handler *Handler) createRevision(response http.ResponseWriter, request *http.Request, requestLocale locale, id string) {
+	actorEmail, ok := handler.requireWriteActor(response, request, requestLocale)
+	if !ok {
+		return
+	}
 	input, ok := decodeRevisionForm(response, request)
 	if !ok {
 		handler.renderEntryFormError(response, request, requestLocale, id, http.StatusBadRequest, messagesFor(requestLocale).InvalidRevisionFormMessage)
 		return
 	}
-	if _, err := handler.repository.CreateRevision(request.Context(), id, input); err != nil {
+	if _, err := handler.repository.CreateRevision(request.Context(), actorEmail, id, input); err != nil {
 		handler.renderEntryMutationError(response, request, requestLocale, id, err, mutationRevision)
 		return
 	}
@@ -974,12 +1005,16 @@ func (handler *Handler) createRevision(response http.ResponseWriter, request *ht
 }
 
 func (handler *Handler) approveRevision(response http.ResponseWriter, request *http.Request, requestLocale locale, id string) {
+	actorEmail, ok := handler.requireWriteActor(response, request, requestLocale)
+	if !ok {
+		return
+	}
 	input, ok := decodeApprovalForm(response, request)
 	if !ok {
 		handler.renderEntryFormError(response, request, requestLocale, id, http.StatusBadRequest, messagesFor(requestLocale).InvalidApprovalFormMessage)
 		return
 	}
-	if _, err := handler.repository.ApproveRevision(request.Context(), id, input); err != nil {
+	if _, err := handler.repository.ApproveRevision(request.Context(), actorEmail, id, input); err != nil {
 		handler.renderEntryMutationError(response, request, requestLocale, id, err, mutationApproval)
 		return
 	}
@@ -1001,6 +1036,9 @@ func (handler *Handler) renderEntryMutationError(response http.ResponseWriter, r
 		message = msg.ApprovalFailedMessage
 	}
 	switch {
+	case errors.Is(err, webapp.ErrWriteForbidden):
+		handler.writeForbidden(response, request, requestLocale)
+		return
 	case errors.Is(err, webapp.ErrNotFound):
 		handler.notFound(response, request, requestLocale)
 		return
@@ -1034,7 +1072,7 @@ func (handler *Handler) renderEntryFormError(response http.ResponseWriter, reque
 		return
 	}
 	current := currentCandidate(detail)
-	render(response, request, status, entryPage(newEntryPageModel(requestLocale, id, detail, current, message)))
+	render(response, request, status, entryPage(newEntryPageModel(requestLocale, id, detail, current, true, message)))
 }
 
 func (handler *Handler) run(response http.ResponseWriter, request *http.Request, requestLocale locale, escapedID string) {
@@ -1158,17 +1196,51 @@ func (handler *Handler) uploadFailed(response http.ResponseWriter, request *http
 	}))
 }
 
-func (handler *Handler) uploadAllowed(response http.ResponseWriter, request *http.Request, requestLocale locale) bool {
-	settings, err := handler.repository.GetApplicationSettings(request.Context())
+func (handler *Handler) uploadActor(response http.ResponseWriter, request *http.Request, requestLocale locale) (string, bool) {
+	actorEmail, access, err := handler.userAccess(request)
 	if err != nil {
 		handler.internalError(response, request, requestLocale, err)
-		return false
+		return "", false
 	}
-	if settings.FileUploadEnabled {
-		return true
+	if !access.FileUploadEnabled {
+		handler.uploadDisabled(response, request, requestLocale)
+		return "", false
 	}
-	handler.uploadDisabled(response, request, requestLocale)
-	return false
+	if !access.CanWrite {
+		handler.uploadForbidden(response, request, requestLocale)
+		return "", false
+	}
+	return actorEmail, true
+}
+
+func (handler *Handler) userAccess(request *http.Request) (string, webapp.UserAccess, error) {
+	actorEmail := ""
+	if claims, ok := webapp.IAPClaimsFromContext(request.Context()); ok {
+		actorEmail = claims.Email
+	}
+	access, err := handler.repository.GetUserAccess(request.Context(), actorEmail)
+	return actorEmail, access, err
+}
+
+func (handler *Handler) requireWriteActor(response http.ResponseWriter, request *http.Request, requestLocale locale) (string, bool) {
+	actorEmail, access, err := handler.userAccess(request)
+	if err != nil {
+		handler.internalError(response, request, requestLocale, err)
+		return "", false
+	}
+	if !access.CanWrite {
+		handler.writeForbidden(response, request, requestLocale)
+		return "", false
+	}
+	return actorEmail, true
+}
+
+func (handler *Handler) writeForbidden(response http.ResponseWriter, request *http.Request, requestLocale locale) {
+	msg := messagesFor(requestLocale)
+	render(response, request, http.StatusForbidden, errorPage(errorPageModel{
+		Page: newPageContext(requestLocale, "/"), Status: http.StatusForbidden,
+		Title: msg.WriteForbiddenTitle, Message: msg.WriteForbiddenMessage,
+	}))
 }
 
 func (handler *Handler) uploadDisabled(response http.ResponseWriter, request *http.Request, requestLocale locale) {
@@ -1176,6 +1248,14 @@ func (handler *Handler) uploadDisabled(response http.ResponseWriter, request *ht
 	render(response, request, http.StatusForbidden, errorPage(errorPageModel{
 		Page: newPageContext(requestLocale, "/"), Status: http.StatusForbidden,
 		Title: msg.UploadDisabledTitle, Message: msg.UploadDisabledMessage,
+	}))
+}
+
+func (handler *Handler) uploadForbidden(response http.ResponseWriter, request *http.Request, requestLocale locale) {
+	msg := messagesFor(requestLocale)
+	render(response, request, http.StatusForbidden, errorPage(errorPageModel{
+		Page: newPageContext(requestLocale, "/"), Status: http.StatusForbidden,
+		Title: msg.UploadForbiddenTitle, Message: msg.UploadForbiddenMessage,
 	}))
 }
 
@@ -1201,13 +1281,14 @@ func newIndexPageModel(requestLocale locale, filter webapp.EntryFilter, page web
 	return model
 }
 
-func newEntryPageModel(requestLocale locale, id string, detail webapp.EntryDetail, current candidateModel, formError string) entryPageModel {
+func newEntryPageModel(requestLocale locale, id string, detail webapp.EntryDetail, current candidateModel, canWrite bool, formError string) entryPageModel {
 	current.Approved = detail.CurrentApproval != nil && detail.CurrentApproval.Revision == current.Revision
 	return entryPageModel{
-		Page:    newPageContext(requestLocale, "/entries/"+url.PathEscape(id)),
-		Detail:  detail,
-		Current: current,
-		RunHref: runHref(requestLocale, detail.RunIdentity),
+		Page:     newPageContext(requestLocale, "/entries/"+url.PathEscape(id)),
+		CanWrite: canWrite,
+		Detail:   detail,
+		Current:  current,
+		RunHref:  runHref(requestLocale, detail.RunIdentity),
 		RevisionForm: revisionFormModel{
 			Action:       entryRevisionHref(requestLocale, id),
 			BaseRevision: current.Revision,
@@ -1222,9 +1303,9 @@ func newEntryPageModel(requestLocale locale, id string, detail webapp.EntryDetai
 	}
 }
 
-func newReportingSettingsPageModel(requestLocale locale, detail *webapp.ReportingConfigurationDetail, formError string) reportingSettingsPageModel {
+func newReportingSettingsPageModel(requestLocale locale, detail *webapp.ReportingConfigurationDetail, canWrite bool, formError string) reportingSettingsPageModel {
 	model := reportingSettingsPageModel{
-		Page: newPageContext(requestLocale, "/settings/reporting"),
+		Page: newPageContext(requestLocale, "/settings/reporting"), CanWrite: canWrite,
 		Form: reportingConfigurationFormModel{
 			Action: reportingSettingsMutationHref(requestLocale), StartMonth: 1,
 			Classifications: []webapp.ReportingClassification{}, FiscalYears: []reportingFiscalYearFormModel{},

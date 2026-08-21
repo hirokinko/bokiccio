@@ -11,7 +11,7 @@ import (
 	"github.com/hirokinko/bokiccio/internal/webapp"
 )
 
-func (store *Store) CreateRevision(ctx context.Context, entryID string, request webapp.RevisionRequest) (_ webapp.RevisionDetail, resultErr error) {
+func (store *Store) CreateRevision(ctx context.Context, actorEmail, entryID string, request webapp.RevisionRequest) (_ webapp.RevisionDetail, resultErr error) {
 	if request.BaseRevision == nil || *request.BaseRevision < 0 {
 		return webapp.RevisionDetail{}, webapp.ErrInvalidRequest
 	}
@@ -31,6 +31,9 @@ func (store *Store) CreateRevision(ctx context.Context, entryID string, request 
 			_ = transaction.Rollback()
 		}
 	}()
+	if err := requireWriteAccess(ctx, transaction, actorEmail); err != nil {
+		return webapp.RevisionDetail{}, err
+	}
 	if err := requireEntry(ctx, transaction, entryID); err != nil {
 		return webapp.RevisionDetail{}, err
 	}
@@ -67,7 +70,7 @@ func (store *Store) CreateRevision(ctx context.Context, entryID string, request 
 	return revisionDetail(revision, latest, createdAt, request, diagnostics), nil
 }
 
-func (store *Store) ApproveRevision(ctx context.Context, entryID string, request webapp.ApprovalRequest) (_ webapp.ApprovalDetail, resultErr error) {
+func (store *Store) ApproveRevision(ctx context.Context, actorEmail, entryID string, request webapp.ApprovalRequest) (_ webapp.ApprovalDetail, resultErr error) {
 	if request.Revision == nil || *request.Revision < 0 {
 		return webapp.ApprovalDetail{}, webapp.ErrInvalidRequest
 	}
@@ -80,6 +83,9 @@ func (store *Store) ApproveRevision(ctx context.Context, entryID string, request
 			_ = transaction.Rollback()
 		}
 	}()
+	if err := requireWriteAccess(ctx, transaction, actorEmail); err != nil {
+		return webapp.ApprovalDetail{}, err
+	}
 	if err := requireEntry(ctx, transaction, entryID); err != nil {
 		return webapp.ApprovalDetail{}, err
 	}

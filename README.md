@@ -150,7 +150,9 @@ go run ./cmd/bokiccio migrate
 
 production serverはCloud Run direct IAPを前提とします。Cloud Run側でもunauthenticated invocationを禁止し、
 許可するGoogle AccountへIAP accessを付与してください。applicationはsigned IAP JWTの署名、issuer、audience、subject、email、時刻を検証し、
-利用者のallowlistはIAP IAM policyへ委譲します。
+application全体へのaccess allowlistはIAP IAM policyへ委譲します。IAPで許可された未登録userは共有dataを閲覧・検索・exportできますが、
+file upload、revision作成、approval、reporting設定変更は、検証済みemailがdatabaseの`data_write_principals` allowlistへ
+登録されている場合だけ許可します。Web UI/APIに削除機能はありません。
 
 ```sh
 TURSO_DATABASE_URL=libsql://database-name.turso.io \
@@ -165,8 +167,10 @@ go run ./cmd/bokiccio serve
 
 route、JSON、認証境界、remote integration testは[Web API v1](internal/webapp/API.md)、画面routeとassetの構成は[Web UI](internal/webui/UI.md)を参照してください。
 
-file upload可否はdatabaseのtyped settingとして管理し、operator CLIだけで変更します。無効化すると日本語・英語UIの
-normalized JSONとTackler `.txn`のupload formが非表示になり、UI/APIのdirect importも`403`で拒否されます。
+data変更可否はemail allowlist、file upload可否はさらにdatabase-wideのtyped settingで管理します。global settingを無効化すると日本語・英語UIの
+normalized JSONとTackler `.txn`のupload formが非表示になり、UI/APIのdirect importも`403 upload_disabled`で拒否されます。
+global settingが有効でも、検証済みemailがallowlistになければdirect importは`403 upload_forbidden`、その他のmutationは
+`403 write_forbidden`で拒否されます。allowlistは当面operatorがdatabaseで手動管理し、Web UI/APIからは変更できません。
 
 ```sh
 TURSO_DATABASE_URL=libsql://database-name.turso.io \
@@ -178,7 +182,7 @@ go run ./cmd/bokiccio settings set --file-upload-enabled=false
 
 ## Turso backupとrestore
 
-backupは仕訳、source、diagnostic、revision、approval、reporting設定履歴、file upload設定を含む暗号化されていないprivate dataである。
+backupは仕訳、source、diagnostic、revision、approval、reporting設定履歴、file upload設定、data変更許可emailを含む暗号化されていないprivate dataである。
 既存fileを上書きせず、permission `0600`のlogical JSONとして作成する。
 
 ```sh

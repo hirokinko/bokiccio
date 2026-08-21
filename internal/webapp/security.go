@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"net/mail"
 	"net/url"
 	"strings"
 	"time"
@@ -12,12 +13,33 @@ import (
 
 const iapIssuer = "https://cloud.google.com/iap"
 
+var ErrInvalidEmail = errors.New("invalid email address")
+
+type iapClaimsContextKey struct{}
+
 type IAPClaims struct {
 	Issuer   string
 	Subject  string
 	Email    string
 	IssuedAt time.Time
 	Expires  time.Time
+}
+
+func IAPClaimsFromContext(ctx context.Context) (IAPClaims, bool) {
+	claims, ok := ctx.Value(iapClaimsContextKey{}).(IAPClaims)
+	return claims, ok
+}
+
+func NormalizeEmail(value string) (string, error) {
+	normalized := strings.ToLower(strings.TrimSpace(value))
+	if normalized == "" {
+		return "", ErrInvalidEmail
+	}
+	address, err := mail.ParseAddress(normalized)
+	if err != nil || address.Address != normalized {
+		return "", ErrInvalidEmail
+	}
+	return normalized, nil
 }
 
 type IAPTokenValidator interface {
@@ -81,6 +103,7 @@ func RequireIAPWithErrorWriter(next http.Handler, validator IAPTokenValidator, s
 			return
 		}
 		response.Header().Set("Cache-Control", "no-store")
+		request = request.WithContext(context.WithValue(request.Context(), iapClaimsContextKey{}, claims))
 		next.ServeHTTP(response, request)
 	}), nil
 }

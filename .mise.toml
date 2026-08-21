@@ -1,2 +1,4 @@
 [tools]
 terraform = "1.15.8"
+turso = "1.0.31"
+gcloud = "580.0.0"

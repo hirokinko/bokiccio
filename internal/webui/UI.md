@@ -1,6 +1,6 @@
 # Web UI
 
-BokiccioのWeb UIは、Cloud Run direct IAPで保護された単一利用者向けのserver-rendered HTMLです。JSON APIとはrouteを分離し、privateな検索条件や取引内容を外部asset URLへ渡しません。
+BokiccioのWeb UIは、Cloud Run direct IAPで保護されたsingle-owner向けのserver-rendered HTMLです。IAPで許可された未登録userには共有dataをread-only表示し、JSON APIとはrouteを分離してprivateな検索条件や取引内容を外部asset URLへ渡しません。
 
 ## Routes
 
@@ -123,6 +123,16 @@ databaseのoperator管理設定でfile uploadが無効な場合、日本語・�
 request bodyを解析せず、新しいimport runを作らない。既存runの閲覧、検索、revision、approval、export、reportは維持する。
 設定の変更routeはWeb UIに設けない。設定を読めない場合はenabledへfallbackせず、通常のprivate-safeな`500`として扱う。
 
+global settingが有効な場合も、両UI upload routeは検証済みIAP claimsのemailを正規化し、databaseの
+`data_write_principals` allowlistへ登録済みの場合だけ処理する。未登録email、claims不在、raw headerだけのrequestは
+locale別の安全な`403 Forbidden`を返し、request bodyを解析せず、新しいimport runを作らない。handlerの事前判定に加え、
+import transaction内でもglobal settingとemail membershipを再確認する。
+
+allowlist未登録userは、entryとposting、source、diagnostic、revision・approval履歴、import結果、reporting設定、各report、
+承認済みentry exportを利用できる。検索、pagination、export、report selectorはPOST routeでも永続dataを変更しないため利用できる。
+一方、entry detailのrevision・approval formとreporting設定の入力・追加・削除・保存controlはrenderしない。対応する直接POSTは
+body解析前にlocale別`403 Forbidden`とし、各transactionでもemail membershipを再確認する。Web UIに永続dataの削除routeはない。
+
 Tackler `.txn` uploadはnormalized input uploadとは別form/routeで扱う。対応subsetは`internal/tacklerfmt/COMPATIBILITY.md`に従い、parse後のentryをnormalized input v2へ変換して既存import経路へ渡す。sourceはprivate filenameではなく`tackler: uploaded.txn`として記録する。
 parseやdomain validationに失敗した場合は、line numberまたはentry numberと原因をHTML errorとserver logへ出す。原因にはparser/domain validationが返すoffending valueを含む場合がある。filename、SQL error、request body全体は表示しない。
 
@@ -150,3 +160,4 @@ npm run check
 
 この段階の画面はnormalized JSON upload、Tackler `.txn` upload、検索、閲覧、revision作成、approval、承認済み仕訳のexport、
 reporting設定、現在残高・月間費用、commodity別試算表、期首B/S、期末B/S、月次P/L、全勘定残高推移に対応しています。
+allowlist登録済みownerだけがdataを変更でき、その他のIAP userは同じdataをread-onlyで利用します。

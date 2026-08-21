@@ -48,6 +48,7 @@ type entrySummaryModel struct {
 
 type entryPageModel struct {
 	Page         pageContext
+	CanWrite     bool
 	Detail       webapp.EntryDetail
 	Current      candidateModel
 	RunHref      string
@@ -99,6 +100,7 @@ type errorPageModel struct {
 
 type reportingSettingsPageModel struct {
 	Page                 pageContext
+	CanWrite             bool
 	Configured           bool
 	Form                 reportingConfigurationFormModel
 	UnclassifiedAccounts []string

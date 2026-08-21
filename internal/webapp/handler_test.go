@@ -13,6 +13,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/hirokinko/bokiccio/internal/webapp"
 	"github.com/hirokinko/bokiccio/internal/webstore"
@@ -21,7 +22,7 @@ import (
 
 func TestReadOnlyImportVerticalSlice(t *testing.T) {
 	database := openDatabase(t)
-	handler := webapp.NewHandler(webstore.New(database))
+	handler := authenticatedAPIHandler(t, webstore.New(database))
 	input := readFixture(t, "../ingest/testdata/valid-v1.json")
 
 	created := request(t, handler, http.MethodPost, "/api/v1/imports", input, "application/json")
@@ -86,7 +87,7 @@ func TestImportReturnsForbiddenWhenUploadIsDisabled(t *testing.T) {
 	if err := store.SetFileUploadEnabled(context.Background(), false); err != nil {
 		t.Fatalf("SetFileUploadEnabled(false) error=%v", err)
 	}
-	handler := webapp.NewHandler(store)
+	handler := authenticatedAPIHandler(t, store)
 	response := request(t, handler, http.MethodPost, "/api/v1/imports", []byte("not-json"), "text/plain")
 	if response.Code != http.StatusForbidden {
 		t.Fatalf("POST status=%d body=%s", response.Code, response.Body.String())
@@ -94,6 +95,63 @@ func TestImportReturnsForbiddenWhenUploadIsDisabled(t *testing.T) {
 	if !strings.Contains(response.Body.String(), `"code":"upload_disabled"`) {
 		t.Fatalf("POST body=%s", response.Body.String())
 	}
+	var runs int
+	if err := database.QueryRow(`SELECT count(*) FROM import_runs`).Scan(&runs); err != nil || runs != 0 {
+		t.Fatalf("import_runs=%d error=%v, want 0", runs, err)
+	}
+}
+
+func TestImportRequiresAllowedVerifiedIAPEmail(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		handler func(*testing.T, *webstore.Store) http.Handler
+	}{
+		{
+			name: "unlisted verified email",
+			handler: func(t *testing.T, store *webstore.Store) http.Handler {
+				return authenticatedAPIHandlerForEmail(t, store, "viewer@example.com")
+			},
+		},
+		{
+			name: "raw header without verified context",
+			handler: func(_ *testing.T, store *webstore.Store) http.Handler {
+				return webapp.NewHandler(store)
+			},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			database := openDatabase(t)
+			store := webstore.New(database)
+			response := request(t, test.handler(t, store), http.MethodPost, "/api/v1/imports",
+				[]byte("private invalid body"), "text/plain")
+			assertProblem(t, response, http.StatusForbidden, "upload_forbidden")
+			var runs int
+			if err := database.QueryRow(`SELECT count(*) FROM import_runs`).Scan(&runs); err != nil || runs != 0 {
+				t.Fatalf("import_runs=%d error=%v, want 0", runs, err)
+			}
+		})
+	}
+}
+
+type revokeBeforeImportRepository struct {
+	*webstore.Store
+	email string
+}
+
+func (repository revokeBeforeImportRepository) Import(ctx context.Context, actorEmail string, input []byte) (webapp.ImportResult, error) {
+	if err := repository.RemoveDataWritePrincipal(ctx, repository.email); err != nil {
+		return webapp.ImportResult{}, err
+	}
+	return repository.Store.Import(ctx, actorEmail, input)
+}
+
+func TestImportRechecksAllowlistInsideTransaction(t *testing.T) {
+	database := openDatabase(t)
+	store := webstore.New(database)
+	repository := revokeBeforeImportRepository{Store: store, email: testIAPEmail}
+	response := request(t, authenticatedAPIHandler(t, repository), http.MethodPost, "/api/v1/imports",
+		[]byte(`{"schema_version":1,"records":[]}`), "application/json")
+	assertProblem(t, response, http.StatusForbidden, "upload_forbidden")
 	var runs int
 	if err := database.QueryRow(`SELECT count(*) FROM import_runs`).Scan(&runs); err != nil || runs != 0 {
 		t.Fatalf("import_runs=%d error=%v, want 0", runs, err)
@@ -126,7 +184,7 @@ func TestDecimalBoundaryAndZeroRoundtrip(t *testing.T) {
     }
   ]
 }`)
-	result, err := store.Import(context.Background(), input)
+	result, err := store.Import(context.Background(), testIAPEmail, input)
 	if err != nil {
 		t.Fatalf("Import() error = %v", err)
 	}
@@ -152,7 +210,7 @@ func TestDecimalBoundaryAndZeroRoundtrip(t *testing.T) {
 
 func TestImportPreservesMixedOutcomesAndDeduplicates(t *testing.T) {
 	database := openDatabase(t)
-	handler := webapp.NewHandler(webstore.New(database))
+	handler := authenticatedAPIHandler(t, webstore.New(database))
 	input := readFixture(t, "../ingest/testdata/mixed-outcomes-v1.json")
 
 	first := postImport(t, handler, input)
@@ -185,7 +243,7 @@ func TestImportRollbackAndPrivateSafeErrors(t *testing.T) {
         BEGIN SELECT RAISE(FAIL, 'injected private database detail'); END`); err != nil {
 		t.Fatalf("create failure trigger: %v", err)
 	}
-	handler := webapp.NewHandler(webstore.New(database))
+	handler := authenticatedAPIHandler(t, webstore.New(database))
 	response := request(t, handler, http.MethodPost, "/api/v1/imports",
 		readFixture(t, "../ingest/testdata/valid-v1.json"), "application/json")
 	if response.Code != http.StatusInternalServerError || strings.Contains(response.Body.String(), "injected") {
@@ -208,7 +266,7 @@ func TestImportRollbackAndPrivateSafeErrors(t *testing.T) {
 
 func TestHTTPInputFailures(t *testing.T) {
 	database := openDatabase(t)
-	handler := webapp.NewHandler(webstore.New(database))
+	handler := authenticatedAPIHandler(t, webstore.New(database))
 	tests := []struct {
 		name        string
 		method      string
@@ -244,7 +302,7 @@ func TestHTTPInputFailures(t *testing.T) {
 
 func TestRevisionAndApprovalHistory(t *testing.T) {
 	database := openDatabase(t)
-	handler := webapp.NewHandler(webstore.New(database))
+	handler := authenticatedAPIHandler(t, webstore.New(database))
 	entryID := importedEntryID(t, handler)
 	entryPath := "/api/v1/entries/" + url.PathEscape(entryID)
 
@@ -336,7 +394,7 @@ func TestRevisionAndApprovalHistory(t *testing.T) {
 
 func TestRevisionRequestFailures(t *testing.T) {
 	database := openDatabase(t)
-	handler := webapp.NewHandler(webstore.New(database))
+	handler := authenticatedAPIHandler(t, webstore.New(database))
 	entryPath := "/api/v1/entries/" + url.PathEscape(importedEntryID(t, handler))
 
 	missingBase := requestJSON(t, handler, http.MethodPost, entryPath+"/revisions", map[string]any{
@@ -354,9 +412,45 @@ func TestRevisionRequestFailures(t *testing.T) {
 	}
 }
 
+func TestViewerCanReadButCannotMutateData(t *testing.T) {
+	database := openDatabase(t)
+	store := webstore.New(database)
+	owner := authenticatedAPIHandler(t, store)
+	entryID := importedEntryID(t, owner)
+	viewer := authenticatedAPIHandlerForEmail(t, store, "viewer@example.com")
+	entryPath := "/api/v1/entries/" + url.PathEscape(entryID)
+
+	for _, path := range []string{"/api/v1/entries", entryPath, "/api/v1/exports/json"} {
+		response := request(t, viewer, http.MethodGet, path, nil, "")
+		if response.Code != http.StatusOK {
+			t.Fatalf("GET %s status=%d body=%s", path, response.Code, response.Body.String())
+		}
+	}
+	for _, path := range []string{
+		entryPath + "/revisions",
+		entryPath + "/approvals",
+		"/api/v1/reporting/configuration",
+	} {
+		response := request(t, viewer, http.MethodPost, path, []byte("private invalid body"), "text/plain")
+		assertProblem(t, response, http.StatusForbidden, "write_forbidden")
+		if strings.Contains(response.Body.String(), "private invalid body") {
+			t.Fatalf("POST %s reflected request body: %s", path, response.Body.String())
+		}
+	}
+	detail, err := store.GetEntry(context.Background(), entryID)
+	if err != nil || detail.CurrentRevision != 0 || detail.CurrentApproval != nil {
+		t.Fatalf("viewer changed entry: detail=%+v error=%v", detail, err)
+	}
+	if _, err := store.GetCurrentReportingConfiguration(context.Background()); !errors.Is(err, webapp.ErrReportingNotConfigured) {
+		t.Fatalf("viewer changed reporting configuration: error=%v", err)
+	}
+	deleted := request(t, viewer, http.MethodDelete, entryPath, nil, "")
+	assertProblem(t, deleted, http.StatusMethodNotAllowed, "method_not_allowed")
+}
+
 func TestSearchAndApprovedExports(t *testing.T) {
 	database := openDatabase(t)
-	handler := webapp.NewHandler(webstore.New(database))
+	handler := authenticatedAPIHandler(t, webstore.New(database))
 	input := []byte(`{
   "schema_version": 1,
   "records": [
@@ -528,7 +622,7 @@ func TestSearchAndApprovedExports(t *testing.T) {
 
 func TestApprovedExportOrdersDateBeforeTimestampAndTimestampsByInstant(t *testing.T) {
 	database := openDatabase(t)
-	handler := webapp.NewHandler(webstore.New(database))
+	handler := authenticatedAPIHandler(t, webstore.New(database))
 	input := []byte(`{
   "schema_version": 1,
   "records": [
@@ -622,11 +716,12 @@ func TestMigrationRejectsFutureVersion(t *testing.T) {
 func TestMigrationPreservesV1Entries(t *testing.T) {
 	database := openDatabase(t)
 	store := webstore.New(database)
-	result, err := store.Import(context.Background(), readFixture(t, "../ingest/testdata/valid-v1.json"))
+	result, err := store.Import(context.Background(), testIAPEmail, readFixture(t, "../ingest/testdata/valid-v1.json"))
 	if err != nil {
 		t.Fatalf("Import() error = %v", err)
 	}
 	for _, statement := range []string{
+		`DROP TABLE data_write_principals`,
 		`DROP TABLE application_settings`,
 		`DROP TABLE reporting_opening_entries`,
 		`DROP TABLE reporting_fiscal_years`,
@@ -666,7 +761,7 @@ func TestMigrationPreservesV1Entries(t *testing.T) {
 func TestMigrationFailurePreservesV1Data(t *testing.T) {
 	database := openDatabase(t)
 	store := webstore.New(database)
-	result, err := store.Import(context.Background(), readFixture(t, "../ingest/testdata/valid-v1.json"))
+	result, err := store.Import(context.Background(), testIAPEmail, readFixture(t, "../ingest/testdata/valid-v1.json"))
 	if err != nil {
 		t.Fatalf("Import() error = %v", err)
 	}
@@ -746,7 +841,39 @@ func openDatabase(t *testing.T) *sql.DB {
 	if err := webstore.CheckSchema(context.Background(), database); err != nil {
 		t.Fatalf("CheckSchema() error = %v", err)
 	}
+	if err := webstore.New(database).AddDataWritePrincipal(context.Background(), testIAPEmail); err != nil {
+		t.Fatalf("AddDataWritePrincipal() error = %v", err)
+	}
 	return database
+}
+
+const testIAPEmail = "operator@example.com"
+
+type testIAPValidator struct {
+	email string
+}
+
+func (validator testIAPValidator) Validate(context.Context, string, string) (webapp.IAPClaims, error) {
+	now := time.Now()
+	return webapp.IAPClaims{
+		Issuer: "https://cloud.google.com/iap", Subject: "test-subject", Email: validator.email,
+		IssuedAt: now.Add(-time.Minute), Expires: now.Add(5 * time.Minute),
+	}, nil
+}
+
+func authenticatedAPIHandler(t *testing.T, repository webapp.Repository) http.Handler {
+	return authenticatedAPIHandlerForEmail(t, repository, testIAPEmail)
+}
+
+func authenticatedAPIHandlerForEmail(t *testing.T, repository webapp.Repository, email string) http.Handler {
+	t.Helper()
+	handler, err := webapp.RequireIAP(webapp.NewHandler(repository), testIAPValidator{email: email}, webapp.IAPSecurity{
+		Audience: "test-audience", ExternalOrigin: "https://example.com",
+	})
+	if err != nil {
+		t.Fatalf("RequireIAP() error = %v", err)
+	}
+	return handler
 }
 
 func readFixture(t *testing.T, path string) []byte {
@@ -812,6 +939,10 @@ func request(t *testing.T, handler http.Handler, method, path string, body []byt
 	request := httptest.NewRequest(method, path, bytes.NewReader(body))
 	if contentType != "" {
 		request.Header.Set("Content-Type", contentType)
+	}
+	request.Header.Set("X-Goog-IAP-JWT-Assertion", "signed-test-token")
+	if method != http.MethodGet && method != http.MethodHead && method != http.MethodOptions && method != http.MethodTrace {
+		request.Header.Set("Origin", "https://example.com")
 	}
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)

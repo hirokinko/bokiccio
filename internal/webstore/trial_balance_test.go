@@ -12,7 +12,8 @@ import (
 func TestTrialBalanceUsesOnlyCurrentApprovedSnapshots(t *testing.T) {
 	ctx := context.Background()
 	store := New(openBackupTestDatabase(t))
-	result, err := store.Import(ctx, []byte(trialBalanceInput))
+	allowTestUploads(t, ctx, store)
+	result, err := store.Import(ctx, testUploadEmail, []byte(trialBalanceInput))
 	if err != nil {
 		t.Fatalf("Import() error = %v", err)
 	}
@@ -27,14 +28,14 @@ func TestTrialBalanceUsesOnlyCurrentApprovedSnapshots(t *testing.T) {
 	zero := 0
 	approve := func(index int, revision *int) {
 		t.Helper()
-		if _, err := store.ApproveRevision(ctx, ids[index], webapp.ApprovalRequest{Revision: revision}); err != nil {
+		if _, err := store.ApproveRevision(ctx, testUploadEmail, ids[index], webapp.ApprovalRequest{Revision: revision}); err != nil {
 			t.Fatalf("ApproveRevision(entry %d) error = %v", index, err)
 		}
 	}
 	approve(0, &zero)
 
 	twenty := "20"
-	latest, err := store.CreateRevision(ctx, ids[1], webapp.RevisionRequest{
+	latest, err := store.CreateRevision(ctx, testUploadEmail, ids[1], webapp.RevisionRequest{
 		BaseRevision: &zero, OccurredAt: "2025-04-10", Description: "approved current revision",
 		Comments: []string{"anonymous approved revision"},
 		Postings: []webapp.PostingDetail{
@@ -49,7 +50,7 @@ func TestTrialBalanceUsesOnlyCurrentApprovedSnapshots(t *testing.T) {
 
 	approve(2, &zero)
 	nine := "9"
-	stale, err := store.CreateRevision(ctx, ids[2], webapp.RevisionRequest{
+	stale, err := store.CreateRevision(ctx, testUploadEmail, ids[2], webapp.RevisionRequest{
 		BaseRevision: &zero, OccurredAt: "2025-04-15", Description: "unapproved current revision",
 		Postings: []webapp.PostingDetail{
 			{Account: "Expenses:Supplies", Amount: &nine, Commodity: "JPY"},
@@ -62,7 +63,7 @@ func TestTrialBalanceUsesOnlyCurrentApprovedSnapshots(t *testing.T) {
 
 	approve(3, &zero)
 	two, minusOne := "2", "-1"
-	invalid, err := store.CreateRevision(ctx, ids[3], webapp.RevisionRequest{
+	invalid, err := store.CreateRevision(ctx, testUploadEmail, ids[3], webapp.RevisionRequest{
 		BaseRevision: &zero, OccurredAt: "2025-04-20", Description: "invalid current revision",
 		Postings: []webapp.PostingDetail{
 			{Account: "Expenses:Supplies", Amount: &two, Commodity: "JPY"},
@@ -82,7 +83,7 @@ func TestTrialBalanceUsesOnlyCurrentApprovedSnapshots(t *testing.T) {
 		{Account: "Revenue", Category: reporting.CategoryRevenue},
 		{Account: "Expenses", Category: reporting.CategoryExpense},
 	}
-	if _, err := store.CreateReportingConfiguration(ctx, request); err != nil {
+	if _, err := store.CreateReportingConfiguration(ctx, testUploadEmail, request); err != nil {
 		t.Fatalf("CreateReportingConfiguration() error = %v", err)
 	}
 

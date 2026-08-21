@@ -10,7 +10,7 @@ import (
 )
 
 func TestReportingConfigurationAPIHistoryAndValidation(t *testing.T) {
-	handler := webapp.NewHandler(webstore.New(openDatabase(t)))
+	handler := authenticatedAPIHandler(t, webstore.New(openDatabase(t)))
 
 	assertProblem(t, request(t, handler, http.MethodGet, "/api/v1/reporting/configuration", nil, ""),
 		http.StatusConflict, "reporting_not_configured")
@@ -74,7 +74,7 @@ func TestReportingConfigurationAPIHistoryAndValidation(t *testing.T) {
 }
 
 func TestTrialBalanceAPIEmptyAndMultipleCommodities(t *testing.T) {
-	handler := webapp.NewHandler(webstore.New(openDatabase(t)))
+	handler := authenticatedAPIHandler(t, webstore.New(openDatabase(t)))
 	createResponse := requestJSON(t, handler, http.MethodPost, "/api/v1/reporting/configuration", map[string]any{
 		"base_revision": 0,
 		"start_month":   4,
@@ -215,7 +215,7 @@ func TestTrialBalanceAPIEmptyAndMultipleCommodities(t *testing.T) {
 }
 
 func TestFinancialReportAPIOpeningBalanceUnbalanced(t *testing.T) {
-	handler := webapp.NewHandler(webstore.New(openDatabase(t)))
+	handler := authenticatedAPIHandler(t, webstore.New(openDatabase(t)))
 	input := []byte(`{
   "schema_version": 1,
   "records": [
@@ -271,7 +271,7 @@ func TestFinancialReportAPIOpeningBalanceUnbalanced(t *testing.T) {
 }
 
 func TestTrialBalanceAPINotConfigured(t *testing.T) {
-	handler := webapp.NewHandler(webstore.New(openDatabase(t)))
+	handler := authenticatedAPIHandler(t, webstore.New(openDatabase(t)))
 	response := request(t, handler, http.MethodGet,
 		"/api/v1/reports/trial-balance?start_date=2025-04-01&end_date=2025-04-30", nil, "")
 	assertProblem(t, response, http.StatusConflict, "reporting_not_configured")

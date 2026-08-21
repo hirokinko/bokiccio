@@ -17,7 +17,7 @@ func TestRemoteTursoMigrationAndImport(t *testing.T) {
 	if databaseURL == "" || authToken == "" {
 		t.Skip("remote Turso test credentials are not configured")
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 	database, err := OpenRemote(ctx, DatabaseConfig{URL: databaseURL, authToken: authToken})
 	if err != nil {
@@ -33,7 +33,11 @@ func TestRemoteTursoMigrationAndImport(t *testing.T) {
 	nonce := time.Now().UTC().Format("20060102T150405.000000000Z")
 	input := []byte(fmt.Sprintf(`{"schema_version":1,"records":[{"source":{"namespace":"remote-integration","display":"%[1]s"},"occurred_at":"2026-08-11","description":"remote integration %[1]s","postings":[{"account":"資産:確認","amount":"1","commodity":"UNIT"},{"account":"負債:確認","amount":"-1","commodity":"UNIT"}]}]}`, nonce))
 	store := webstore.New(database)
-	result, err := store.Import(ctx, input)
+	const actorEmail = "remote-integration@example.com"
+	if err := store.AddDataWritePrincipal(ctx, actorEmail); err != nil {
+		t.Fatalf("AddDataWritePrincipal() error = %v", err)
+	}
+	result, err := store.Import(ctx, actorEmail, input)
 	if err != nil {
 		t.Fatalf("Import() error = %v", err)
 	}
@@ -46,7 +50,7 @@ func TestRemoteTursoMigrationAndImport(t *testing.T) {
 	}
 	baseRevision := 0
 	amount := "2.00"
-	revision, err := store.CreateRevision(ctx, run.Outcomes[0].EntryID, webapp.RevisionRequest{
+	revision, err := store.CreateRevision(ctx, actorEmail, run.Outcomes[0].EntryID, webapp.RevisionRequest{
 		BaseRevision: &baseRevision,
 		OccurredAt:   "2026-08-11T12:00:00+09:00",
 		Description:  "remote integration revision",
@@ -59,7 +63,7 @@ func TestRemoteTursoMigrationAndImport(t *testing.T) {
 	if err != nil || !revision.Valid {
 		t.Fatalf("CreateRevision() revision=%+v error=%v", revision, err)
 	}
-	if _, err := store.ApproveRevision(ctx, run.Outcomes[0].EntryID, webapp.ApprovalRequest{Revision: &revision.Revision}); err != nil {
+	if _, err := store.ApproveRevision(ctx, actorEmail, run.Outcomes[0].EntryID, webapp.ApprovalRequest{Revision: &revision.Revision}); err != nil {
 		t.Fatalf("ApproveRevision() error = %v", err)
 	}
 	page, err := store.ListEntries(ctx, webapp.EntryQuery{

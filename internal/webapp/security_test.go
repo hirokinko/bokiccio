@@ -110,6 +110,61 @@ func TestIAPSecurityValidation(t *testing.T) {
 	}
 }
 
+func TestRequireIAPStoresValidatedClaimsInRequestContext(t *testing.T) {
+	now := time.Now()
+	want := IAPClaims{
+		Issuer:   iapIssuer,
+		Subject:  "iap-user-subject",
+		Email:    "iap-user@example.com",
+		IssuedAt: now.Add(-time.Minute),
+		Expires:  now.Add(5 * time.Minute),
+	}
+	validator := &stubIAPValidator{claims: want}
+	handler, err := RequireIAP(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		claims, ok := IAPClaimsFromContext(request.Context())
+		if !ok {
+			t.Fatal("IAPClaimsFromContext() ok = false")
+		}
+		if claims != want {
+			t.Fatalf("IAPClaimsFromContext() claims = %+v, want %+v", claims, want)
+		}
+		response.WriteHeader(http.StatusNoContent)
+	}), validator, IAPSecurity{Audience: "audience", ExternalOrigin: "https://example.com"})
+	if err != nil {
+		t.Fatalf("RequireIAP() error = %v", err)
+	}
+
+	request := httptest.NewRequest(http.MethodGet, "https://example.com/", nil)
+	request.Header.Set("X-Goog-IAP-JWT-Assertion", "signed")
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want %d", response.Code, http.StatusNoContent)
+	}
+}
+
+func TestIAPClaimsFromContextRejectsUntrustedValues(t *testing.T) {
+	if claims, ok := IAPClaimsFromContext(context.Background()); ok || claims != (IAPClaims{}) {
+		t.Fatalf("IAPClaimsFromContext(empty) claims = %+v, ok = %t", claims, ok)
+	}
+	ctx := context.WithValue(context.Background(), "iap-claims", IAPClaims{Email: "attacker@example.com"})
+	if claims, ok := IAPClaimsFromContext(ctx); ok || claims != (IAPClaims{}) {
+		t.Fatalf("IAPClaimsFromContext(untrusted) claims = %+v, ok = %t", claims, ok)
+	}
+}
+
+func TestNormalizeEmail(t *testing.T) {
+	got, err := NormalizeEmail("  Operator+Demo@Example.COM \t")
+	if err != nil || got != "operator+demo@example.com" {
+		t.Fatalf("NormalizeEmail() = %q, %v", got, err)
+	}
+	for _, invalid := range []string{"", "   ", "not-an-email", "Operator <operator@example.com>"} {
+		if got, err := NormalizeEmail(invalid); !errors.Is(err, ErrInvalidEmail) || got != "" {
+			t.Fatalf("NormalizeEmail(%q) = %q, %v", invalid, got, err)
+		}
+	}
+}
+
 func replaceClaims(claims IAPClaims, replace func(*IAPClaims)) IAPClaims {
 	replace(&claims)
 	return claims

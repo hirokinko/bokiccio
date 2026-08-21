@@ -15,13 +15,14 @@ func TestReportingConfigurationHistory(t *testing.T) {
 	ctx := context.Background()
 	database := openBackupTestDatabase(t)
 	store := New(database)
+	allowTestUploads(t, ctx, store)
 
 	if _, err := store.GetCurrentReportingConfiguration(ctx); !errors.Is(err, webapp.ErrReportingNotConfigured) {
 		t.Fatalf("GetCurrentReportingConfiguration() error = %v, want ErrReportingNotConfigured", err)
 	}
 	zero := 0
 	firstRequest := automaticReportingRequest(&zero, 4, "2025-04-01", "2026-03-31")
-	first, err := store.CreateReportingConfiguration(ctx, firstRequest)
+	first, err := store.CreateReportingConfiguration(ctx, testUploadEmail, firstRequest)
 	if err != nil {
 		t.Fatalf("CreateReportingConfiguration(first) error = %v", err)
 	}
@@ -33,7 +34,7 @@ func TestReportingConfigurationHistory(t *testing.T) {
 	secondRequest := automaticReportingRequest(&one, 4, "2025-04-01", "2026-03-31")
 	secondRequest.Classifications = append(secondRequest.Classifications,
 		webapp.ReportingClassification{Account: "Revenue", Category: reporting.CategoryRevenue})
-	second, err := store.CreateReportingConfiguration(ctx, secondRequest)
+	second, err := store.CreateReportingConfiguration(ctx, testUploadEmail, secondRequest)
 	if err != nil {
 		t.Fatalf("CreateReportingConfiguration(second) error = %v", err)
 	}
@@ -52,7 +53,7 @@ func TestReportingConfigurationHistory(t *testing.T) {
 		t.Fatalf("historical = %+v, want %+v", historical, first)
 	}
 
-	if _, err := store.CreateReportingConfiguration(ctx, secondRequest); !errors.Is(err, webapp.ErrConflict) {
+	if _, err := store.CreateReportingConfiguration(ctx, testUploadEmail, secondRequest); !errors.Is(err, webapp.ErrConflict) {
 		t.Fatalf("CreateReportingConfiguration(stale) error = %v, want ErrConflict", err)
 	}
 	if _, err := store.GetReportingConfiguration(ctx, 99); !errors.Is(err, webapp.ErrNotFound) {
@@ -63,6 +64,7 @@ func TestReportingConfigurationHistory(t *testing.T) {
 func TestReportingConfigurationValidatesOpeningEntryAgainstApprovedSnapshot(t *testing.T) {
 	ctx := context.Background()
 	store := New(openBackupTestDatabase(t))
+	allowTestUploads(t, ctx, store)
 	entryID := importOpeningEntry(t, ctx, store)
 
 	zero := 0
@@ -78,7 +80,7 @@ func TestReportingConfigurationValidatesOpeningEntryAgainstApprovedSnapshot(t *t
 			OpeningEntryIDs: []string{entryID},
 		}},
 	}
-	created, err := store.CreateReportingConfiguration(ctx, request)
+	created, err := store.CreateReportingConfiguration(ctx, testUploadEmail, request)
 	if err != nil {
 		t.Fatalf("CreateReportingConfiguration(opening entry) error = %v", err)
 	}
@@ -94,7 +96,7 @@ func TestReportingConfigurationValidatesOpeningEntryAgainstApprovedSnapshot(t *t
 		StartDate: "2026-01-01", EndDate: "2026-12-31", OpeningMode: reporting.OpeningEntries,
 		OpeningEntryIDs: []string{entryID},
 	}}
-	if _, err := store.CreateReportingConfiguration(ctx, changedCalendar); !errors.Is(err, webapp.ErrInvalidRequest) {
+	if _, err := store.CreateReportingConfiguration(ctx, testUploadEmail, changedCalendar); !errors.Is(err, webapp.ErrInvalidRequest) {
 		t.Fatalf("CreateReportingConfiguration(calendar change) error = %v, want ErrInvalidRequest", err)
 	} else {
 		var configurationErr *webapp.ReportingConfigurationError
@@ -111,11 +113,12 @@ func TestReportingConfigurationValidatesOpeningEntryAgainstApprovedSnapshot(t *t
 func TestReportingConfigurationRejectsUnapprovedAndTemporaryOpeningEntries(t *testing.T) {
 	ctx := context.Background()
 	store := New(openBackupTestDatabase(t))
+	allowTestUploads(t, ctx, store)
 	input, err := os.ReadFile("../ingest/testdata/valid-v1.json")
 	if err != nil {
 		t.Fatalf("ReadFile() error = %v", err)
 	}
-	result, err := store.Import(ctx, input)
+	result, err := store.Import(ctx, testUploadEmail, input)
 	if err != nil {
 		t.Fatalf("Import() error = %v", err)
 	}
@@ -138,7 +141,7 @@ func TestReportingConfigurationRejectsUnapprovedAndTemporaryOpeningEntries(t *te
 			OpeningEntryIDs: []string{unapprovedID},
 		}},
 	}
-	if _, err := store.CreateReportingConfiguration(ctx, request); !errors.Is(err, webapp.ErrInvalidRequest) {
+	if _, err := store.CreateReportingConfiguration(ctx, testUploadEmail, request); !errors.Is(err, webapp.ErrInvalidRequest) {
 		t.Fatalf("CreateReportingConfiguration(unapproved) error = %v, want ErrInvalidRequest", err)
 	} else {
 		var configurationErr *webapp.ReportingConfigurationError
@@ -148,7 +151,7 @@ func TestReportingConfigurationRejectsUnapprovedAndTemporaryOpeningEntries(t *te
 	}
 
 	amount := "207.00"
-	revision, err := store.CreateRevision(ctx, unapprovedID, webapp.RevisionRequest{
+	revision, err := store.CreateRevision(ctx, testUploadEmail, unapprovedID, webapp.RevisionRequest{
 		BaseRevision: &zero, OccurredAt: "2026-08-01", Description: "anonymous temporary opening",
 		Postings: []webapp.PostingDetail{
 			{Account: "費用:食費", Amount: &amount, Commodity: "JPY"},
@@ -158,10 +161,10 @@ func TestReportingConfigurationRejectsUnapprovedAndTemporaryOpeningEntries(t *te
 	if err != nil || !revision.Valid {
 		t.Fatalf("CreateRevision() revision=%+v error=%v", revision, err)
 	}
-	if _, err := store.ApproveRevision(ctx, unapprovedID, webapp.ApprovalRequest{Revision: &revision.Revision}); err != nil {
+	if _, err := store.ApproveRevision(ctx, testUploadEmail, unapprovedID, webapp.ApprovalRequest{Revision: &revision.Revision}); err != nil {
 		t.Fatalf("ApproveRevision() error = %v", err)
 	}
-	if _, err := store.CreateReportingConfiguration(ctx, request); !errors.Is(err, webapp.ErrInvalidRequest) {
+	if _, err := store.CreateReportingConfiguration(ctx, testUploadEmail, request); !errors.Is(err, webapp.ErrInvalidRequest) {
 		t.Fatalf("CreateReportingConfiguration(temporary account) error = %v, want ErrInvalidRequest", err)
 	} else {
 		var configurationErr *webapp.ReportingConfigurationError
@@ -188,11 +191,12 @@ func automaticReportingRequest(baseRevision *int, startMonth int, startDate, end
 
 func importOpeningEntry(t *testing.T, ctx context.Context, store *Store) string {
 	t.Helper()
+	allowTestUploads(t, ctx, store)
 	input, err := os.ReadFile("../ingest/testdata/valid-v1.json")
 	if err != nil {
 		t.Fatalf("ReadFile() error = %v", err)
 	}
-	result, err := store.Import(ctx, input)
+	result, err := store.Import(ctx, testUploadEmail, input)
 	if err != nil {
 		t.Fatalf("Import() error = %v", err)
 	}
@@ -203,7 +207,7 @@ func importOpeningEntry(t *testing.T, ctx context.Context, store *Store) string 
 	entryID := run.Outcomes[0].EntryID
 	zero := 0
 	amount := "100"
-	revision, err := store.CreateRevision(ctx, entryID, webapp.RevisionRequest{
+	revision, err := store.CreateRevision(ctx, testUploadEmail, entryID, webapp.RevisionRequest{
 		BaseRevision: &zero, OccurredAt: "2025-04-01", Description: "anonymous opening balance",
 		Postings: []webapp.PostingDetail{
 			{Account: "Assets:Cash", Amount: &amount, Commodity: "JPY"},
@@ -213,7 +217,7 @@ func importOpeningEntry(t *testing.T, ctx context.Context, store *Store) string 
 	if err != nil || !revision.Valid {
 		t.Fatalf("CreateRevision(opening) = %+v, error = %v", revision, err)
 	}
-	if _, err := store.ApproveRevision(ctx, entryID, webapp.ApprovalRequest{Revision: &revision.Revision}); err != nil {
+	if _, err := store.ApproveRevision(ctx, testUploadEmail, entryID, webapp.ApprovalRequest{Revision: &revision.Revision}); err != nil {
 		t.Fatalf("ApproveRevision(opening) error = %v", err)
 	}
 	return entryID

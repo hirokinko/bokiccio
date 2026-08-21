@@ -230,11 +230,20 @@ Cloud Run serviceの初回作成後、次の操作をGoogle Cloud Consoleで行�
 1. 許可した個人Google Accountの通常windowでservice URLを開き、IAP login後に画面が表示されることを確認する。
 2. 未許可accountの別profileまたはsecret windowではapplication contentを取得できないことを確認する。
 3. demo databaseが空であり、個人用databaseやbackupを接続していないことを再確認する。
-4. uploadがenabledの間に`samples/normalized-input-upload-v1.json`だけを取り込む。
-5. 必要な承認とreporting設定をdemo上で行う。
-6. operator CLI `bokiccio settings set --file-upload-enabled=false`でuploadを無効化する。
-7. 日本語・英語画面から両upload formが消え、3つのimport routeが`403`となることを確認する。
-8. 検索、entry詳細、revision、approval、export、reportが引き続き利用できることを確認する。
+4. schema v7 migration直後の`data_write_principals`が空であることを確認し、lowercaseのowner emailを手動登録する。
+
+   ```sh
+   turso db shell <DATABASE_NAME> "SELECT email FROM data_write_principals ORDER BY email;"
+   turso db shell <DATABASE_NAME> "INSERT OR IGNORE INTO data_write_principals (email) VALUES ('<lowercase-owner-email>');"
+   turso db shell <DATABASE_NAME> "SELECT email FROM data_write_principals ORDER BY email;"
+   ```
+
+5. uploadがenabledの間に`samples/normalized-input-upload-v1.json`だけを取り込む。
+6. 必要な承認とreporting設定をdemo上で行う。
+7. operator CLI `bokiccio settings set --file-upload-enabled=false`でuploadを無効化する。
+8. 日本語・英語画面から両upload formが消え、3つのimport routeが`403`となることを確認する。
+9. ownerでは検索、entry詳細、revision、approval、export、reportが引き続き利用できることを確認する。
+10. IAPには許可されているが`data_write_principals`へ未登録のaccountで、entry、履歴、import結果、reporting設定、report、exportを閲覧でき、upload・revision・approval・reporting設定変更が`403`となることを確認する。
 
 ## 8. IAP利用者の追加・削除
 
@@ -266,6 +275,15 @@ gcloud iap web get-iam-policy \
 
 Consoleや`gcloud iap web add-iam-policy-binding`による直接変更は通常運用にしない。operator自身が唯一の管理経路である場合、
 自身をlistから削除しない。
+
+IAPへ追加したuserは`data_write_principals`へ登録しない限りread-only viewerとなる。owner交代などでdata変更権限を移す場合だけ、
+対象databaseとemailを再確認して次の手動操作を行う。削除後もIAP accessが残るuserは閲覧を継続できる。
+
+```sh
+turso db shell <DATABASE_NAME> "INSERT OR IGNORE INTO data_write_principals (email) VALUES ('<lowercase-owner-email>');"
+turso db shell <DATABASE_NAME> "DELETE FROM data_write_principals WHERE email = '<lowercase-former-owner-email>';"
+turso db shell <DATABASE_NAME> "SELECT email FROM data_write_principals ORDER BY email;"
+```
 
 ## 完了記録
 

@@ -17,15 +17,18 @@ import (
 	_ "turso.tech/database/tursogo"
 )
 
+const testUploadEmail = "operator@example.com"
+
 func TestBackupRestoreRoundTrip(t *testing.T) {
 	ctx := context.Background()
 	sourceDB := openBackupTestDatabase(t)
 	source := New(sourceDB)
+	allowTestUploads(t, ctx, source)
 	input, err := os.ReadFile("../ingest/testdata/mixed-outcomes-v1.json")
 	if err != nil {
 		t.Fatalf("ReadFile() error = %v", err)
 	}
-	result, err := source.Import(ctx, input)
+	result, err := source.Import(ctx, testUploadEmail, input)
 	if err != nil {
 		t.Fatalf("Import() error = %v", err)
 	}
@@ -35,11 +38,11 @@ func TestBackupRestoreRoundTrip(t *testing.T) {
 	}
 	entryID := run.Outcomes[0].EntryID
 	zero := 0
-	if _, err := source.ApproveRevision(ctx, entryID, webapp.ApprovalRequest{Revision: &zero}); err != nil {
+	if _, err := source.ApproveRevision(ctx, testUploadEmail, entryID, webapp.ApprovalRequest{Revision: &zero}); err != nil {
 		t.Fatalf("ApproveRevision(original) error = %v", err)
 	}
 	invalidAmount, invalidOffset := "2.00", "-1.00"
-	invalid, err := source.CreateRevision(ctx, entryID, webapp.RevisionRequest{
+	invalid, err := source.CreateRevision(ctx, testUploadEmail, entryID, webapp.RevisionRequest{
 		BaseRevision: &zero, OccurredAt: "2026-08-12", Description: "invalid backup revision",
 		Comments: []string{"invalid revision"}, Postings: []webapp.PostingDetail{
 			{Account: "費用:確認", Amount: &invalidAmount, Commodity: "UNIT"},
@@ -50,7 +53,7 @@ func TestBackupRestoreRoundTrip(t *testing.T) {
 		t.Fatalf("invalid revision=%+v error=%v", invalid, err)
 	}
 	validAmount := "2.00"
-	valid, err := source.CreateRevision(ctx, entryID, webapp.RevisionRequest{
+	valid, err := source.CreateRevision(ctx, testUploadEmail, entryID, webapp.RevisionRequest{
 		BaseRevision: &invalid.Revision, OccurredAt: "2026-08-12T10:00:00+09:00", Description: "valid backup revision",
 		Comments: []string{"valid revision"}, Postings: []webapp.PostingDetail{
 			{Account: "費用:確認", Amount: &validAmount, Commodity: "UNIT"},
@@ -60,7 +63,7 @@ func TestBackupRestoreRoundTrip(t *testing.T) {
 	if err != nil || !valid.Valid {
 		t.Fatalf("valid revision=%+v error=%v", valid, err)
 	}
-	if _, err := source.ApproveRevision(ctx, entryID, webapp.ApprovalRequest{Revision: &valid.Revision}); err != nil {
+	if _, err := source.ApproveRevision(ctx, testUploadEmail, entryID, webapp.ApprovalRequest{Revision: &valid.Revision}); err != nil {
 		t.Fatalf("ApproveRevision(valid) error = %v", err)
 	}
 
@@ -97,7 +100,7 @@ func TestBackupRestoreRoundTrip(t *testing.T) {
 	if err != nil || detail.CurrentRevision != 2 || detail.CurrentApproval == nil || len(detail.Revisions) != 2 || len(detail.Approvals) != 2 {
 		t.Fatalf("restored entry error=%v detail=%+v", err, detail)
 	}
-	duplicate, err := target.Import(ctx, input)
+	duplicate, err := target.Import(ctx, testUploadEmail, input)
 	if err != nil || duplicate.Counts.Duplicate != 3 || duplicate.Counts.Error != 1 {
 		t.Fatalf("restored deduplication error=%v result=%+v", err, duplicate)
 	}
@@ -107,8 +110,9 @@ func TestBackupRestoreTotalPrice(t *testing.T) {
 	ctx := context.Background()
 	sourceDB := openBackupTestDatabase(t)
 	source := New(sourceDB)
+	allowTestUploads(t, ctx, source)
 	input := []byte(`{"schema_version":2,"records":[{"source":{"namespace":"tackler","display":"uploaded.txn","external_id":"total-price-record"},"occurred_at":"2026-08-11","description":"匿名投資取引","postings":[{"account":"資産:投資信託","amount":"350","commodity":"口","total_price":{"amount":"675","commodity":"JPY"}},{"account":"資産:購入予定"}]}]}`)
-	result, err := source.Import(ctx, input)
+	result, err := source.Import(ctx, testUploadEmail, input)
 	if err != nil {
 		t.Fatalf("Import() error = %v", err)
 	}
@@ -118,7 +122,7 @@ func TestBackupRestoreTotalPrice(t *testing.T) {
 	}
 	entryID := run.Outcomes[0].EntryID
 	zero := 0
-	if _, err := source.ApproveRevision(ctx, entryID, webapp.ApprovalRequest{Revision: &zero}); err != nil {
+	if _, err := source.ApproveRevision(ctx, testUploadEmail, entryID, webapp.ApprovalRequest{Revision: &zero}); err != nil {
 		t.Fatalf("ApproveRevision() error = %v", err)
 	}
 
@@ -150,7 +154,7 @@ func TestBackupRestoreReportingConfiguration(t *testing.T) {
 	source := New(openBackupTestDatabase(t))
 	entryID := importOpeningEntry(t, ctx, source)
 	zero := 0
-	want, err := source.CreateReportingConfiguration(ctx, webapp.ReportingConfigurationRequest{
+	want, err := source.CreateReportingConfiguration(ctx, testUploadEmail, webapp.ReportingConfigurationRequest{
 		BaseRevision: &zero,
 		StartMonth:   4,
 		Classifications: []webapp.ReportingClassification{
@@ -190,6 +194,11 @@ func TestBackupRestoreApplicationSettings(t *testing.T) {
 	if err := source.SetFileUploadEnabled(ctx, false); err != nil {
 		t.Fatalf("SetFileUploadEnabled(false) error=%v", err)
 	}
+	for _, email := range []string{"operator@example.com", "backup@example.com"} {
+		if err := source.AddDataWritePrincipal(ctx, email); err != nil {
+			t.Fatalf("AddDataWritePrincipal(%q) error=%v", email, err)
+		}
+	}
 	backup, err := source.Backup(ctx)
 	if err != nil {
 		t.Fatalf("Backup() error=%v", err)
@@ -202,20 +211,26 @@ func TestBackupRestoreApplicationSettings(t *testing.T) {
 	if err != nil || settings.FileUploadEnabled {
 		t.Fatalf("restored settings=%+v error=%v", settings, err)
 	}
+	principals, err := target.ListDataWritePrincipals(ctx)
+	wantPrincipals := []string{"backup@example.com", "operator@example.com"}
+	if err != nil || !reflect.DeepEqual(principals, wantPrincipals) {
+		t.Fatalf("restored principals=%v error=%v want=%v", principals, err, wantPrincipals)
+	}
 }
 
 func TestRestoreAcceptsLegacyBackups(t *testing.T) {
 	ctx := context.Background()
 	source := New(openBackupTestDatabase(t))
+	allowTestUploads(t, ctx, source)
 	input := []byte(`{"schema_version":1,"records":[{"source":{"namespace":"backup-v2","display":"record.json","external_id":"record"},"occurred_at":"2026-08-11","description":"backup record","postings":[{"account":"資産:確認","amount":"1","commodity":"UNIT"},{"account":"負債:確認","amount":"-1","commodity":"UNIT"}]}]}`)
-	if _, err := source.Import(ctx, input); err != nil {
+	if _, err := source.Import(ctx, testUploadEmail, input); err != nil {
 		t.Fatalf("Import() error = %v", err)
 	}
 	backup, err := source.Backup(ctx)
 	if err != nil {
 		t.Fatalf("Backup() error = %v", err)
 	}
-	for _, schemaVersion := range []int{2, 3, 4} {
+	for _, schemaVersion := range []int{2, 3, 4, 5, 6} {
 		t.Run(fmt.Sprintf("schema-v%d", schemaVersion), func(t *testing.T) {
 			target := New(openBackupTestDatabase(t))
 			if err := target.Restore(ctx, legacyBackup(t, backup, schemaVersion)); err != nil {
@@ -228,6 +243,43 @@ func TestRestoreAcceptsLegacyBackups(t *testing.T) {
 			if err != nil || !settings.FileUploadEnabled {
 				t.Fatalf("GetApplicationSettings() settings=%+v error=%v", settings, err)
 			}
+			principals, err := target.ListDataWritePrincipals(ctx)
+			if err != nil || len(principals) != 0 {
+				t.Fatalf("ListDataWritePrincipals() principals=%v error=%v", principals, err)
+			}
+		})
+	}
+}
+
+func TestRestoreRejectsInvalidDataWritePrincipals(t *testing.T) {
+	ctx := context.Background()
+	source := New(openBackupTestDatabase(t))
+	backup, err := source.Backup(ctx)
+	if err != nil {
+		t.Fatalf("Backup() error=%v", err)
+	}
+	payload, err := decodeBackup(backup)
+	if err != nil {
+		t.Fatalf("decodeBackup() error=%v", err)
+	}
+	for name, principals := range map[string][]dataWritePrincipalRow{
+		"invalid":      {{Email: "not-an-email"}},
+		"unnormalized": {{Email: "Operator@Example.com"}},
+		"duplicate":    {{Email: "operator@example.com"}, {Email: "operator@example.com"}},
+		"unsorted":     {{Email: "second@example.com"}, {Email: "first@example.com"}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			candidate := payload
+			candidate.DataWritePrincipals = principals
+			broken, err := encodeBackup(candidate, time.Date(2026, 8, 14, 0, 0, 0, 0, time.UTC))
+			if err != nil {
+				t.Fatalf("encodeBackup() error=%v", err)
+			}
+			targetDB := openBackupTestDatabase(t)
+			if err := New(targetDB).Restore(ctx, broken); !errors.Is(err, ErrInvalidBackup) {
+				t.Fatalf("Restore() error=%v, want ErrInvalidBackup", err)
+			}
+			assertBackupTestEmpty(t, targetDB)
 		})
 	}
 }
@@ -258,8 +310,9 @@ func TestRestoreRejectsIncompleteReportingPayload(t *testing.T) {
 func TestRestoreRollsBackInvalidReportingHistory(t *testing.T) {
 	ctx := context.Background()
 	source := New(openBackupTestDatabase(t))
+	allowTestUploads(t, ctx, source)
 	zero := 0
-	if _, err := source.CreateReportingConfiguration(ctx,
+	if _, err := source.CreateReportingConfiguration(ctx, testUploadEmail,
 		automaticReportingRequest(&zero, 4, "2025-04-01", "2026-03-31")); err != nil {
 		t.Fatalf("CreateReportingConfiguration() error = %v", err)
 	}
@@ -294,8 +347,9 @@ func TestRestoreRejectsInvalidAndNonEmptyWithoutChanges(t *testing.T) {
 	ctx := context.Background()
 	sourceDB := openBackupTestDatabase(t)
 	source := New(sourceDB)
+	allowTestUploads(t, ctx, source)
 	input := []byte(`{"schema_version":1,"records":[{"source":{"namespace":"backup-test","display":"record.json","external_id":"backup-record"},"occurred_at":"2026-08-11","description":"backup record","postings":[{"account":"資産:確認","amount":"1","commodity":"UNIT"},{"account":"負債:確認","amount":"-1","commodity":"UNIT"}]}]}`)
-	if _, err := source.Import(ctx, input); err != nil {
+	if _, err := source.Import(ctx, testUploadEmail, input); err != nil {
 		t.Fatalf("Import() error = %v", err)
 	}
 	backup, err := source.Backup(ctx)
@@ -339,8 +393,9 @@ func TestRestoreRollsBackInsertFailure(t *testing.T) {
 	ctx := context.Background()
 	sourceDB := openBackupTestDatabase(t)
 	source := New(sourceDB)
+	allowTestUploads(t, ctx, source)
 	input := []byte(`{"schema_version":1,"records":[{"source":{"namespace":"rollback-test","display":"record.json","external_id":"rollback-record"},"occurred_at":"2026-08-11","description":"rollback record","postings":[{"account":"資産:確認","amount":"1","commodity":"UNIT"},{"account":"負債:確認","amount":"-1","commodity":"UNIT"}]}]}`)
-	if _, err := source.Import(ctx, input); err != nil {
+	if _, err := source.Import(ctx, testUploadEmail, input); err != nil {
 		t.Fatalf("Import() error = %v", err)
 	}
 	backup, err := source.Backup(ctx)
@@ -377,9 +432,16 @@ func openBackupTestDatabase(t *testing.T) *sql.DB {
 	return database
 }
 
+func allowTestUploads(t *testing.T, ctx context.Context, store *Store) {
+	t.Helper()
+	if err := store.AddDataWritePrincipal(ctx, testUploadEmail); err != nil {
+		t.Fatalf("AddDataWritePrincipal() error=%v", err)
+	}
+}
+
 func assertBackupTestEmpty(t *testing.T, database *sql.DB) {
 	t.Helper()
-	var generation, runs, reportingConfigurations int
+	var generation, runs, reportingConfigurations, dataWritePrincipals int
 	if err := database.QueryRow(`SELECT generation FROM workflow_state WHERE singleton = 1`).Scan(&generation); err != nil {
 		t.Fatalf("read generation: %v", err)
 	}
@@ -389,8 +451,12 @@ func assertBackupTestEmpty(t *testing.T, database *sql.DB) {
 	if err := database.QueryRow(`SELECT count(*) FROM reporting_configurations`).Scan(&reportingConfigurations); err != nil {
 		t.Fatalf("count reporting configurations: %v", err)
 	}
-	if generation != 0 || runs != 0 || reportingConfigurations != 0 {
-		t.Fatalf("target changed: generation=%d runs=%d reporting_configurations=%d", generation, runs, reportingConfigurations)
+	if err := database.QueryRow(`SELECT count(*) FROM data_write_principals`).Scan(&dataWritePrincipals); err != nil {
+		t.Fatalf("count data write principals: %v", err)
+	}
+	if generation != 0 || runs != 0 || reportingConfigurations != 0 || dataWritePrincipals != 0 {
+		t.Fatalf("target changed: generation=%d runs=%d reporting_configurations=%d data_write_principals=%d",
+			generation, runs, reportingConfigurations, dataWritePrincipals)
 	}
 }
 
@@ -407,14 +473,24 @@ func legacyBackup(t *testing.T, current []byte, schemaVersion int) []byte {
 		envelope.Payload.ReportingFiscalYears = nil
 		envelope.Payload.ReportingOpeningEntries = nil
 	}
-	envelope.Payload.ApplicationSettings = nil
+	if schemaVersion < 5 {
+		envelope.Payload.ApplicationSettings = nil
+	}
+	if schemaVersion < 7 {
+		envelope.Payload.DataWritePrincipals = nil
+	}
 	if schemaVersion < 4 {
 		delete(envelope.RowCounts, "reporting_configurations")
 		delete(envelope.RowCounts, "reporting_classifications")
 		delete(envelope.RowCounts, "reporting_fiscal_years")
 		delete(envelope.RowCounts, "reporting_opening_entries")
 	}
-	delete(envelope.RowCounts, "application_settings")
+	if schemaVersion < 5 {
+		delete(envelope.RowCounts, "application_settings")
+	}
+	if schemaVersion < 7 {
+		delete(envelope.RowCounts, "data_write_principals")
+	}
 	payloadBytes, err := marshalBackupPayload(envelope.Payload, schemaVersion)
 	if err != nil {
 		t.Fatalf("Marshal(payload) error = %v", err)

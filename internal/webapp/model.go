@@ -17,6 +17,8 @@ var (
 	ErrInvalidRevision        = errors.New("invalid entry revision")
 	ErrReportingNotConfigured = errors.New("financial reporting is not configured")
 	ErrUploadDisabled         = errors.New("file upload is disabled")
+	ErrUploadForbidden        = errors.New("file upload is not permitted for this user")
+	ErrWriteForbidden         = errors.New("data changes are not permitted for this user")
 )
 
 type ReportingConfigurationErrorCode string
@@ -40,17 +42,18 @@ func (err *ReportingConfigurationError) Unwrap() error {
 }
 
 type Repository interface {
-	Import(context.Context, []byte) (ImportResult, error)
+	Import(context.Context, string, []byte) (ImportResult, error)
 	GetApplicationSettings(context.Context) (ApplicationSettings, error)
+	GetUserAccess(context.Context, string) (UserAccess, error)
 	GetRun(context.Context, string) (RunDetail, error)
 	ListEntries(context.Context, EntryQuery) (EntryPage, error)
 	GetEntry(context.Context, string) (EntryDetail, error)
-	CreateRevision(context.Context, string, RevisionRequest) (RevisionDetail, error)
-	ApproveRevision(context.Context, string, ApprovalRequest) (ApprovalDetail, error)
+	CreateRevision(context.Context, string, string, RevisionRequest) (RevisionDetail, error)
+	ApproveRevision(context.Context, string, string, ApprovalRequest) (ApprovalDetail, error)
 	ListApprovedEntries(context.Context, EntryFilter) ([]ApprovedEntry, error)
 	GetCurrentReportingConfiguration(context.Context) (ReportingConfigurationDetail, error)
 	GetReportingConfiguration(context.Context, int) (ReportingConfigurationDetail, error)
-	CreateReportingConfiguration(context.Context, ReportingConfigurationRequest) (ReportingConfigurationDetail, error)
+	CreateReportingConfiguration(context.Context, string, ReportingConfigurationRequest) (ReportingConfigurationDetail, error)
 	GetTrialBalance(context.Context, reporting.Period) (TrialBalanceDetail, error)
 	GetBalanceSheet(context.Context, reporting.Period) (BalanceSheetDetail, error)
 	GetClosingBalanceSheet(context.Context, reporting.Period) (ClosingBalanceSheetDetail, error)
@@ -61,6 +64,11 @@ type Repository interface {
 
 type ApplicationSettings struct {
 	FileUploadEnabled bool
+}
+
+type UserAccess struct {
+	FileUploadEnabled bool
+	CanWrite          bool
 }
 
 type ImportResult struct {

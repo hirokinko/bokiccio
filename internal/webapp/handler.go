@@ -124,11 +124,15 @@ func (handler *Handler) reportingConfiguration(response http.ResponseWriter, req
 		}
 		writeJSON(response, http.StatusOK, detail)
 	case http.MethodPost:
+		actorEmail, ok := handler.requireWriteAccess(response, request)
+		if !ok {
+			return
+		}
 		var input ReportingConfigurationRequest
 		if !decodeJSONRequest(response, request, maxReportingBody, &input) {
 			return
 		}
-		detail, err := handler.repository.CreateReportingConfiguration(request.Context(), input)
+		detail, err := handler.repository.CreateReportingConfiguration(request.Context(), actorEmail, input)
 		if err != nil {
 			handler.writeRepositoryError(response, err)
 			return
@@ -282,13 +286,17 @@ func (handler *Handler) entryResource(response http.ResponseWriter, request *htt
 }
 
 func (handler *Handler) importRecords(response http.ResponseWriter, request *http.Request) {
-	settings, err := handler.repository.GetApplicationSettings(request.Context())
+	actorEmail, access, err := handler.userAccess(request)
 	if err != nil {
 		handler.writeRepositoryError(response, err)
 		return
 	}
-	if !settings.FileUploadEnabled {
+	if !access.FileUploadEnabled {
 		handler.writeRepositoryError(response, ErrUploadDisabled)
+		return
+	}
+	if !access.CanWrite {
+		handler.writeRepositoryError(response, ErrUploadForbidden)
 		return
 	}
 	mediaType, _, err := mime.ParseMediaType(request.Header.Get("Content-Type"))
@@ -305,7 +313,7 @@ func (handler *Handler) importRecords(response http.ResponseWriter, request *htt
 		writeError(response, http.StatusRequestEntityTooLarge, "body_too_large", "request body exceeds 10 MiB")
 		return
 	}
-	result, err := handler.repository.Import(request.Context(), body)
+	result, err := handler.repository.Import(request.Context(), actorEmail, body)
 	if err != nil {
 		handler.writeRepositoryError(response, err)
 		return
@@ -425,11 +433,15 @@ func (handler *Handler) getEntry(response http.ResponseWriter, request *http.Req
 }
 
 func (handler *Handler) createRevision(response http.ResponseWriter, request *http.Request, id string) {
+	actorEmail, ok := handler.requireWriteAccess(response, request)
+	if !ok {
+		return
+	}
 	var input RevisionRequest
 	if !decodeJSONRequest(response, request, maxRevisionBody, &input) {
 		return
 	}
-	revision, err := handler.repository.CreateRevision(request.Context(), id, input)
+	revision, err := handler.repository.CreateRevision(request.Context(), actorEmail, id, input)
 	if err != nil {
 		handler.writeRepositoryError(response, err)
 		return
@@ -441,11 +453,15 @@ func (handler *Handler) createRevision(response http.ResponseWriter, request *ht
 }
 
 func (handler *Handler) approveRevision(response http.ResponseWriter, request *http.Request, id string) {
+	actorEmail, ok := handler.requireWriteAccess(response, request)
+	if !ok {
+		return
+	}
 	var input ApprovalRequest
 	if !decodeJSONRequest(response, request, maxRevisionBody, &input) {
 		return
 	}
-	approval, err := handler.repository.ApproveRevision(request.Context(), id, input)
+	approval, err := handler.repository.ApproveRevision(request.Context(), actorEmail, id, input)
 	if err != nil {
 		handler.writeRepositoryError(response, err)
 		return
@@ -489,6 +505,10 @@ func (handler *Handler) writeRepositoryError(response http.ResponseWriter, err e
 	switch {
 	case errors.Is(err, ErrUploadDisabled):
 		writeError(response, http.StatusForbidden, "upload_disabled", "file upload is disabled")
+	case errors.Is(err, ErrUploadForbidden):
+		writeError(response, http.StatusForbidden, "upload_forbidden", "file upload is not permitted for this user")
+	case errors.Is(err, ErrWriteForbidden):
+		writeError(response, http.StatusForbidden, "write_forbidden", "data changes are not permitted for this user")
 	case errors.Is(err, ingest.ErrInvalidInput):
 		writeError(response, http.StatusBadRequest, "invalid_import", "normalized import is invalid")
 	case errors.Is(err, ErrNotFound):
@@ -512,6 +532,28 @@ func (handler *Handler) writeRepositoryError(response http.ResponseWriter, err e
 	default:
 		writeError(response, http.StatusInternalServerError, "internal_error", "request could not be completed")
 	}
+}
+
+func (handler *Handler) userAccess(request *http.Request) (string, UserAccess, error) {
+	actorEmail := ""
+	if claims, ok := IAPClaimsFromContext(request.Context()); ok {
+		actorEmail = claims.Email
+	}
+	access, err := handler.repository.GetUserAccess(request.Context(), actorEmail)
+	return actorEmail, access, err
+}
+
+func (handler *Handler) requireWriteAccess(response http.ResponseWriter, request *http.Request) (string, bool) {
+	actorEmail, access, err := handler.userAccess(request)
+	if err != nil {
+		handler.writeRepositoryError(response, err)
+		return "", false
+	}
+	if !access.CanWrite {
+		handler.writeRepositoryError(response, ErrWriteForbidden)
+		return "", false
+	}
+	return actorEmail, true
 }
 
 func (handler *Handler) methodNotAllowed(response http.ResponseWriter) {

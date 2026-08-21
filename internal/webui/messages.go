@@ -60,6 +60,10 @@ type messages struct {
 	UploadFailedMessage                        string
 	UploadDisabledTitle                        string
 	UploadDisabledMessage                      string
+	UploadForbiddenTitle                       string
+	UploadForbiddenMessage                     string
+	WriteForbiddenTitle                        string
+	WriteForbiddenMessage                      string
 	InvalidSearchTitle                         string
 	InvalidSearchMessage                       string
 	ImportStatusLabel                          string
@@ -333,6 +337,10 @@ func japaneseMessages() messages {
 		UploadFailedMessage:                        "取込を完了できませんでした。",
 		UploadDisabledTitle:                        "Upload disabled",
 		UploadDisabledMessage:                      "現在、この環境ではファイルの取込は無効です。",
+		UploadForbiddenTitle:                       "Upload not permitted",
+		UploadForbiddenMessage:                     "このアカウントにはファイル取込が許可されていません。",
+		WriteForbiddenTitle:                        "変更は許可されていません",
+		WriteForbiddenMessage:                      "このアカウントはデータを閲覧できますが、変更は許可されていません。",
 		InvalidSearchTitle:                         "Invalid search",
 		InvalidSearchMessage:                       "検索条件を処理できませんでした。",
 		ImportStatusLabel:                          "取込",
@@ -617,6 +625,10 @@ func englishMessages() messages {
 		UploadFailedMessage:                        "The import could not be completed.",
 		UploadDisabledTitle:                        "Upload disabled",
 		UploadDisabledMessage:                      "File imports are currently disabled in this environment.",
+		UploadForbiddenTitle:                       "Upload not permitted",
+		UploadForbiddenMessage:                     "This account is not permitted to import files.",
+		WriteForbiddenTitle:                        "Changes not permitted",
+		WriteForbiddenMessage:                      "This account can view data but is not permitted to make changes.",
 		InvalidSearchTitle:                         "Invalid search",
 		InvalidSearchMessage:                       "The search filters could not be processed.",
 		ImportStatusLabel:                          "Import",

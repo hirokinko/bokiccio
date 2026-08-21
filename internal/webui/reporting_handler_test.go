@@ -17,7 +17,7 @@ import (
 func TestReportingSettingsUIJapaneseAndEnglish(t *testing.T) {
 	database := openUIDatabase(t)
 	store := webstore.New(database)
-	handler := webui.NewHandler(store)
+	handler := authenticatedUIHandler(t, webui.NewHandler(store))
 
 	unsetJA := serve(handler, http.MethodGet, "/settings/reporting")
 	unsetEN := serve(handler, http.MethodGet, "/en/settings/reporting")
@@ -134,7 +134,7 @@ func TestCurrentOverviewHtmxInternalErrorDetailsOnlyInDevelopment(t *testing.T) 
 func TestTrialBalanceUISelectionWarningsAndLocale(t *testing.T) {
 	database := openUIDatabase(t)
 	store := webstore.New(database)
-	handler := webui.NewHandler(store)
+	handler := authenticatedUIHandler(t, webui.NewHandler(store))
 
 	notConfigured := serve(handler, http.MethodGet, "/reports/trial-balance")
 	assertHTMLResponse(t, notConfigured, http.StatusOK)
@@ -144,7 +144,7 @@ func TestTrialBalanceUISelectionWarningsAndLocale(t *testing.T) {
 	}
 
 	input := []byte(`{"schema_version":1,"records":[{"source":{"namespace":"ui-report","display":"anonymous"},"occurred_at":"2025-04-15","description":"anonymous report fixture","postings":[{"account":"Assets:Cash","amount":"125.00","commodity":"JPY"},{"account":"Revenue:Sales","amount":"-125.00","commodity":"JPY"}]}]}`)
-	result, err := store.Import(context.Background(), input)
+	result, err := store.Import(context.Background(), testUIEmail, input)
 	if err != nil {
 		t.Fatalf("Import() error = %v", err)
 	}
@@ -153,7 +153,7 @@ func TestTrialBalanceUISelectionWarningsAndLocale(t *testing.T) {
 		t.Fatalf("GetRun() error=%v run=%+v", err, run)
 	}
 	zero := 0
-	if _, err := store.ApproveRevision(context.Background(), run.Outcomes[0].EntryID, webapp.ApprovalRequest{Revision: &zero}); err != nil {
+	if _, err := store.ApproveRevision(context.Background(), testUIEmail, run.Outcomes[0].EntryID, webapp.ApprovalRequest{Revision: &zero}); err != nil {
 		t.Fatalf("ApproveRevision() error = %v", err)
 	}
 
@@ -193,7 +193,7 @@ func TestTrialBalanceUISelectionWarningsAndLocale(t *testing.T) {
 func TestFinancialStatementUIShowsSignedBalancesAndResponsiveTrend(t *testing.T) {
 	database := openUIDatabase(t)
 	store := webstore.New(database)
-	handler := webui.NewHandler(store)
+	handler := authenticatedUIHandler(t, webui.NewHandler(store))
 
 	notConfigured := serve(handler, http.MethodGet, "/reports/balance-sheet")
 	assertHTMLResponse(t, notConfigured, http.StatusOK)
@@ -205,7 +205,7 @@ func TestFinancialStatementUIShowsSignedBalancesAndResponsiveTrend(t *testing.T)
 	})
 
 	input := []byte(`{"schema_version":1,"records":[{"source":{"namespace":"ui-statements","display":"anonymous"},"occurred_at":"2025-04-01","description":"anonymous opening fixture","postings":[{"account":"Assets:Cash","amount":"100.00","commodity":"JPY"},{"account":"Equity:Opening","amount":"-100.00","commodity":"JPY"}]},{"source":{"namespace":"ui-statements","display":"anonymous"},"occurred_at":"2025-04-15","description":"anonymous expense fixture","postings":[{"account":"Expenses:Fees","amount":"20.00","commodity":"JPY"},{"account":"Assets:Cash","amount":"-20.00","commodity":"JPY"}]},{"source":{"namespace":"ui-statements","display":"anonymous"},"occurred_at":"2025-04-20","description":"anonymous opposite balance fixture","postings":[{"account":"Revenue:Refund","amount":"5.00","commodity":"JPY"},{"account":"Assets:Cash","amount":"-5.00","commodity":"JPY"}]},{"source":{"namespace":"ui-statements","display":"anonymous"},"occurred_at":"2025-04-25","description":"anonymous unclassified fixture","postings":[{"account":"Review:Suspense","amount":"2.00","commodity":"JPY"},{"account":"Assets:Cash","amount":"-2.00","commodity":"JPY"}]}]}`)
-	result, err := store.Import(context.Background(), input)
+	result, err := store.Import(context.Background(), testUIEmail, input)
 	if err != nil {
 		t.Fatalf("Import() error = %v", err)
 	}
@@ -215,11 +215,11 @@ func TestFinancialStatementUIShowsSignedBalancesAndResponsiveTrend(t *testing.T)
 	}
 	zero := 0
 	for _, outcome := range run.Outcomes {
-		if _, err := store.ApproveRevision(context.Background(), outcome.EntryID, webapp.ApprovalRequest{Revision: &zero}); err != nil {
+		if _, err := store.ApproveRevision(context.Background(), testUIEmail, outcome.EntryID, webapp.ApprovalRequest{Revision: &zero}); err != nil {
 			t.Fatalf("ApproveRevision() error = %v", err)
 		}
 	}
-	if _, err := store.CreateReportingConfiguration(context.Background(), webapp.ReportingConfigurationRequest{
+	if _, err := store.CreateReportingConfiguration(context.Background(), testUIEmail, webapp.ReportingConfigurationRequest{
 		BaseRevision: &zero,
 		StartMonth:   4,
 		Classifications: []webapp.ReportingClassification{
@@ -308,9 +308,9 @@ func TestFinancialStatementUIShowsSignedBalancesAndResponsiveTrend(t *testing.T)
 
 func TestClosingBalanceSheetUIDefaultsToLastFiscalYear(t *testing.T) {
 	store := webstore.New(openUIDatabase(t))
-	handler := webui.NewHandler(store)
+	handler := authenticatedUIHandler(t, webui.NewHandler(store))
 	zero := 0
-	if _, err := store.CreateReportingConfiguration(context.Background(), webapp.ReportingConfigurationRequest{
+	if _, err := store.CreateReportingConfiguration(context.Background(), testUIEmail, webapp.ReportingConfigurationRequest{
 		BaseRevision: &zero,
 		StartMonth:   4,
 		FiscalYears: []webapp.ReportingFiscalYear{
@@ -331,9 +331,9 @@ func TestClosingBalanceSheetUIDefaultsToLastFiscalYear(t *testing.T) {
 func TestBalanceSheetUIExplainsUnbalancedAutomaticOpening(t *testing.T) {
 	database := openUIDatabase(t)
 	store := webstore.New(database)
-	handler := webui.NewHandler(store)
+	handler := authenticatedUIHandler(t, webui.NewHandler(store))
 	input := []byte(`{"schema_version":1,"records":[{"source":{"namespace":"ui-unbalanced-opening","display":"anonymous"},"occurred_at":"2025-05-01","description":"anonymous revenue fixture","postings":[{"account":"Assets:Cash","amount":"10","commodity":"JPY"},{"account":"Revenue:Sales","amount":"-10","commodity":"JPY"}]}]}`)
-	result, err := store.Import(context.Background(), input)
+	result, err := store.Import(context.Background(), testUIEmail, input)
 	if err != nil {
 		t.Fatalf("Import() error = %v", err)
 	}
@@ -342,10 +342,10 @@ func TestBalanceSheetUIExplainsUnbalancedAutomaticOpening(t *testing.T) {
 		t.Fatalf("GetRun() error=%v run=%+v", err, run)
 	}
 	zero := 0
-	if _, err := store.ApproveRevision(context.Background(), run.Outcomes[0].EntryID, webapp.ApprovalRequest{Revision: &zero}); err != nil {
+	if _, err := store.ApproveRevision(context.Background(), testUIEmail, run.Outcomes[0].EntryID, webapp.ApprovalRequest{Revision: &zero}); err != nil {
 		t.Fatalf("ApproveRevision() error = %v", err)
 	}
-	if _, err := store.CreateReportingConfiguration(context.Background(), webapp.ReportingConfigurationRequest{
+	if _, err := store.CreateReportingConfiguration(context.Background(), testUIEmail, webapp.ReportingConfigurationRequest{
 		BaseRevision: &zero,
 		StartMonth:   4,
 		Classifications: []webapp.ReportingClassification{
@@ -385,7 +385,7 @@ func TestCurrentOverviewUISelectsBalanceDateAndExpenseMonthIndependently(t *test
 	})
 
 	input := []byte(`{"schema_version":1,"records":[{"source":{"namespace":"ui-current","display":"anonymous"},"occurred_at":"2025-04-01","description":"anonymous opening fixture","postings":[{"account":"Assets:Cash","amount":"100","commodity":"JPY"},{"account":"Equity:Opening","amount":"-100","commodity":"JPY"}]},{"source":{"namespace":"ui-current","display":"anonymous"},"occurred_at":"2025-04-02","description":"anonymous reservation fixture","postings":[{"account":"Assets:ScheduledPayment","amount":"30","commodity":"JPY"},{"account":"Assets:Cash","amount":"-30","commodity":"JPY"}]},{"source":{"namespace":"ui-current","display":"anonymous"},"occurred_at":"2025-04-20","description":"anonymous expense fixture","postings":[{"account":"Expenses:Communication","amount":"10","commodity":"JPY"},{"account":"Assets:ScheduledPayment","amount":"-10","commodity":"JPY"}]},{"source":{"namespace":"ui-current","display":"anonymous"},"occurred_at":"2025-04-21","description":"anonymous future fixture","postings":[{"account":"Expenses:Communication","amount":"20","commodity":"JPY"},{"account":"Assets:ScheduledPayment","amount":"-20","commodity":"JPY"}]}]}`)
-	result, err := store.Import(context.Background(), input)
+	result, err := store.Import(context.Background(), testUIEmail, input)
 	if err != nil {
 		t.Fatalf("Import() error = %v", err)
 	}
@@ -398,11 +398,11 @@ func TestCurrentOverviewUISelectsBalanceDateAndExpenseMonthIndependently(t *test
 		if outcome.EntryID == "" {
 			t.Fatalf("current overview fixture outcome has no entry: %+v", outcome)
 		}
-		if _, err := store.ApproveRevision(context.Background(), outcome.EntryID, webapp.ApprovalRequest{Revision: &zero}); err != nil {
+		if _, err := store.ApproveRevision(context.Background(), testUIEmail, outcome.EntryID, webapp.ApprovalRequest{Revision: &zero}); err != nil {
 			t.Fatalf("ApproveRevision() error = %v", err)
 		}
 	}
-	if _, err := store.CreateReportingConfiguration(context.Background(), webapp.ReportingConfigurationRequest{
+	if _, err := store.CreateReportingConfiguration(context.Background(), testUIEmail, webapp.ReportingConfigurationRequest{
 		BaseRevision: &zero,
 		StartMonth:   4,
 		Classifications: []webapp.ReportingClassification{

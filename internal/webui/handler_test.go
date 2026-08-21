@@ -14,6 +14,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/hirokinko/bokiccio/internal/webapp"
 	"github.com/hirokinko/bokiccio/internal/webstore"
@@ -25,7 +26,7 @@ func TestReadOnlyUIBrowseAndEscape(t *testing.T) {
 	database := openUIDatabase(t)
 	store := webstore.New(database)
 	input := []byte(`{"schema_version":1,"records":[{"source":{"namespace":"ui-test","display":"fixtures/<source>.json","external_id":"ui-entry"},"occurred_at":"2026-08-11T09:30:00+09:00","description":"<script>alert(1)</script>","comments":["<b>comment</b>"],"warnings":[{"code":"ui.review","message":"<img src=x onerror=alert(1)>"}],"postings":[{"account":"費用:確認","amount":"120.00","commodity":"JPY","comment":"item"},{"account":"資産:確認"}]}]}`)
-	result, err := store.Import(context.Background(), input)
+	result, err := store.Import(context.Background(), testUIEmail, input)
 	if err != nil {
 		t.Fatalf("Import() error = %v", err)
 	}
@@ -34,7 +35,7 @@ func TestReadOnlyUIBrowseAndEscape(t *testing.T) {
 		t.Fatalf("GetRun() error=%v run=%+v", err, run)
 	}
 	entryID := run.Outcomes[0].EntryID
-	handler := webui.NewHandler(store)
+	handler := authenticatedUIHandler(t, webui.NewHandler(store))
 
 	index := serve(handler, http.MethodGet, "/")
 	assertHTMLResponse(t, index, http.StatusOK)
@@ -47,7 +48,7 @@ func TestReadOnlyUIBrowseAndEscape(t *testing.T) {
 	}
 	baseRevision := 0
 	revisedAmount := "125.00"
-	revision, err := store.CreateRevision(context.Background(), entryID, webapp.RevisionRequest{
+	revision, err := store.CreateRevision(context.Background(), testUIEmail, entryID, webapp.RevisionRequest{
 		BaseRevision: &baseRevision, OccurredAt: "2026-08-12", Description: "revised <entry>",
 		Comments: []string{"revision <comment>"}, Postings: []webapp.PostingDetail{
 			{Account: "費用:確認", Amount: &revisedAmount, Commodity: "JPY"},
@@ -57,7 +58,7 @@ func TestReadOnlyUIBrowseAndEscape(t *testing.T) {
 	if err != nil || !revision.Valid {
 		t.Fatalf("CreateRevision() revision=%+v error=%v", revision, err)
 	}
-	if _, err := store.ApproveRevision(context.Background(), entryID, webapp.ApprovalRequest{Revision: &revision.Revision}); err != nil {
+	if _, err := store.ApproveRevision(context.Background(), testUIEmail, entryID, webapp.ApprovalRequest{Revision: &revision.Revision}); err != nil {
 		t.Fatalf("ApproveRevision() error=%v", err)
 	}
 
@@ -100,7 +101,7 @@ func TestLocalizedReadOnlyRoutesPreserveAccountingValues(t *testing.T) {
 	database := openUIDatabase(t)
 	store := webstore.New(database)
 	input := []byte(`{"schema_version":1,"records":[{"source":{"namespace":"ui-locale","display":"fixtures/source.json","external_id":"ui-locale-entry"},"occurred_at":"2026-08-11","description":"Locale candidate","warnings":[{"code":"ui.locale","message":"Preserve diagnostic"}],"postings":[{"account":"費用:品質","amount":"120.00","commodity":"JPY"},{"account":"資産:品質"}]}]}`)
-	result, err := store.Import(context.Background(), input)
+	result, err := store.Import(context.Background(), testUIEmail, input)
 	if err != nil {
 		t.Fatalf("Import() error = %v", err)
 	}
@@ -109,7 +110,7 @@ func TestLocalizedReadOnlyRoutesPreserveAccountingValues(t *testing.T) {
 		t.Fatalf("GetRun() error=%v run=%+v", err, run)
 	}
 	entryID := run.Outcomes[0].EntryID
-	handler := webui.NewHandler(store)
+	handler := authenticatedUIHandler(t, webui.NewHandler(store))
 
 	japaneseIndex := serve(handler, http.MethodGet, "/")
 	englishIndex := serve(handler, http.MethodGet, "/en/")
@@ -145,7 +146,7 @@ func TestLocalizedReadOnlyRoutesPreserveAccountingValues(t *testing.T) {
 func TestUIRevisionAndApprovalForms(t *testing.T) {
 	database := openUIDatabase(t)
 	store := webstore.New(database)
-	result, err := store.Import(context.Background(), []byte(`{"schema_version":1,"records":[{"source":{"namespace":"ui-workflow","display":"fixtures/workflow.json","external_id":"workflow-entry"},"occurred_at":"2026-08-11","description":"Workflow candidate","comments":["original comment"],"postings":[{"account":"費用:確認","amount":"120","commodity":"JPY","comment":"old item"},{"account":"資産:現金"}]}]}`))
+	result, err := store.Import(context.Background(), testUIEmail, []byte(`{"schema_version":1,"records":[{"source":{"namespace":"ui-workflow","display":"fixtures/workflow.json","external_id":"workflow-entry"},"occurred_at":"2026-08-11","description":"Workflow candidate","comments":["original comment"],"postings":[{"account":"費用:確認","amount":"120","commodity":"JPY","comment":"old item"},{"account":"資産:現金"}]}]}`))
 	if err != nil {
 		t.Fatalf("Import() error = %v", err)
 	}
@@ -154,7 +155,7 @@ func TestUIRevisionAndApprovalForms(t *testing.T) {
 		t.Fatalf("GetRun() error=%v run=%+v", err, run)
 	}
 	entryID := run.Outcomes[0].EntryID
-	handler := webui.NewHandler(store)
+	handler := authenticatedUIHandler(t, webui.NewHandler(store))
 
 	entry := serve(handler, http.MethodGet, "/entries/"+url.PathEscape(entryID))
 	assertHTMLResponse(t, entry, http.StatusOK)
@@ -218,7 +219,7 @@ func TestUIRevisionAndApprovalForms(t *testing.T) {
 func TestUIApprovalRejectsInvalidRevisionAsHTML(t *testing.T) {
 	database := openUIDatabase(t)
 	store := webstore.New(database)
-	result, err := store.Import(context.Background(), []byte(`{"schema_version":1,"records":[{"source":{"namespace":"ui-invalid","display":"fixtures/invalid.json","external_id":"invalid-entry"},"occurred_at":"2026-08-11","description":"Invalid workflow candidate","postings":[{"account":"費用:確認","amount":"120","commodity":"JPY"},{"account":"資産:現金"}]}]}`))
+	result, err := store.Import(context.Background(), testUIEmail, []byte(`{"schema_version":1,"records":[{"source":{"namespace":"ui-invalid","display":"fixtures/invalid.json","external_id":"invalid-entry"},"occurred_at":"2026-08-11","description":"Invalid workflow candidate","postings":[{"account":"費用:確認","amount":"120","commodity":"JPY"},{"account":"資産:現金"}]}]}`))
 	if err != nil {
 		t.Fatalf("Import() error = %v", err)
 	}
@@ -227,7 +228,7 @@ func TestUIApprovalRejectsInvalidRevisionAsHTML(t *testing.T) {
 		t.Fatalf("GetRun() error=%v run=%+v", err, run)
 	}
 	entryID := run.Outcomes[0].EntryID
-	handler := webui.NewHandler(store)
+	handler := authenticatedUIHandler(t, webui.NewHandler(store))
 
 	invalid := serveForm(handler, "/ui/entries/"+url.PathEscape(entryID)+"/revisions", url.Values{
 		"base_revision": {"0"}, "entry": {"2026-08-12  'Invalid revision\n費用:確認 10 JPY\n資産:現金 5 JPY"},
@@ -248,7 +249,7 @@ func TestUIApprovalRejectsInvalidRevisionAsHTML(t *testing.T) {
 func TestUIRevisionFormsRejectInvalidInputPrivately(t *testing.T) {
 	database := openUIDatabase(t)
 	store := webstore.New(database)
-	result, err := store.Import(context.Background(), []byte(`{"schema_version":1,"records":[{"source":{"namespace":"ui-private","display":"fixtures/private.json","external_id":"private-entry"},"occurred_at":"2026-08-11","description":"Private candidate","postings":[{"account":"費用:確認","amount":"120","commodity":"JPY"},{"account":"資産:現金"}]}]}`))
+	result, err := store.Import(context.Background(), testUIEmail, []byte(`{"schema_version":1,"records":[{"source":{"namespace":"ui-private","display":"fixtures/private.json","external_id":"private-entry"},"occurred_at":"2026-08-11","description":"Private candidate","postings":[{"account":"費用:確認","amount":"120","commodity":"JPY"},{"account":"資産:現金"}]}]}`))
 	if err != nil {
 		t.Fatalf("Import() error = %v", err)
 	}
@@ -257,7 +258,7 @@ func TestUIRevisionFormsRejectInvalidInputPrivately(t *testing.T) {
 		t.Fatalf("GetRun() error=%v run=%+v", err, run)
 	}
 	entryID := run.Outcomes[0].EntryID
-	handler := webui.NewHandler(store)
+	handler := authenticatedUIHandler(t, webui.NewHandler(store))
 
 	for _, test := range []struct {
 		name        string
@@ -319,7 +320,7 @@ func TestLocalizedEmptyAndErrorRoutes(t *testing.T) {
 func TestUIImportUploadRedirectsToRunPage(t *testing.T) {
 	database := openUIDatabase(t)
 	store := webstore.New(database)
-	handler := webui.NewHandler(store)
+	handler := authenticatedUIHandler(t, webui.NewHandler(store))
 	input := []byte(`{"schema_version":1,"records":[{"source":{"namespace":"ui-upload","display":"fixtures/upload.json","external_id":"upload-entry"},"occurred_at":"2026-08-11","description":"Uploaded candidate","warnings":[{"code":"ui.upload","message":"Needs review"}],"postings":[{"account":"費用:取込","amount":"1200","commodity":"JPY"},{"account":"資産:現金"}]}]}`)
 
 	response := serveUpload(handler, "/ui/imports", "private-upload.json", input)
@@ -346,14 +347,14 @@ func TestUIImportUploadRedirectsToRunPage(t *testing.T) {
 func TestUIHidesAndRejectsImportsWhenUploadIsDisabled(t *testing.T) {
 	database := openUIDatabase(t)
 	store := webstore.New(database)
-	result, err := store.Import(context.Background(), []byte(`{"schema_version":1,"records":[{"source":{"namespace":"demo","display":"sample.json","external_id":"existing"},"occurred_at":"2026-08-14","description":"Existing demo entry","postings":[{"account":"資産:現金","amount":"1","commodity":"JPY"},{"account":"純資産:開始残高","amount":"-1","commodity":"JPY"}]}]}`))
+	result, err := store.Import(context.Background(), testUIEmail, []byte(`{"schema_version":1,"records":[{"source":{"namespace":"demo","display":"sample.json","external_id":"existing"},"occurred_at":"2026-08-14","description":"Existing demo entry","postings":[{"account":"資産:現金","amount":"1","commodity":"JPY"},{"account":"純資産:開始残高","amount":"-1","commodity":"JPY"}]}]}`))
 	if err != nil {
 		t.Fatalf("Import(existing) error=%v", err)
 	}
 	if err := store.SetFileUploadEnabled(context.Background(), false); err != nil {
 		t.Fatalf("SetFileUploadEnabled(false) error=%v", err)
 	}
-	handler := webui.NewHandler(store)
+	handler := authenticatedUIHandler(t, webui.NewHandler(store))
 	for _, path := range []string{"/", "/en/"} {
 		response := serve(handler, http.MethodGet, path)
 		assertHTMLResponse(t, response, http.StatusOK)
@@ -384,10 +385,124 @@ func TestUIHidesAndRejectsImportsWhenUploadIsDisabled(t *testing.T) {
 	}
 }
 
+func TestUIImportRoutesRequireAllowedVerifiedIAPEmail(t *testing.T) {
+	for _, test := range []struct {
+		name, path, message string
+		handler             func(*testing.T, *webstore.Store) http.Handler
+	}{
+		{
+			name: "unlisted normalized JSON Japanese", path: "/ui/imports",
+			message: "このアカウントにはファイル取込が許可されていません。",
+			handler: func(t *testing.T, store *webstore.Store) http.Handler {
+				return authenticatedUIHandlerForEmail(t, webui.NewHandler(store), "viewer@example.com")
+			},
+		},
+		{
+			name: "unlisted Tackler English", path: "/en/ui/imports/tackler",
+			message: "This account is not permitted to import files.",
+			handler: func(t *testing.T, store *webstore.Store) http.Handler {
+				return authenticatedUIHandlerForEmail(t, webui.NewHandler(store), "viewer@example.com")
+			},
+		},
+		{
+			name: "raw header without verified context", path: "/ui/imports",
+			message: "このアカウントにはファイル取込が許可されていません。",
+			handler: func(_ *testing.T, store *webstore.Store) http.Handler {
+				return webui.NewHandler(store)
+			},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			database := openUIDatabase(t)
+			store := webstore.New(database)
+			response := serveRawForm(test.handler(t, store), test.path, "text/plain", "private invalid upload", nil)
+			assertHTMLResponse(t, response, http.StatusForbidden)
+			if !strings.Contains(response.Body.String(), test.message) || strings.Contains(response.Body.String(), "private invalid upload") {
+				t.Fatalf("POST %s body=%s", test.path, response.Body.String())
+			}
+			var runs int
+			if err := database.QueryRow(`SELECT count(*) FROM import_runs`).Scan(&runs); err != nil || runs != 0 {
+				t.Fatalf("import_runs=%d error=%v, want 0", runs, err)
+			}
+		})
+	}
+}
+
+func TestViewerUIIsReadOnly(t *testing.T) {
+	database := openUIDatabase(t)
+	store := webstore.New(database)
+	input := []byte(`{"schema_version":1,"records":[{"source":{"namespace":"viewer","display":"anonymous.json"},"occurred_at":"2026-08-21","description":"Viewer fixture","postings":[{"account":"Assets:Cash","amount":"1","commodity":"JPY"},{"account":"Equity:Opening","amount":"-1","commodity":"JPY"}]}]}`)
+	result, err := store.Import(context.Background(), testUIEmail, input)
+	if err != nil {
+		t.Fatalf("Import() error=%v", err)
+	}
+	run, err := store.GetRun(context.Background(), result.RunIdentity)
+	if err != nil || len(run.Outcomes) != 1 {
+		t.Fatalf("GetRun() run=%+v error=%v", run, err)
+	}
+	entryID := run.Outcomes[0].EntryID
+	owner := authenticatedUIHandler(t, webui.NewHandler(store))
+	configured := serveForm(owner, "/ui/settings/reporting", reportingSettingsForm("0"), nil)
+	if configured.Code != http.StatusSeeOther {
+		t.Fatalf("owner reporting configuration status=%d body=%s", configured.Code, configured.Body.String())
+	}
+	viewer := authenticatedUIHandlerForEmail(t, webui.NewHandler(store), "viewer@example.com")
+
+	index := serve(viewer, http.MethodGet, "/")
+	entry := serve(viewer, http.MethodGet, "/entries/"+url.PathEscape(entryID))
+	runPage := serve(viewer, http.MethodGet, "/imports/"+url.PathEscape(result.RunIdentity))
+	for path, response := range map[string]*httptest.ResponseRecorder{
+		"/": index, "/entries": entry, "/imports": runPage,
+	} {
+		assertHTMLResponse(t, response, http.StatusOK)
+		if !strings.Contains(response.Body.String(), "Viewer fixture") && path != "/imports" {
+			t.Fatalf("GET %s does not show viewer data: %s", path, response.Body.String())
+		}
+	}
+	for _, forbiddenControl := range []string{
+		`action="/ui/imports"`, `action="/ui/imports/tackler"`,
+		`action="/ui/entries/` + url.PathEscape(entryID) + `/revisions"`,
+		`action="/ui/entries/` + url.PathEscape(entryID) + `/approvals"`,
+	} {
+		if strings.Contains(index.Body.String()+entry.Body.String(), forbiddenControl) {
+			t.Fatalf("viewer page exposes mutation control %q", forbiddenControl)
+		}
+	}
+	settings := serve(viewer, http.MethodGet, "/settings/reporting")
+	assertHTMLResponse(t, settings, http.StatusOK)
+	assertContainsAll(t, settings.Body.String(), []string{"Current revision: 1", "Assets", "2025-04-01", "2026-03-31"})
+	for _, forbiddenControl := range []string{`action="/ui/settings/reporting"`, `data-add-row`, `name="start_month"`} {
+		if strings.Contains(settings.Body.String(), forbiddenControl) {
+			t.Fatalf("viewer reporting settings expose mutation control %q: %s", forbiddenControl, settings.Body.String())
+		}
+	}
+	report := serve(viewer, http.MethodGet, "/reports/trial-balance?start_date=2025-04-01&end_date=2025-04-30")
+	assertHTMLResponse(t, report, http.StatusOK)
+	search := serveForm(viewer, "/ui/entries/search", url.Values{"description": {"Viewer"}}, nil)
+	assertHTMLResponse(t, search, http.StatusOK)
+	exported := serveForm(viewer, "/ui/exports/json", url.Values{}, nil)
+	if exported.Code != http.StatusOK {
+		t.Fatalf("viewer export status=%d body=%s", exported.Code, exported.Body.String())
+	}
+	for _, path := range []string{
+		"/ui/entries/" + url.PathEscape(entryID) + "/revisions",
+		"/ui/entries/" + url.PathEscape(entryID) + "/approvals",
+		"/ui/settings/reporting",
+	} {
+		response := serveRawForm(viewer, path, "text/plain", "private invalid body", nil)
+		assertHTMLResponse(t, response, http.StatusForbidden)
+		if !strings.Contains(response.Body.String(), "変更は許可されていません") || strings.Contains(response.Body.String(), "private invalid body") {
+			t.Fatalf("POST %s body=%s", path, response.Body.String())
+		}
+	}
+	deleted := serve(viewer, http.MethodDelete, "/entries/"+url.PathEscape(entryID))
+	assertHTMLResponse(t, deleted, http.StatusMethodNotAllowed)
+}
+
 func TestUITacklerImportUploadRedirectsToRunPage(t *testing.T) {
 	database := openUIDatabase(t)
 	store := webstore.New(database)
-	handler := webui.NewHandler(store)
+	handler := authenticatedUIHandler(t, webui.NewHandler(store))
 	input := []byte("2026-08-12T07:30:00+09:00  'Txn uploaded candidate\n    ; source note\n    資産:投資信託 350 口 = 675 JPY ; imported item\n    資産:購入予定\n")
 
 	index := serve(handler, http.MethodGet, "/")
@@ -447,7 +562,7 @@ func TestUITacklerImportUploadRedirectsToRunPage(t *testing.T) {
 
 func TestUIImportUploadCommitsRunWithRecordErrors(t *testing.T) {
 	store := webstore.New(openUIDatabase(t))
-	handler := webui.NewHandler(store)
+	handler := authenticatedUIHandler(t, webui.NewHandler(store))
 
 	response := serveUpload(handler, "/ui/imports", "mixed-private.json", readWebFixture(t, "../ingest/testdata/mixed-outcomes-v1.json"))
 	if response.Code != http.StatusSeeOther {
@@ -459,7 +574,7 @@ func TestUIImportUploadCommitsRunWithRecordErrors(t *testing.T) {
 }
 
 func TestUIImportUploadRejectsInvalidInputPrivately(t *testing.T) {
-	handler := webui.NewHandler(webstore.New(openUIDatabase(t)))
+	handler := authenticatedUIHandler(t, webui.NewHandler(webstore.New(openUIDatabase(t))))
 	for _, test := range []struct {
 		name   string
 		path   string
@@ -511,7 +626,7 @@ func TestUIImportUploadRepositoryFailureIsPrivateSafe(t *testing.T) {
 	if err := database.Close(); err != nil {
 		t.Fatalf("Close() error = %v", err)
 	}
-	response := serveUpload(webui.NewHandler(store), "/ui/imports", "private-storage.json", []byte(`{"schema_version":1,"records":[]}`))
+	response := serveUpload(authenticatedUIHandler(t, webui.NewHandler(store)), "/ui/imports", "private-storage.json", []byte(`{"schema_version":1,"records":[]}`))
 	assertHTMLResponse(t, response, http.StatusInternalServerError)
 	assertNotContainsAny(t, response.Body.String(), []string{"database is closed", "SQL", "private-storage.json", "schema_version"})
 }
@@ -524,10 +639,10 @@ func TestUISearchFullPageAndHtmxFragment(t *testing.T) {
 {"source":{"namespace":"mail","display":"fixtures/beta.json","external_id":"ui-search-beta"},"occurred_at":"2026-08-02","description":"Beta <needle>","warnings":[{"code":"ui.search","message":"Preserve warning"}],"postings":[{"account":"費用:交通","amount":"200","commodity":"JPY"},{"account":"資産:現金"}]},
 {"source":{"namespace":"receipt","display":"fixtures/gamma.json","external_id":"ui-search-gamma"},"occurred_at":"2026-08-03","description":"Gamma candidate","postings":[{"account":"費用:日用品","amount":"300","commodity":"JPY"},{"account":"資産:現金"}]}
 ]}`)
-	if _, err := store.Import(context.Background(), input); err != nil {
+	if _, err := store.Import(context.Background(), testUIEmail, input); err != nil {
 		t.Fatalf("Import() error = %v", err)
 	}
-	handler := webui.NewHandler(store)
+	handler := authenticatedUIHandler(t, webui.NewHandler(store))
 
 	full := serveForm(handler, "/ui/entries/search", url.Values{"description": {"Beta <needle>"}}, nil)
 	assertHTMLResponse(t, full, http.StatusOK)
@@ -551,10 +666,10 @@ func TestUISearchFullPageAndHtmxFragment(t *testing.T) {
 func TestUISearchPaginationUsesFormBodyState(t *testing.T) {
 	database := openUIDatabase(t)
 	store := webstore.New(database)
-	if _, err := store.Import(context.Background(), manyEntriesInput(51)); err != nil {
+	if _, err := store.Import(context.Background(), testUIEmail, manyEntriesInput(51)); err != nil {
 		t.Fatalf("Import() error = %v", err)
 	}
-	handler := webui.NewHandler(store)
+	handler := authenticatedUIHandler(t, webui.NewHandler(store))
 
 	first := serveForm(handler, "/ui/entries/search", url.Values{}, nil)
 	assertHTMLResponse(t, first, http.StatusOK)
@@ -650,12 +765,49 @@ func openUIDatabase(t *testing.T) *sql.DB {
 	if err := webstore.Migrate(context.Background(), database); err != nil {
 		t.Fatalf("Migrate() error = %v", err)
 	}
+	if err := webstore.New(database).AddDataWritePrincipal(context.Background(), testUIEmail); err != nil {
+		t.Fatalf("AddDataWritePrincipal() error = %v", err)
+	}
 	return database
+}
+
+const testUIEmail = "operator@example.com"
+
+type testUIIAPValidator struct {
+	email string
+}
+
+func (validator testUIIAPValidator) Validate(context.Context, string, string) (webapp.IAPClaims, error) {
+	now := time.Now()
+	return webapp.IAPClaims{
+		Issuer: "https://cloud.google.com/iap", Subject: "test-subject", Email: validator.email,
+		IssuedAt: now.Add(-time.Minute), Expires: now.Add(5 * time.Minute),
+	}, nil
+}
+
+func authenticatedUIHandler(t *testing.T, handler http.Handler) http.Handler {
+	return authenticatedUIHandlerForEmail(t, handler, testUIEmail)
+}
+
+func authenticatedUIHandlerForEmail(t *testing.T, handler http.Handler, email string) http.Handler {
+	t.Helper()
+	secured, err := webapp.RequireIAP(handler, testUIIAPValidator{email: email}, webapp.IAPSecurity{
+		Audience: "test-audience", ExternalOrigin: "https://example.com",
+	})
+	if err != nil {
+		t.Fatalf("RequireIAP() error = %v", err)
+	}
+	return secured
 }
 
 func serve(handler http.Handler, method, path string) *httptest.ResponseRecorder {
 	response := httptest.NewRecorder()
-	handler.ServeHTTP(response, httptest.NewRequest(method, path, nil))
+	request := httptest.NewRequest(method, path, nil)
+	request.Header.Set("X-Goog-IAP-JWT-Assertion", "signed-test-token")
+	if method != http.MethodGet && method != http.MethodHead && method != http.MethodOptions && method != http.MethodTrace {
+		request.Header.Set("Origin", "https://example.com")
+	}
+	handler.ServeHTTP(response, request)
 	return response
 }
 
@@ -667,6 +819,8 @@ func serveRawForm(handler http.Handler, path, contentType, body string, headers 
 	response := httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodPost, path, strings.NewReader(body))
 	request.Header.Set("Content-Type", contentType)
+	request.Header.Set("X-Goog-IAP-JWT-Assertion", "signed-test-token")
+	request.Header.Set("Origin", "https://example.com")
 	for name, value := range headers {
 		request.Header.Set(name, value)
 	}
@@ -708,6 +862,8 @@ func serveMultipart(handler http.Handler, path string, parts []uploadPart) *http
 	response := httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodPost, path, &body)
 	request.Header.Set("Content-Type", writer.FormDataContentType())
+	request.Header.Set("X-Goog-IAP-JWT-Assertion", "signed-test-token")
+	request.Header.Set("Origin", "https://example.com")
 	handler.ServeHTTP(response, request)
 	return response
 }
