@@ -323,6 +323,9 @@ func TestBuildIncomeStatementUsesOnlySelectedMonthAndKeepsUnknown(t *testing.T) 
 		entry(t, "next", "2025-05-01", []postingInput{
 			{"費用:食費", "40", "JPY", "", ""}, {"資産:現金", "-40", "JPY", "", ""},
 		}),
+		entry(t, "later", "2025-06-01", []postingInput{
+			{"費用:食費", "25", "JPY", "", ""}, {"資産:現金", "-25", "JPY", "", ""},
+		}),
 	}
 	report, err := BuildIncomeStatement(configuration, entries, Period{StartDate: "2025-04-01", EndDate: "2025-04-30"})
 	if err != nil {
@@ -345,11 +348,33 @@ func TestBuildIncomeStatementUsesOnlySelectedMonthAndKeepsUnknown(t *testing.T) 
 	if err != nil {
 		t.Fatalf("BuildIncomeStatement(full year) error = %v", err)
 	}
-	if fullYear.Period.Month != 0 || len(fullYear.Commodities) != 1 || fullYear.Commodities[0].NetIncome.Credit != "140" {
+	if fullYear.Period.Month != 0 || len(fullYear.Commodities) != 1 || fullYear.Commodities[0].NetIncome.Credit != "115" {
 		t.Fatalf("full-year income statement = %+v", fullYear)
 	}
-	if _, err := BuildIncomeStatement(configuration, entries, Period{StartDate: "2025-04-01", EndDate: "2025-05-31"}); !errors.Is(err, ErrInvalidPeriod) {
-		t.Fatalf("BuildIncomeStatement(year to date) error = %v, want ErrInvalidPeriod", err)
+	yearToDate, err := BuildIncomeStatement(configuration, entries, Period{StartDate: "2025-04-01", EndDate: "2025-05-31"})
+	if err != nil {
+		t.Fatalf("BuildIncomeStatement(year to date) error = %v", err)
+	}
+	if yearToDate.Period.Month != 2 || yearToDate.Period.FiscalYearStart != "2025-04-01" ||
+		yearToDate.Period.FiscalYearEnd != "2026-03-31" || len(yearToDate.Commodities) != 1 ||
+		yearToDate.Commodities[0].NetIncome.Credit != "140" {
+		t.Fatalf("year-to-date income statement = %+v", yearToDate)
+	}
+	elevenMonths, err := BuildIncomeStatement(configuration, entries, Period{StartDate: "2025-04-01", EndDate: "2026-02-28"})
+	if err != nil {
+		t.Fatalf("BuildIncomeStatement(year to date month 11) error = %v", err)
+	}
+	if elevenMonths.Period.Month != 11 || len(elevenMonths.Commodities) != 1 || elevenMonths.Commodities[0].NetIncome.Credit != "115" {
+		t.Fatalf("year-to-date month 11 income statement = %+v", elevenMonths)
+	}
+	for _, invalid := range []Period{
+		{StartDate: "2025-04-02", EndDate: "2025-05-31"},
+		{StartDate: "2025-04-01", EndDate: "2025-05-30"},
+		{StartDate: "2025-04-01", EndDate: "2026-04-30"},
+	} {
+		if _, err := BuildIncomeStatement(configuration, entries, invalid); !errors.Is(err, ErrInvalidPeriod) {
+			t.Fatalf("BuildIncomeStatement(%+v) error = %v, want ErrInvalidPeriod", invalid, err)
+		}
 	}
 }
 

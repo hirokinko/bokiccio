@@ -1,6 +1,7 @@
 package reporting
 
 import (
+	"errors"
 	"sort"
 	"time"
 )
@@ -289,11 +290,11 @@ func BuildIncomeStatement(configuration Configuration, entries []Entry, selected
 	if err != nil {
 		return IncomeStatement{}, err
 	}
-	period, _, err := selectPeriod(configuration.StartMonth, years, selected)
+	period, _, err := selectIncomeStatementPeriod(configuration.StartMonth, years, selected)
 	if err != nil {
 		return IncomeStatement{}, ErrInvalidPeriod
 	}
-	movement, err := collectMovements(entries, selected.StartDate, selected.EndDate, years[targetIndex].OpeningEntryIDs, classifier)
+	movement, err := collectMovements(entries, period.StartDate, period.EndDate, years[targetIndex].OpeningEntryIDs, classifier)
 	if err != nil {
 		return IncomeStatement{}, err
 	}
@@ -375,7 +376,14 @@ func statementInputs(configuration Configuration, entries []Entry, selected Peri
 		return nil, 0, nil, classifier{}, err
 	}
 	years := sortedFiscalYears(configuration.FiscalYears)
-	period, targetIndex, err := selectPeriod(configuration.StartMonth, years, selected)
+	var period FiscalPeriod
+	var targetIndex int
+	var err error
+	if mode == statementIncomePeriod {
+		period, targetIndex, err = selectIncomeStatementPeriod(configuration.StartMonth, years, selected)
+	} else {
+		period, targetIndex, err = selectPeriod(configuration.StartMonth, years, selected)
+	}
 	if err != nil || (mode == statementFiscalYearOnly && period.Month != 0) {
 		return nil, 0, nil, classifier{}, ErrInvalidPeriod
 	}
@@ -384,6 +392,34 @@ func statementInputs(configuration Configuration, entries []Entry, selected Peri
 		return nil, 0, nil, classifier{}, err
 	}
 	return years, targetIndex, validated, newClassifier(configuration.Classifications), nil
+}
+
+func selectIncomeStatementPeriod(startMonth int, years []FiscalYear, selected Period) (FiscalPeriod, int, error) {
+	period, targetIndex, err := selectPeriod(startMonth, years, selected)
+	if err == nil {
+		return period, targetIndex, nil
+	}
+	if !errors.Is(err, ErrInvalidPeriod) {
+		return FiscalPeriod{}, 0, err
+	}
+	for index, year := range years {
+		periods, periodErr := FiscalPeriods(year, startMonth)
+		if periodErr != nil {
+			return FiscalPeriod{}, 0, periodErr
+		}
+		for endingMonth := 2; endingMonth <= 11; endingMonth++ {
+			candidate := FiscalPeriod{
+				Period:          Period{StartDate: year.StartDate, EndDate: periods[endingMonth].EndDate},
+				FiscalYearStart: year.StartDate,
+				FiscalYearEnd:   year.EndDate,
+				Month:           endingMonth,
+			}
+			if candidate.StartDate == selected.StartDate && candidate.EndDate == selected.EndDate {
+				return candidate, index, nil
+			}
+		}
+	}
+	return FiscalPeriod{}, 0, ErrInvalidPeriod
 }
 
 func netMovements(movement movements) amountMap {

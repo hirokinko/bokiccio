@@ -110,6 +110,9 @@ func TestBuildIncomeStatementDrillDownExplainsFullYear(t *testing.T) {
 		entry(t, "may", "2025-05-02", []postingInput{
 			{"費用:備品:消耗品", "20", "JPY", "", ""}, {"資産:現金", "-20", "JPY", "", ""},
 		}),
+		entry(t, "june", "2025-06-02", []postingInput{
+			{"費用:備品", "7", "JPY", "", ""}, {"資産:現金", "-7", "JPY", "", ""},
+		}),
 	}
 	result, err := BuildIncomeStatementDrillDown(configuration, entries, DrillDownQuery{
 		Period:    Period{StartDate: "2025-04-01", EndDate: "2026-03-31"},
@@ -118,8 +121,19 @@ func TestBuildIncomeStatementDrillDownExplainsFullYear(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BuildIncomeStatementDrillDown(full year) error = %v", err)
 	}
-	if result.Period.Month != 0 || result.Balance != (Balance{Debit: "30", Credit: "0"}) ||
-		len(result.Entries) != 2 || result.Entries[0].ID != "april" || result.Entries[1].ID != "may" {
+	if result.Period.Month != 0 || result.Balance != (Balance{Debit: "37", Credit: "0"}) ||
+		len(result.Entries) != 3 || result.Entries[0].ID != "april" || result.Entries[1].ID != "may" || result.Entries[2].ID != "june" {
 		t.Fatalf("full-year drill-down = %+v", result)
+	}
+	yearToDate, err := BuildIncomeStatementDrillDown(configuration, entries, DrillDownQuery{
+		Period:    Period{StartDate: "2025-04-01", EndDate: "2025-05-31"},
+		Commodity: "JPY", Category: CategoryExpense, Account: "費用:備品", Scope: DrillDownSubtree,
+	})
+	if err != nil {
+		t.Fatalf("BuildIncomeStatementDrillDown(year to date) error = %v", err)
+	}
+	if yearToDate.Period.Month != 2 || yearToDate.Balance != (Balance{Debit: "30", Credit: "0"}) ||
+		len(yearToDate.Entries) != 2 || yearToDate.Entries[0].ID != "april" || yearToDate.Entries[1].ID != "may" {
+		t.Fatalf("year-to-date drill-down = %+v", yearToDate)
 	}
 }

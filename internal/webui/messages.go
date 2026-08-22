@@ -284,6 +284,7 @@ type messages struct {
 	FiscalYearPeriodLabel   func(startDate, endDate string) string
 	MonthlyPeriodLabel      func(month int, startDate, endDate string) string
 	FullYearIncomeLabel     func(startDate, endDate string) string
+	YearToDateIncomeLabel   func(month int, startDate, endDate string) string
 }
 
 func messagesFor(l locale) messages {
@@ -599,6 +600,9 @@ func japaneseMessages() messages {
 		FullYearIncomeLabel: func(startDate, endDate string) string {
 			return fmt.Sprintf("通期: %s – %s", startDate, endDate)
 		},
+		YearToDateIncomeLabel: func(month int, startDate, endDate string) string {
+			return fmt.Sprintf("年度累計（第%d月末）: %s – %s", month, startDate, endDate)
+		},
 	}
 }
 
@@ -908,6 +912,9 @@ func englishMessages() messages {
 		},
 		FullYearIncomeLabel: func(startDate, endDate string) string {
 			return fmt.Sprintf("Full year: %s – %s", startDate, endDate)
+		},
+		YearToDateIncomeLabel: func(month int, startDate, endDate string) string {
+			return fmt.Sprintf("Year to date through month %d: %s – %s", month, startDate, endDate)
 		},
 	}
 }

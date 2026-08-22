@@ -25,8 +25,8 @@ BokiccioのWeb UIは、Cloud Run direct IAPで保護されたsingle-owner向け�
 - `POST /ui/reports/balance-sheet`: form bodyで選択した会計年度へのredirect
 - `GET /reports/closing-balance-sheet`: 選択した会計年度の期末貸借対照表
 - `POST /ui/reports/closing-balance-sheet`: form bodyで選択した会計年度へのredirect
-- `GET /reports/income-statement`: 選択した単月または通期の損益計算書
-- `POST /ui/reports/income-statement`: form bodyで選択した単月または通期へのredirect
+- `GET /reports/income-statement`: 選択した単月、年度累計、または通期の損益計算書
+- `POST /ui/reports/income-statement`: form bodyで選択した単月、年度累計、または通期へのredirect
 - `POST /ui/reports/income-statement/drill-down`: P/L account行に寄与した承認済み仕訳
 - `GET /reports/balance-trend`: 選択した会計年度の12か月の全勘定残高推移
 - `POST /ui/reports/balance-trend`: form bodyで選択した会計年度へのredirect
@@ -51,8 +51,8 @@ BokiccioのWeb UIは、Cloud Run direct IAPで保護されたsingle-owner向け�
 - `POST /en/ui/reports/balance-sheet`: form bodyで選択した会計年度へのredirect（英語UI）
 - `GET /en/reports/closing-balance-sheet`: 期末貸借対照表（英語UI）
 - `POST /en/ui/reports/closing-balance-sheet`: form bodyで選択した会計年度へのredirect（英語UI）
-- `GET /en/reports/income-statement`: 単月・通期損益計算書（英語UI）
-- `POST /en/ui/reports/income-statement`: form bodyで選択した単月または通期へのredirect（英語UI）
+- `GET /en/reports/income-statement`: 単月・年度累計・通期損益計算書（英語UI）
+- `POST /en/ui/reports/income-statement`: form bodyで選択した単月、年度累計、または通期へのredirect（英語UI）
 - `POST /en/ui/reports/income-statement/drill-down`: P/L account行のdrill-down（英語UI）
 - `GET /en/reports/balance-trend`: 12か月の全勘定残高推移（英語UI）
 - `POST /en/ui/reports/balance-trend`: form bodyで選択した会計年度へのredirect（英語UI）
@@ -89,7 +89,7 @@ account階層、小計、期首・発生・期末の借方・貸方をcanonical 
 表示する。狭い画面では横長tableを科目別cardへ切り替え、6つの金額を2列で表示する。小計と異なる直接計上値は折りたたみ内へ
 配置し、横スクロールなしでreport全体を確認できるようにする。
 
-試算表と単月・通期P/Lのzeroでないaccount行には、承認済み仕訳へのdrill-down controlを表示する。通常のaccount行はdescendantを
+試算表と単月・年度累計・通期P/Lのzeroでないaccount行には、承認済み仕訳へのdrill-down controlを表示する。通常のaccount行はdescendantを
 含む`subtree`、直接計上の補助行は完全一致accountだけの`direct`を対象にする。結果pageは対象集計値、総entry数、承認済みentryの
 日付・摘要、寄与postingと実効金額、entry詳細へのlinkを表示する。試算表では期首・発生・期末の6値をまとめて説明し、entryを
 `opening`または`movement`として区別する。P/Lでは選択期間のaccount残高を説明する。category・commodity合計、当期損益、その他reportには
@@ -117,8 +117,9 @@ out-of-band swapでもう一方のformのhidden値を同期する。400と500は
 開発環境だけに含める。htmxを利用しないPOSTは従来どおり303 redirectし、GETで同じ画面を表示する。
 
 期首貸借対照表は設定済み会計年度と完全一致する期間だけを受け付け、その年度の期首残高方式から資産・負債・純資産を
-requestごとに再構成する。損益計算書はreporting calendarが生成した単月または設定済み会計年度全体を対象に、収益・費用と
-当期損益を表示する。会計年度途中までの年度累計や任意rangeは受け付けず、初期表示は従来どおり最後の設定済み月とする。
+requestごとに再構成する。損益計算書はreporting calendarが生成した単月、会計年度開始日から第2〜第11会計月末までの年度累計、
+または設定済み会計年度全体を対象に、収益・費用と当期損益を表示する。第1月は単月、第12月は通期と同じrangeなので重複する
+年度累計optionを表示しない。任意日や月途中のrangeは受け付けず、初期表示は従来どおり最後の設定済み月とする。
 いずれもcommodityを分離し、未分類accountを別groupに残す。金額は1列とし、資産・費用は借方、負債・純資産・収益は貸方を
 正として表示する。反対残高は負数、WARNING、実際の借方・貸方を併記する。
 
@@ -175,6 +176,6 @@ npm run check
 ```
 
 この段階の画面はnormalized JSON upload、Tackler `.txn` upload、検索、閲覧、revision作成、approval、承認済み仕訳のexport、
-reporting設定、現在残高・月間費用、commodity別試算表、期首B/S、期末B/S、単月・通期P/L、全勘定残高推移、試算表・P/Lの
+reporting設定、現在残高・月間費用、commodity別試算表、期首B/S、期末B/S、単月・年度累計・通期P/L、全勘定残高推移、試算表・P/Lの
 account drill-downに対応しています。
 allowlist登録済みownerだけがdataを変更でき、その他のIAP userは同じdataをread-onlyで利用します。

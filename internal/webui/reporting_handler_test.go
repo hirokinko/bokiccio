@@ -266,6 +266,7 @@ func TestFinancialStatementUIShowsSignedBalancesAndResponsiveTrend(t *testing.T)
 	assertHTMLResponse(t, pl, http.StatusOK)
 	assertContainsAll(t, pl.Body.String(), []string{
 		"Income statement", "Reporting period", "Full year: 2025-04-01 – 2026-03-31",
+		"Year to date through month 2: 2025-04-01 – 2025-05-31", "Year to date through month 11: 2025-04-01 – 2026-02-28",
 		"Expenses", "Fees", "20.00", "Revenue", "Refund", "-5.00",
 		"opposite_normal_balance", "Debit", "Net income", "-25.00",
 		`action="/en/ui/reports/income-statement"`,
@@ -274,8 +275,14 @@ func TestFinancialStatementUIShowsSignedBalancesAndResponsiveTrend(t *testing.T)
 	assertHTMLResponse(t, fullYearPL, http.StatusOK)
 	assertContainsAll(t, fullYearPL.Body.String(), []string{
 		"損益計算書", "集計期間", `option value="2025-04-01/2026-03-31" selected`,
-		"通期: 2025-04-01 – 2026-03-31", "当期損益", "-25.00",
+		"通期: 2025-04-01 – 2026-03-31", "年度累計（第2月末）: 2025-04-01 – 2025-05-31", "当期損益", "-25.00",
 		`action="/ui/reports/income-statement/drill-down"`,
+	})
+	yearToDatePL := serve(handler, http.MethodGet, "/reports/income-statement?start_date=2025-04-01&end_date=2025-05-31")
+	assertHTMLResponse(t, yearToDatePL, http.StatusOK)
+	assertContainsAll(t, yearToDatePL.Body.String(), []string{
+		`option value="2025-04-01/2025-05-31" selected`, "年度累計（第2月末）: 2025-04-01 – 2025-05-31",
+		"当期損益", "-25.00", `action="/ui/reports/income-statement/drill-down"`,
 	})
 	defaultPL := serve(handler, http.MethodGet, "/reports/income-statement")
 	assertHTMLResponse(t, defaultPL, http.StatusOK)
@@ -304,6 +311,12 @@ func TestFinancialStatementUIShowsSignedBalancesAndResponsiveTrend(t *testing.T)
 	}, nil)
 	if selectedClosing.Code != http.StatusSeeOther || selectedClosing.Header().Get("Location") != "/en/reports/closing-balance-sheet?end_date=2026-03-31&start_date=2025-04-01" {
 		t.Fatalf("select closing period status=%d location=%q", selectedClosing.Code, selectedClosing.Header().Get("Location"))
+	}
+	selectedYearToDate := serveForm(handler, "/ui/reports/income-statement", url.Values{
+		"period": {"2025-04-01/2025-05-31"},
+	}, nil)
+	if selectedYearToDate.Code != http.StatusSeeOther || selectedYearToDate.Header().Get("Location") != "/reports/income-statement?end_date=2025-05-31&start_date=2025-04-01" {
+		t.Fatalf("select year-to-date period status=%d location=%q", selectedYearToDate.Code, selectedYearToDate.Header().Get("Location"))
 	}
 	invalid := serve(handler, http.MethodGet, "/reports/income-statement?start_date=private&end_date=2025-04-30")
 	assertHTMLResponse(t, invalid, http.StatusBadRequest)
@@ -584,18 +597,18 @@ func TestReportDrillDownUIWorksForReadOnlyViewer(t *testing.T) {
 		t.Fatalf("private account leaked into URL: %s", drillDown.Body.String())
 	}
 
-	income, err := store.GetIncomeStatement(context.Background(), reporting.Period{StartDate: "2025-04-01", EndDate: "2026-03-31"})
+	income, err := store.GetIncomeStatement(context.Background(), reporting.Period{StartDate: "2025-04-01", EndDate: "2025-05-31"})
 	if err != nil {
 		t.Fatalf("GetIncomeStatement() error = %v", err)
 	}
 	form.Set("snapshot_identity", income.SnapshotIdentity)
-	form.Set("end_date", "2026-03-31")
+	form.Set("end_date", "2025-05-31")
 	form.Set("category", "revenue")
 	form.Set("account", "Revenue")
 	english := serveForm(viewer, "/en/ui/reports/income-statement/drill-down", form, nil)
 	assertHTMLResponse(t, english, http.StatusOK)
 	assertContainsAll(t, english.Body.String(), []string{
-		"Entries behind this amount", "2025-04-01 – 2026-03-31", "Subtotal including descendants",
+		"Entries behind this amount", "2025-04-01 – 2025-05-31", "Subtotal including descendants",
 		"anonymous drill-down fixture", "Revenue:Fees", "-25 JPY",
 	})
 

@@ -1611,6 +1611,15 @@ func newIncomeStatementPageModel(requestLocale locale, detail webapp.ReportingCo
 			})
 			model.Selected = period.Period
 		}
+		for endingMonth := 2; endingMonth <= 11; endingMonth++ {
+			period := reporting.Period{StartDate: year.StartDate, EndDate: periods[endingMonth].EndDate}
+			model.Periods = append(model.Periods, trialBalancePeriodOption{
+				Period: period,
+				Label: messagesFor(requestLocale).YearToDateIncomeLabel(
+					endingMonth, period.StartDate, period.EndDate,
+				),
+			})
+		}
 	}
 	return model, nil
 }

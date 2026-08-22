@@ -185,7 +185,7 @@ func BuildIncomeStatementDrillDown(configuration Configuration, entries []Entry,
 	if err != nil {
 		return IncomeStatementDrillDown{}, err
 	}
-	period, _, err := selectPeriod(configuration.StartMonth, years, query.Period)
+	period, _, err := selectIncomeStatementPeriod(configuration.StartMonth, years, query.Period)
 	if err != nil {
 		return IncomeStatementDrillDown{}, ErrInvalidPeriod
 	}

@@ -167,8 +167,16 @@ func TestTrialBalanceAPIEmptyAndMultipleCommodities(t *testing.T) {
 		fullYearIncome.Commodities[0].NetIncome.Credit != "100" || fullYearIncome.Commodities[1].NetIncome.Credit != "2.50" {
 		t.Fatalf("full-year income statement status=%d detail=%+v", fullYearIncomeResponse.Code, fullYearIncome)
 	}
+	yearToDateIncomeResponse := request(t, handler, http.MethodGet,
+		"/api/v1/reports/income-statement?start_date=2025-04-01&end_date=2025-05-31", nil, "")
+	var yearToDateIncome webapp.IncomeStatementDetail
+	decodeJSON(t, yearToDateIncomeResponse.Body.Bytes(), &yearToDateIncome)
+	if yearToDateIncomeResponse.Code != http.StatusOK || yearToDateIncome.Period.Month != 2 || len(yearToDateIncome.Commodities) != 2 ||
+		yearToDateIncome.Commodities[0].NetIncome.Credit != "100" || yearToDateIncome.Commodities[1].NetIncome.Credit != "2.50" {
+		t.Fatalf("year-to-date income statement status=%d detail=%+v", yearToDateIncomeResponse.Code, yearToDateIncome)
+	}
 	assertProblem(t, request(t, handler, http.MethodGet,
-		"/api/v1/reports/income-statement?start_date=2025-04-01&end_date=2025-05-31", nil, ""),
+		"/api/v1/reports/income-statement?start_date=2025-04-01&end_date=2025-05-30", nil, ""),
 		http.StatusBadRequest, "invalid_period")
 
 	trendResponse := request(t, handler, http.MethodGet,
@@ -190,6 +198,9 @@ func TestTrialBalanceAPIEmptyAndMultipleCommodities(t *testing.T) {
 
 	assertProblem(t, request(t, handler, http.MethodGet,
 		"/api/v1/reports/trial-balance?start_date=2025-04-02&end_date=2025-04-30", nil, ""),
+		http.StatusBadRequest, "invalid_period")
+	assertProblem(t, request(t, handler, http.MethodGet,
+		"/api/v1/reports/trial-balance?start_date=2025-04-01&end_date=2025-05-31", nil, ""),
 		http.StatusBadRequest, "invalid_period")
 	assertProblem(t, request(t, handler, http.MethodGet,
 		"/api/v1/reports/trial-balance?start_date="+url.QueryEscape("private-value"), nil, ""),
@@ -345,18 +356,25 @@ func TestReportDrillDownAPIExplainsEntriesAndRejectsStaleSnapshot(t *testing.T) 
 	if fullYearIncomeResponse.Code != http.StatusOK || fullYearIncome.Period.Month != 0 {
 		t.Fatalf("full-year income statement status=%d detail=%+v", fullYearIncomeResponse.Code, fullYearIncome)
 	}
+	yearToDateIncomeResponse := request(t, viewer, http.MethodGet,
+		"/api/v1/reports/income-statement?start_date=2025-04-01&end_date=2025-05-31", nil, "")
+	var yearToDateIncome webapp.IncomeStatementDetail
+	decodeJSON(t, yearToDateIncomeResponse.Body.Bytes(), &yearToDateIncome)
+	if yearToDateIncomeResponse.Code != http.StatusOK || yearToDateIncome.Period.Month != 2 {
+		t.Fatalf("year-to-date income statement status=%d detail=%+v", yearToDateIncomeResponse.Code, yearToDateIncome)
+	}
 	incomeQuery := url.Values{
-		"start_date": {"2025-04-01"}, "end_date": {"2026-03-31"},
-		"snapshot_identity": {fullYearIncome.SnapshotIdentity}, "commodity": {"JPY"}, "category": {"revenue"},
+		"start_date": {"2025-04-01"}, "end_date": {"2025-05-31"},
+		"snapshot_identity": {yearToDateIncome.SnapshotIdentity}, "commodity": {"JPY"}, "category": {"revenue"},
 		"account": {"Revenue"}, "scope": {"subtree"},
 	}
-	fullYearDrillResponse := request(t, viewer, http.MethodGet,
-		"/api/v1/reports/income-statement/drill-down?"+incomeQuery.Encode(), nil, "")
-	var fullYearDrill webapp.IncomeStatementDrillDownDetail
-	decodeJSON(t, fullYearDrillResponse.Body.Bytes(), &fullYearDrill)
-	if fullYearDrillResponse.Code != http.StatusOK || fullYearDrill.Period.Month != 0 ||
-		fullYearDrill.TotalEntries != 1 || fullYearDrill.Balance.Credit != "20" {
-		t.Fatalf("full-year income drill-down status=%d detail=%+v", fullYearDrillResponse.Code, fullYearDrill)
+	yearToDateDrillPath := "/api/v1/reports/income-statement/drill-down?" + incomeQuery.Encode()
+	yearToDateDrillResponse := request(t, viewer, http.MethodGet, yearToDateDrillPath, nil, "")
+	var yearToDateDrill webapp.IncomeStatementDrillDownDetail
+	decodeJSON(t, yearToDateDrillResponse.Body.Bytes(), &yearToDateDrill)
+	if yearToDateDrillResponse.Code != http.StatusOK || yearToDateDrill.Period.Month != 2 ||
+		yearToDateDrill.TotalEntries != 1 || yearToDateDrill.Balance.Credit != "20" {
+		t.Fatalf("year-to-date income drill-down status=%d detail=%+v", yearToDateDrillResponse.Code, yearToDateDrill)
 	}
 
 	configuration["base_revision"] = 1
@@ -364,6 +382,7 @@ func TestReportDrillDownAPIExplainsEntriesAndRejectsStaleSnapshot(t *testing.T) 
 		t.Fatalf("update reporting configuration status=%d body=%s", response.Code, response.Body.String())
 	}
 	assertProblem(t, request(t, viewer, http.MethodGet, drillPath, nil, ""), http.StatusConflict, "report_snapshot_changed")
+	assertProblem(t, request(t, viewer, http.MethodGet, yearToDateDrillPath, nil, ""), http.StatusConflict, "report_snapshot_changed")
 	query.Set("extra", "private")
 	assertProblem(t, request(t, viewer, http.MethodGet,
 		"/api/v1/reports/trial-balance/drill-down?"+query.Encode(), nil, ""), http.StatusBadRequest, "invalid_drill_down")

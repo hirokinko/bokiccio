@@ -59,11 +59,14 @@ Cloud and an IAP-protected server command.
   `current_earnings` without creating an account or closing entry.
 - `GET /api/v1/reports/income-statement?start_date=YYYY-MM-DD&end_date=YYYY-MM-DD`
   returns revenue, expenses, and net income for an exact configured monthly
-  period or fiscal year. Year-to-date and arbitrary ranges are rejected. The
-  response includes an opaque `snapshot_identity` for account drill-down.
+  period, fiscal year, or year-to-date period from the fiscal-year start through
+  the end of configured fiscal month 2 through 11. The first fiscal month is the
+  existing monthly period and month 12 is the existing full-year period. Other
+  ranges are rejected. The response includes an opaque `snapshot_identity` for
+  account drill-down.
 - `GET /api/v1/reports/income-statement/drill-down?start_date=YYYY-MM-DD&end_date=YYYY-MM-DD&snapshot_identity=...&commodity=...&category=...&account=...&scope=subtree`
   returns the approved entries and posting contributions that explain one
-  monthly or full-year income-statement account balance.
+  monthly, year-to-date, or full-year income-statement account balance.
 - `GET /api/v1/reports/balance-trend?start_date=YYYY-MM-DD&end_date=YYYY-MM-DD`
   returns twelve month-end points for an exact configured fiscal year. Each
   point contains cumulative balances for all five categories and unclassified
@@ -133,7 +136,7 @@ balance-trend responses use `422 Unprocessable Entity` in that state; the
 period-end balance sheet uses the same error for any unbalanced configured
 opening. `closing_balance_unbalanced` indicates that the period-end balance
 sheet remains unbalanced after applying `current_earnings`; both errors use
-`422 Unprocessable Entity`. Monthly and full-year income statements remain
+`422 Unprocessable Entity`. Monthly, year-to-date, and full-year income statements remain
 available.
 
 ## Storage
@@ -163,7 +166,7 @@ creates an empty allowlist, normalized duplicate additions are idempotent, and
 logical backup/restore preserves its rows. Restoring a schema v2-v5 backup
 keeps this allowlist empty so every Web user remains read-only until an operator
 explicitly registers an email.
-Opening and period-end balance sheets, monthly and full-year income statements,
+Opening and period-end balance sheets, monthly, year-to-date, and full-year income statements,
 and balance trends use the same transactional reporting snapshot and do not add
 stored report tables.
 
