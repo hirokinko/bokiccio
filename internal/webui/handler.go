@@ -36,6 +36,8 @@ const (
 	importFileField         = "file"
 	currentBalancesResultID = "current-balances-result"
 	currentExpensesResultID = "current-expenses-result"
+	iapModeQueryName        = "gcp-iap-mode"
+	iapAuthenticatingMode   = "AUTHENTICATING"
 )
 
 //go:embed assets/app.css assets/app.js assets/htmx-2.0.10.min.js
@@ -81,6 +83,9 @@ func RenderSecurityError(response http.ResponseWriter, request *http.Request, se
 
 func (handler *Handler) ServeHTTP(response http.ResponseWriter, request *http.Request) {
 	setPrivateHeaders(response)
+	if redirectIAPAuthenticationRequest(response, request) {
+		return
+	}
 	if request.URL.Path == "/en" {
 		http.Redirect(response, request, "/en/", http.StatusPermanentRedirect)
 		return
@@ -247,6 +252,34 @@ func (handler *Handler) ServeHTTP(response http.ResponseWriter, request *http.Re
 	default:
 		handler.notFound(response, request, requestLocale)
 	}
+}
+
+func redirectIAPAuthenticationRequest(response http.ResponseWriter, request *http.Request) bool {
+	if request.Method != http.MethodGet && request.Method != http.MethodHead {
+		return false
+	}
+	query, err := url.ParseQuery(request.URL.RawQuery)
+	if err != nil {
+		return false
+	}
+	modes, ok := query[iapModeQueryName]
+	if !ok || len(modes) != 1 || modes[0] != iapAuthenticatingMode {
+		return false
+	}
+	query.Del(iapModeQueryName)
+	path := request.URL.EscapedPath()
+	if path == "" {
+		path = "/"
+	}
+	if strings.HasPrefix(path, "//") {
+		return false
+	}
+	if encoded := query.Encode(); encoded != "" {
+		path += "?" + encoded
+	}
+	response.Header().Set("Location", path)
+	response.WriteHeader(http.StatusSeeOther)
+	return true
 }
 
 func (handler *Handler) index(response http.ResponseWriter, request *http.Request, requestLocale locale) {

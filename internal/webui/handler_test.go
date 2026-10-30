@@ -741,6 +741,54 @@ func TestEmbeddedAssetsArePinnedAndPrivate(t *testing.T) {
 	}
 }
 
+func TestIAPAuthenticationQueryRedirectsToCanonicalApplicationURL(t *testing.T) {
+	handler := webui.NewHandler(nil)
+	for _, test := range []struct {
+		name     string
+		method   string
+		path     string
+		location string
+	}{
+		{
+			name: "report query", method: http.MethodGet,
+			path:     "/reports/current?expense_end_date=2026-10-31&gcp-iap-mode=AUTHENTICATING&as_of=2026-10-30&expense_start_date=2026-10-01",
+			location: "/reports/current?as_of=2026-10-30&expense_end_date=2026-10-31&expense_start_date=2026-10-01",
+		},
+		{name: "localized HEAD", method: http.MethodHead, path: "/en/?gcp-iap-mode=AUTHENTICATING", location: "/en/"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			response := serve(handler, test.method, test.path)
+			if response.Code != http.StatusSeeOther || response.Header().Get("Location") != test.location {
+				t.Fatalf("status=%d Location=%q, want status=%d Location=%q", response.Code, response.Header().Get("Location"), http.StatusSeeOther, test.location)
+			}
+			if response.Body.Len() != 0 {
+				t.Fatalf("body=%q, want empty", response.Body.String())
+			}
+		})
+	}
+
+	otherMode := serve(handler, http.MethodGet, "/assets/app.js?gcp-iap-mode=IDENTITY")
+	if otherMode.Code != http.StatusOK || otherMode.Header().Get("Location") != "" {
+		t.Fatalf("other mode status=%d Location=%q", otherMode.Code, otherMode.Header().Get("Location"))
+	}
+	repeatedMode := serve(handler, http.MethodGet, "/assets/app.js?gcp-iap-mode=AUTHENTICATING&gcp-iap-mode=AUTHENTICATING")
+	if repeatedMode.Code != http.StatusOK || repeatedMode.Header().Get("Location") != "" {
+		t.Fatalf("repeated mode status=%d Location=%q", repeatedMode.Code, repeatedMode.Header().Get("Location"))
+	}
+	invalidQuery := serve(handler, http.MethodGet, "/assets/app.js?gcp-iap-mode=AUTHENTICATING;private")
+	if invalidQuery.Code != http.StatusOK || invalidQuery.Header().Get("Location") != "" {
+		t.Fatalf("invalid query status=%d Location=%q", invalidQuery.Code, invalidQuery.Header().Get("Location"))
+	}
+	unsafePath := serve(handler, http.MethodGet, "//example.test/?gcp-iap-mode=AUTHENTICATING")
+	if unsafePath.Code == http.StatusSeeOther || unsafePath.Header().Get("Location") != "" {
+		t.Fatalf("unsafe path status=%d Location=%q", unsafePath.Code, unsafePath.Header().Get("Location"))
+	}
+	post := serve(handler, http.MethodPost, "/?gcp-iap-mode=AUTHENTICATING")
+	if post.Code != http.StatusMethodNotAllowed || post.Header().Get("Location") != "" {
+		t.Fatalf("POST status=%d Location=%q", post.Code, post.Header().Get("Location"))
+	}
+}
+
 func TestUIRepositoryFailureIsPrivateSafe(t *testing.T) {
 	database := openUIDatabase(t)
 	store := webstore.New(database)

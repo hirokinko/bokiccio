@@ -155,6 +155,8 @@ parseやdomain validationに失敗した場合は、line numberまたはentry nu
 
 すべてのHTMLとassetはproduction handlerのIAP検証を通り、`Cache-Control: no-store`と同一originを前提としたContent Security Policyを付与します。画面のHTMLはtemplから生成し、生成済みの`*_templ.go`もsource treeへcommitします。
 
+IAPのOAuth認証後に`gcp-iap-mode=AUTHENTICATING`がapplication URLへ付加された場合は、同parameterだけを除去して同じpathとapplication queryへredirectします。htmx requestは`X-Requested-With: XMLHttpRequest`を送り、IAP session失効による401を受けた場合は現在のapplication URLへ同一tabでtop-level navigationしてIAP login flowへ戻します。application固有のsession、cookie、OAuth credentialは持ちません。
+
 500 responseは既定で内部errorを表示しない。明示的に`BOKICCIO_ENVIRONMENT=development`を設定した環境だけ、原因となった
 error textをHTML escapeしてdevelopment detailとして表示する。この値はprivateなaccount、SQL、pathを含み得るため、信頼できる
 開発者以外が到達できる環境やproductionでは設定しない。未設定または`production`では常にprivate-safeな固定messageだけを返す。
@@ -173,6 +175,7 @@ first-party CSS/JavaScriptはdevelopment-onlyのBiomeで管理します。checks
 npm ci
 npm run format
 npm run check
+npm test
 ```
 
 この段階の画面はnormalized JSON upload、Tackler `.txn` upload、検索、閲覧、revision作成、approval、承認済み仕訳のexport、
