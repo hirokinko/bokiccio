@@ -1,3 +1,31 @@
+const iapModeQueryName = "gcp-iap-mode";
+const iapAuthenticatingMode = "AUTHENTICATING";
+let authenticationRecoveryStarted = false;
+
+function currentApplicationLocationWithoutIAPAuthenticationMode() {
+	const location = new URL(window.location.href);
+	const modes = location.searchParams.getAll(iapModeQueryName);
+	if (modes.length === 1 && modes[0] === iapAuthenticatingMode) {
+		location.searchParams.delete(iapModeQueryName);
+	}
+	return `${location.pathname}${location.search}${location.hash}`;
+}
+
+function removeIAPAuthenticationModeFromBrowserURL() {
+	const location = new URL(window.location.href);
+	const modes = location.searchParams.getAll(iapModeQueryName);
+	if (modes.length !== 1 || modes[0] !== iapAuthenticatingMode) {
+		return;
+	}
+	window.history.replaceState(
+		window.history.state,
+		"",
+		currentApplicationLocationWithoutIAPAuthenticationMode(),
+	);
+}
+
+removeIAPAuthenticationModeFromBrowserURL();
+
 document.addEventListener("keydown", (event) => {
 	if (event.key !== "Tab" || event.altKey || event.ctrlKey || event.metaKey) {
 		return;
@@ -41,6 +69,20 @@ document.addEventListener("click", (event) => {
 	if (removeButton instanceof HTMLButtonElement) {
 		removeButton.closest("[data-configuration-row]")?.remove();
 	}
+});
+
+document.addEventListener("htmx:configRequest", (event) => {
+	event.detail.headers["X-Requested-With"] = "XMLHttpRequest";
+});
+
+document.addEventListener("htmx:responseError", (event) => {
+	if (event.detail.xhr.status !== 401 || authenticationRecoveryStarted) {
+		return;
+	}
+	authenticationRecoveryStarted = true;
+	window.location.assign(
+		currentApplicationLocationWithoutIAPAuthenticationMode(),
+	);
 });
 
 document.addEventListener("htmx:beforeSwap", (event) => {
